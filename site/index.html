@@ -610,7 +610,7 @@ async function renderNdiPage(){
     try{
       const stream=(window.__streams||[]).find(s=>s.id===document.querySelector('#ndiOutStream').value);if(!stream)throw new Error('Select an FBI Live channel');
       const name=document.querySelector('#ndiOutName').value.trim()||'FBI Live OUT';
-      await ndiLocal('/output/start',{hls_url:stream.hls_url,ndi_name:name});
+      await ndiLocal('/output/start',{source_url:(stream.rtmp_server||'')+'/'+(stream.stream_key||''),ndi_name:name});
       toast('NDI output started');
     }catch(e){toast(e.message)}
   };
