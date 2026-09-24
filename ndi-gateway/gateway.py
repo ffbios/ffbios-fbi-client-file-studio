@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import argparse, json, threading, time, traceback
+from fractions import Fraction
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import Request, urlopen
 from urllib.parse import urlparse
@@ -17,7 +18,7 @@ except Exception:
 
 HOST = "127.0.0.1"
 PORT = 8765
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 STOP = threading.Event()
 LOCK = threading.Lock()
 INPUT_THREAD = None
@@ -138,7 +139,13 @@ def ndi_to_rtmp(source_name, rtmp_url):
                     continue
                 frame = av.VideoFrame.from_ndarray(arr[:, :, :4], format="bgra")
                 if vstream is None:
-                    rate = (vf.frame_rate_N, vf.frame_rate_D) if vf.frame_rate_N else 30
+                    # PyAV expects a rational/Fraction for rate, not the
+                    # (numerator, denominator) tuple exposed by NDIlib.
+                    if vf.frame_rate_N:
+                        den = vf.frame_rate_D or 1
+                        rate = Fraction(int(vf.frame_rate_N), int(den))
+                    else:
+                        rate = Fraction(30, 1)
                     vstream = out.add_stream("libx264", rate=rate)
                     vstream.width = vf.xres
                     vstream.height = vf.yres
@@ -155,11 +162,11 @@ def ndi_to_rtmp(source_name, rtmp_url):
                     channels = int(af.no_channels or 2)
                     layout = "mono" if channels == 1 else "stereo"
                     if astream is None:
-                        astream = out.add_stream("aac", rate=af.sample_rate)
+                        astream = out.add_stream("aac", rate=int(af.sample_rate))
                         astream.layout = layout
                         astream.bit_rate = 192000
                     frame = av.AudioFrame.from_ndarray(arr, format="fltp", layout=layout)
-                    frame.sample_rate = af.sample_rate
+                    frame.sample_rate = int(af.sample_rate)
                     for pkt in astream.encode(frame):
                         out.mux(pkt)
                 ndi.recv_free_audio_v2(recv, af)
