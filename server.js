@@ -146,7 +146,54 @@ async function initDb(){
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false;
     CREATE INDEX IF NOT EXISTS idx_upload_sessions_project ON upload_sessions(project_id);
     CREATE INDEX IF NOT EXISTS idx_upload_sessions_active ON upload_sessions(project_id,status);
+    CREATE TABLE IF NOT EXISTS app_settings(
+      key text PRIMARY KEY,
+      value text NOT NULL DEFAULT ''
+    );
+    INSERT INTO app_settings(key,value) VALUES
+      ('studio_name','FBI Client File Studio'),
+      ('portal_title','FBI Client File Delivery'),
+      ('default_client_note','Your files are ready for download.'),
+      ('default_expiry_days','30'),
+      ('log_downloads','true'),
+      ('allow_client_preview','true'),
+      ('show_file_size','true')
+    ON CONFLICT (key) DO NOTHING;
   `);
+}
+
+
+const DEFAULT_SETTINGS={
+  studio_name:"FBI Client File Studio",
+  portal_title:"FBI Client File Delivery",
+  default_client_note:"Your files are ready for download.",
+  default_expiry_days:"30",
+  log_downloads:"true",
+  allow_client_preview:"true",
+  show_file_size:"true"
+};
+async function loadSettings(){
+  const r=await pool.query("SELECT key,value FROM app_settings");
+  const out={...DEFAULT_SETTINGS};
+  for(const row of r.rows)out[row.key]=row.value;
+  return out;
+}
+function settingBool(v){return String(v)==="true";}
+function settingInt(v,fallback){const n=Number(v);return Number.isFinite(n)?Math.max(0,Math.min(3650,Math.round(n))):fallback;}
+async function adminPasswordMatches(password){
+  const r=await pool.query("SELECT value FROM app_settings WHERE key='admin_password_hash'");
+  const stored=r.rows[0]?.value||"";
+  if(!stored)return ADMIN_PASSWORD && password===ADMIN_PASSWORD;
+  try{
+    const [prefix,N,r,p,salt,hash]=stored.split("$");
+    if(prefix!=="scrypt"||!N||!r||!p||!salt||!hash)return false;
+    const derived=await new Promise((resolve,reject)=>crypto.scrypt(password,Buffer.from(salt,"base64"),64,{N:Number(N),r:Number(r),p:Number(p),maxmem:128*1024*1024},(e,d)=>e?reject(e):resolve(d)));
+    return crypto.timingSafeEqual(Buffer.from(hash,"base64"),derived);
+  }catch{return false;}
+}
+async function hashAdminPassword(password){
+  const N=16384,r=8,p=1,salt=crypto.randomBytes(16),derived=await new Promise((resolve,reject)=>crypto.scrypt(password,salt,64,{N,r,p,maxmem:128*1024*1024},(e,d)=>e?reject(e):resolve(d)));
+  return `scrypt${N}${r}${p}${salt.toString("base64")}${Buffer.from(derived).toString("base64")}`;
 }
 
 app.use(express.json({limit:"2mb"}));
@@ -154,12 +201,14 @@ app.use(express.urlencoded({extended:true}));
 
 app.get("/health",(req,res)=>res.json({ok:true,service:"FBI Client File Studio",storage:s3Ready()?"railway-object-storage":"not-ready",time:new Date().toISOString()}));
 
-app.post("/api/auth/login",(req,res)=>{
-  const email=String(req.body.email||"").trim().toLowerCase();
-  const password=String(req.body.password||"");
-  if(email!==ADMIN_EMAIL||!ADMIN_PASSWORD||password!==ADMIN_PASSWORD)return res.status(401).json({error:"Invalid email or password"});
-  res.setHeader("Set-Cookie",`fbi_session=${encodeURIComponent(session(email))}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800`);
-  res.json({ok:true,email});
+app.post("/api/auth/login",async(req,res)=>{
+  try{
+    const email=String(req.body.email||"").trim().toLowerCase();
+    const password=String(req.body.password||"");
+    if(email!==ADMIN_EMAIL||!(await adminPasswordMatches(password)))return res.status(401).json({error:"Invalid email or password"});
+    res.setHeader("Set-Cookie",`fbi_session=${encodeURIComponent(session(email))}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800`);
+    res.json({ok:true,email});
+  }catch(e){console.error(e);res.status(500).json({error:"Login service error"});}
 });
 app.post("/api/auth/logout",(req,res)=>{
   res.setHeader("Set-Cookie","fbi_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0");
@@ -170,7 +219,15 @@ app.get("/api/auth/me",(req,res)=>res.json(validSession(req)?{authenticated:true
 app.get("/api/projects",admin,async(req,res)=>{
  try{
   const q=String(req.query.q||"").trim();
-  const r=await pool.query(`SELECT p.*,(SELECT count(*) FROM files f WHERE f.project_id=p.id) file_count,COALESCE((SELECT sum(size_bytes) FROM files f WHERE f.project_id=p.id),0) total_bytes FROM projects p ${q?"WHERE p.name ILIKE $1 OR p.client_name ILIKE $1 OR p.client_email ILIKE $1":""} ORDER BY p.updated_at DESC`,q?[`%${q}%`]:[]);
+  const status=String(req.query.status||"active");
+  const where=[],values=[];
+  if(q){values.push(`%${q}%`);where.push(`(p.name ILIKE ${values.length} OR p.client_name ILIKE ${values.length} OR p.client_email ILIKE ${values.length})`);}
+  if(status==="active")where.push("p.archived=false");
+  if(status==="archived")where.push("p.archived=true");
+  const r=await pool.query(`SELECT p.*,
+    (SELECT count(*) FROM files f WHERE f.project_id=p.id) file_count,
+    COALESCE((SELECT sum(size_bytes) FROM files f WHERE f.project_id=p.id),0) total_bytes
+    FROM projects p ${where.length?"WHERE "+where.join(" AND "):""} ORDER BY p.updated_at DESC`,values);
   res.json({projects:r.rows});
  }catch(e){console.error(e);res.status(500).json({error:"Could not load projects"})}
 });
@@ -179,7 +236,11 @@ app.post("/api/projects",admin,async(req,res)=>{
  try{
   const name=String(req.body.name||"").trim();if(!name)return res.status(400).json({error:"Project name is required"});
   const id=uid(),shareToken=token();
-  const r=await pool.query("INSERT INTO projects(id,name,client_name,client_email,note,share_token) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",[id,name,String(req.body.client_name||"").trim(),String(req.body.client_email||"").trim(),String(req.body.note||"").trim(),shareToken]);
+  const settings=await loadSettings();
+  const defaultNote=String(req.body.note||"").trim()||settings.default_client_note||"";
+  const days=settingInt(settings.default_expiry_days,30);
+  const expires=days?new Date(Date.now()+days*86400000):null;
+  const r=await pool.query("INSERT INTO projects(id,name,client_name,client_email,note,share_token,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",[id,name,String(req.body.client_name||"").trim(),String(req.body.client_email||"").trim(),defaultNote,shareToken,expires]);
   res.json({project:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not create project"})}
 });
@@ -192,8 +253,8 @@ app.get("/api/projects/:id",admin,async(req,res)=>{
 });
 app.patch("/api/projects/:id",admin,async(req,res)=>{
  try{
-  const allowed=["name","client_name","client_email","note","expires_at","shared"];const fields=[],values=[];let n=1;
-  for(const k of allowed)if(Object.prototype.hasOwnProperty.call(req.body,k)){fields.push(`${k}=$${n++}`);values.push(k==="shared"?Boolean(req.body[k]):req.body[k]===null?null:String(req.body[k]).trim())}
+  const allowed=["name","client_name","client_email","note","expires_at","shared","archived"];const fields=[],values=[];let n=1;
+  for(const k of allowed)if(Object.prototype.hasOwnProperty.call(req.body,k)){fields.push(`${k}=$${n++}`);values.push(k==="shared"||k==="archived"?Boolean(req.body[k]):req.body[k]===null?null:String(req.body[k]).trim())}
   if(!fields.length)return res.status(400).json({error:"Nothing to update"});
   fields.push("updated_at=now()");values.push(req.params.id);
   const r=await pool.query(`UPDATE projects SET ${fields.join(",")} WHERE id=$${n} RETURNING *`,values);if(!r.rowCount)return res.status(404).json({error:"Project not found"});
@@ -208,6 +269,116 @@ app.post("/api/projects/:id/regenerate-link",admin,async(req,res)=>{
 });
 
 
+
+
+app.get("/api/dashboard",admin,async(req,res)=>{
+  try{
+    const [counts,recentProjects,recentDownloads,typeRows]=await Promise.all([
+      pool.query(`SELECT
+        (SELECT count(*) FROM projects WHERE archived=false) active_projects,
+        (SELECT count(*) FROM projects WHERE archived=true) archived_projects,
+        (SELECT count(*) FROM projects WHERE shared=true AND archived=false) shared_projects,
+        (SELECT count(*) FROM files) file_count,
+        COALESCE((SELECT sum(size_bytes) FROM files),0) storage_bytes,
+        (SELECT count(*) FROM downloads) download_count,
+        (SELECT count(*) FROM downloads WHERE downloaded_at>=now()-interval '7 days') downloads_7d,
+        (SELECT count(*) FROM downloads WHERE downloaded_at>=now()-interval '30 days') downloads_30d`),
+      pool.query(`SELECT p.*,
+        (SELECT count(*) FROM files f WHERE f.project_id=p.id) file_count,
+        COALESCE((SELECT sum(size_bytes) FROM files f WHERE f.project_id=p.id),0) total_bytes
+        FROM projects p ORDER BY p.updated_at DESC LIMIT 8`),
+      pool.query(`SELECT d.id,d.downloaded_at,d.ip_address,d.user_agent,
+        p.name project_name,f.original_name,f.size_bytes,f.mime_type
+        FROM downloads d
+        LEFT JOIN projects p ON p.id=d.project_id
+        LEFT JOIN files f ON f.id=d.file_id
+        ORDER BY d.downloaded_at DESC LIMIT 10`),
+      pool.query(`SELECT
+        CASE
+          WHEN mime_type LIKE 'video/%' THEN 'Video'
+          WHEN mime_type LIKE 'image/%' THEN 'Photo'
+          WHEN mime_type LIKE 'audio/%' THEN 'Audio'
+          WHEN mime_type='application/pdf' THEN 'PDF'
+          WHEN mime_type LIKE 'application/zip%' OR mime_type LIKE '%compressed%' THEN 'Archive'
+          ELSE 'Other'
+        END AS type,
+        count(*)::int AS files,
+        COALESCE(sum(size_bytes),0) AS bytes
+        FROM files GROUP BY 1 ORDER BY bytes DESC`)
+    ]);
+    res.json({summary:counts.rows[0],recentProjects:recentProjects.rows,recentDownloads:recentDownloads.rows,types:typeRows.rows});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not load dashboard"})}
+});
+
+app.get("/api/downloads",admin,async(req,res)=>{
+  try{
+    const q=String(req.query.q||"").trim();
+    const limit=Math.max(1,Math.min(250,Number(req.query.limit||100)));
+    const where=[],values=[];
+    if(q){values.push(`%${q}%`);where.push(`(p.name ILIKE ${values.length} OR f.original_name ILIKE ${values.length} OR d.ip_address ILIKE ${values.length})`);}
+    values.push(limit);
+    const r=await pool.query(`SELECT d.id,d.downloaded_at,d.ip_address,d.user_agent,
+      p.name project_name,f.original_name,f.size_bytes,f.mime_type
+      FROM downloads d
+      LEFT JOIN projects p ON p.id=d.project_id
+      LEFT JOIN files f ON f.id=d.file_id
+      ${where.length?"WHERE "+where.join(" AND "):""}
+      ORDER BY d.downloaded_at DESC LIMIT ${values.length}`,values);
+    res.json({downloads:r.rows});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not load download records"})}
+});
+
+app.get("/api/settings",admin,async(req,res)=>{
+  try{
+    const settings=await loadSettings();
+    res.json({
+      settings:{
+        studio_name:settings.studio_name,
+        portal_title:settings.portal_title,
+        default_client_note:settings.default_client_note,
+        default_expiry_days:settingInt(settings.default_expiry_days,30),
+        log_downloads:settingBool(settings.log_downloads),
+        allow_client_preview:settingBool(settings.allow_client_preview),
+        show_file_size:settingBool(settings.show_file_size)
+      },
+      infrastructure:{
+        storage: s3Ready(),
+        database: !!process.env.DATABASE_URL,
+        public_url: PUBLIC_BASE_URL || null
+      }
+    });
+  }catch(e){console.error(e);res.status(500).json({error:"Could not load settings"})}
+});
+
+app.patch("/api/settings",admin,async(req,res)=>{
+  try{
+    const allowed={
+      studio_name:String(req.body.studio_name??"FBI Client File Studio").trim().slice(0,120)||"FBI Client File Studio",
+      portal_title:String(req.body.portal_title??"FBI Client File Delivery").trim().slice(0,120)||"FBI Client File Delivery",
+      default_client_note:String(req.body.default_client_note??"").trim().slice(0,1000),
+      default_expiry_days:String(settingInt(req.body.default_expiry_days,30)),
+      log_downloads:String(Boolean(req.body.log_downloads)),
+      allow_client_preview:String(Boolean(req.body.allow_client_preview)),
+      show_file_size:String(Boolean(req.body.show_file_size))
+    };
+    for(const [key,value] of Object.entries(allowed)){
+      await pool.query(`INSERT INTO app_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,[key,value]);
+    }
+    res.json({ok:true,settings:allowed});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not save settings"})}
+});
+
+app.post("/api/settings/password",admin,async(req,res)=>{
+  try{
+    const current=String(req.body.current_password||"");
+    const next=String(req.body.new_password||"");
+    if(next.length<10)return res.status(400).json({error:"New password must be at least 10 characters."});
+    if(!(await adminPasswordMatches(current)))return res.status(401).json({error:"Current password is incorrect."});
+    const hash=await hashAdminPassword(next);
+    await pool.query(`INSERT INTO app_settings(key,value) VALUES('admin_password_hash',$1) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,[hash]);
+    res.json({ok:true});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not change password"})}
+});
 
 app.post("/api/uploads/init",admin,async(req,res)=>{
   try{
@@ -450,16 +621,20 @@ app.get("/api/public/share/:token",async(req,res)=>{
   const q=await pool.query("SELECT id,name,client_name,note,expires_at FROM projects WHERE share_token=$1 AND shared=true",[req.params.token]);
   if(!q.rowCount)return res.status(404).json({error:"This delivery link is invalid, disabled, or expired."});
   const p=q.rows[0];if(p.expires_at&&new Date(p.expires_at).getTime()<Date.now())return res.status(404).json({error:"This delivery link has expired."});
-  const f=await pool.query("SELECT id,original_name,relative_path,mime_type,size_bytes,created_at FROM files WHERE project_id=$1 ORDER BY created_at DESC",[p.id]);
+  const f=await pool.query("SELECT id,original_name,relative_path,mime_type,size_bytes,created_at FROM files WHERE project_id=$1 ORDER BY relative_path ASC,created_at DESC",[p.id]);
   const base=PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`;
-  res.json({project:p,files:f.rows.map(x=>({...x,download_url:`${base}/api/public/file/${x.id}?token=${encodeURIComponent(req.params.token)}`}))});
+  const settings=await loadSettings();
+  res.json({project:p,settings:{portal_title:settings.portal_title,allow_client_preview:settingBool(settings.allow_client_preview),show_file_size:settingBool(settings.show_file_size)},files:f.rows.map(x=>({...x,download_url:`${base}/api/public/file/${x.id}?token=${encodeURIComponent(req.params.token)}`}))});
  }catch(e){console.error(e);res.status(500).json({error:"Could not load delivery"})}
 });
 
 app.get("/api/public/file/:id",async(req,res)=>{
  try{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));if(!out)return res.status(404).send("Invalid or expired delivery link.");
-  await pool.query("INSERT INTO downloads(project_id,file_id,user_agent,ip_address) VALUES($1,$2,$3,$4)",[out.f.project_id,out.f.id,String(req.headers["user-agent"]||"").slice(0,1000),clientIp(req)]);
+  const settings=await loadSettings();
+  if(settingBool(settings.log_downloads)){
+    await pool.query("INSERT INTO downloads(project_id,file_id,user_agent,ip_address) VALUES($1,$2,$3,$4)",[out.f.project_id,out.f.id,String(req.headers["user-agent"]||"").slice(0,1000),clientIp(req)]);
+  }
   const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}),{expiresIn:900,responseContentDisposition:req.query.download==="1"?`attachment; filename*=UTF-8''${encodeURIComponent(out.f.original_name)}`:`inline; filename*=UTF-8''${encodeURIComponent(out.f.original_name)}`});
   res.redirect(url);
  }catch(e){console.error(e);res.status(500).send("Unable to serve file")}
