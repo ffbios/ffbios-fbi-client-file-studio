@@ -350,7 +350,7 @@ app.post("/api/projects/:id/regenerate-link",admin,async(req,res)=>{
 app.post("/api/stream/auth",async(req,res)=>{
   try{
     const action=String(req.body.action||"");
-    const pathValue=String(req.body.path||"").replace(/^\\/+|\\/+$/g,"");
+    const pathValue=String(req.body.path||"").replace(/^\/+|\/+$/g,"");
     const query=parseQueryString(req.body.query);
     const presentedToken=String(req.body.token||query.token||"");
     const presentedPassword=String(req.body.password||"");
