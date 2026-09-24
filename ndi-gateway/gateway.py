@@ -17,7 +17,7 @@ except Exception:
 
 HOST = "127.0.0.1"
 PORT = 8765
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 STOP = threading.Event()
 LOCK = threading.Lock()
 INPUT_THREAD = None
@@ -316,8 +316,9 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--studio", default="")
-    parser.add_argument("--pair", default="")
+    parser.add_argument("--studio", default="", help="Legacy optional Studio heartbeat URL")
+    parser.add_argument("--pair", default="", help="Legacy optional pairing token; not required for local NDI discovery")
+    parser.add_argument("--host", default=HOST, help="Local bind address (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=PORT)
     args = parser.parse_args()
 
@@ -325,8 +326,8 @@ def main():
     if args.studio and args.pair:
         threading.Thread(target=heartbeat_loop, args=(args.studio, args.pair), daemon=True).start()
 
-    server = ThreadingHTTPServer((HOST, args.port), Handler)
-    print("FBI NDI Gateway " + VERSION + " listening at http://" + HOST + ":" + str(args.port))
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    print("FBI NDI Gateway " + VERSION + " listening at http://" + args.host + ":" + str(args.port))
     print("NDI sources are discovered on the local production network.")
     try:
         server.serve_forever()
