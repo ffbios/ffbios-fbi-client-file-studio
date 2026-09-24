@@ -5,7 +5,7 @@ const crypto=require("crypto");
 const fs=require("fs");
 const fsp=fs.promises;
 const path=require("path");
-const {S3Client,PutObjectCommand,GetObjectCommand,DeleteObjectCommand}=require("@aws-sdk/client-s3");
+const {S3Client,PutObjectCommand,GetObjectCommand,DeleteObjectCommand,HeadObjectCommand,CreateMultipartUploadCommand,UploadPartCommand,CompleteMultipartUploadCommand,AbortMultipartUploadCommand,ListPartsCommand,PutBucketCorsCommand}=require("@aws-sdk/client-s3");
 const {Upload}=require("@aws-sdk/lib-storage");
 const {getSignedUrl}=require("@aws-sdk/s3-request-presigner");
 
@@ -16,7 +16,10 @@ const ADMIN_EMAIL=(process.env.ADMIN_EMAIL||"filmbyfbi@gmail.com").trim().toLowe
 const ADMIN_PASSWORD=process.env.ADMIN_PASSWORD||"";
 const SESSION_SECRET=process.env.SESSION_SECRET||crypto.randomBytes(32).toString("hex");
 const PUBLIC_BASE_URL=(process.env.PUBLIC_BASE_URL||"").replace(/\/+$/,"");
-const MAX_FILE_SIZE=10*1024*1024*1024;
+const MAX_FILE_SIZE=5*1024*1024*1024*1024;
+const MIN_PART_SIZE=64*1024*1024;
+const MAX_PARTS=10000;
+const PRESIGN_SECONDS=1200;
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_URL?{rejectUnauthorized:false}:false});
 
@@ -50,10 +53,42 @@ function s3Ready(){return Boolean(process.env.S3_BUCKET&&process.env.S3_ENDPOINT
 const s3=s3Ready()?new S3Client({
   region:process.env.S3_REGION,
   endpoint:process.env.S3_ENDPOINT,
-  forcePathStyle:true,
+  forcePathStyle:false,
   credentials:{accessKeyId:process.env.S3_ACCESS_KEY_ID,secretAccessKey:process.env.S3_SECRET_ACCESS_KEY}
 }):null;
 const bucket=()=>process.env.S3_BUCKET;
+
+function choosePartSize(size){
+  var part=MIN_PART_SIZE;
+  while(Math.ceil(size/part)>MAX_PARTS) part*=2;
+  return part;
+}
+function safeRelativePath(rel,name){
+  var raw=String(rel||name||"").replace(/\\/g,"/");
+  var parts=raw.split("/").filter(Boolean).filter(function(x){return x!=="."&&x!=="..";}).map(function(x){
+    return x.replace(/[<>:"|?*\\\u0000-\u001F]/g,"_").slice(0,180);
+  }).filter(Boolean);
+  return parts.length?parts.join("/"):safeName(name);
+}
+async function ensureBucketCors(){
+  if(!s3Ready())return;
+  try{
+    await s3.send(new PutBucketCorsCommand({
+      Bucket:bucket(),
+      CORSConfiguration:{CORSRules:[{
+        AllowedOrigins:["*"],
+        AllowedMethods:["GET","HEAD","PUT","POST","DELETE"],
+        AllowedHeaders:["*"],
+        ExposeHeaders:["ETag"],
+        MaxAgeSeconds:3600
+      }]}
+    }));
+    console.log("Railway bucket CORS is configured.");
+  }catch(e){
+    console.warn("Automatic bucket CORS setup failed:",e.message);
+  }
+}
+
 
 async function initDb(){
   if(!process.env.DATABASE_URL)throw new Error("DATABASE_URL is missing");
@@ -91,6 +126,26 @@ async function initDb(){
     );
     CREATE INDEX IF NOT EXISTS idx_files_project ON files(project_id);
     CREATE INDEX IF NOT EXISTS idx_downloads_project ON downloads(project_id);
+
+    CREATE TABLE IF NOT EXISTS upload_sessions(
+      id uuid PRIMARY KEY,
+      project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      original_name text NOT NULL,
+      relative_path text NOT NULL DEFAULT '',
+      storage_key text NOT NULL,
+      mime_type text NOT NULL DEFAULT 'application/octet-stream',
+      size_bytes bigint NOT NULL DEFAULT 0,
+      part_size bigint NOT NULL DEFAULT 0,
+      multipart_upload_id text,
+      mode text NOT NULL,
+      status text NOT NULL DEFAULT 'active',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    ALTER TABLE files ADD COLUMN IF NOT EXISTS relative_path text NOT NULL DEFAULT '';
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false;
+    CREATE INDEX IF NOT EXISTS idx_upload_sessions_project ON upload_sessions(project_id);
+    CREATE INDEX IF NOT EXISTS idx_upload_sessions_active ON upload_sessions(project_id,status);
   `);
 }
 
@@ -150,6 +205,173 @@ app.post("/api/projects/:id/regenerate-link",admin,async(req,res)=>{
   const r=await pool.query("UPDATE projects SET share_token=$1,shared=true,updated_at=now() WHERE id=$2 RETURNING *",[token(),req.params.id]);if(!r.rowCount)return res.status(404).json({error:"Project not found"});
   res.json({project:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not create share link"})}
+});
+
+
+
+app.post("/api/uploads/init",admin,async(req,res)=>{
+  try{
+    if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
+    var projectId=String(req.body.projectId||"");
+    var originalName=String(req.body.name||"").trim();
+    var relativePath=safeRelativePath(req.body.relativePath,originalName);
+    var size=Number(req.body.size||0);
+    var mimeType=String(req.body.mimeType||"application/octet-stream");
+    if(!projectId||!originalName)return res.status(400).json({error:"Project and file name are required."});
+    if(!Number.isFinite(size)||size<0||size>MAX_FILE_SIZE)return res.status(400).json({error:"File size is outside the supported range."});
+    var pr=await pool.query("SELECT id FROM projects WHERE id=$1 AND archived=false",[projectId]);
+    if(!pr.rowCount)return res.status(404).json({error:"Project not found."});
+
+    var existing=await pool.query(
+      "SELECT * FROM upload_sessions WHERE project_id=$1 AND original_name=$2 AND relative_path=$3 AND size_bytes=$4 AND status='active' ORDER BY created_at DESC LIMIT 1",
+      [projectId,originalName,relativePath,size]
+    );
+    if(existing.rowCount){
+      var u=existing.rows[0];
+      if(u.mode==="multipart"){
+        return res.json({
+          uploadId:u.id,mode:u.mode,partSize:Number(u.part_size),size:Number(u.size_bytes),
+          multipartUploadId:u.multipart_upload_id,resumed:true
+        });
+      }
+      var singleUrl=await getSignedUrl(
+        s3,
+        new PutObjectCommand({Bucket:bucket(),Key:u.storage_key,ContentType:u.mime_type}),
+        {expiresIn:3600}
+      );
+      return res.json({uploadId:u.id,mode:"single",size:Number(u.size_bytes),url:singleUrl,resumed:true});
+    }
+
+    var id=uid();
+    var partSize=choosePartSize(size||1);
+    var mode=size>=MIN_PART_SIZE?"multipart":"single";
+    var storageKey="projects/"+projectId+"/"+id+"/"+relativePath;
+    var multipartUploadId=null;
+    var url=null;
+    if(mode==="multipart"){
+      var created=await s3.send(new CreateMultipartUploadCommand({
+        Bucket:bucket(),Key:storageKey,ContentType:mimeType
+      }));
+      multipartUploadId=created.UploadId;
+    }else{
+      url=await getSignedUrl(
+        s3,
+        new PutObjectCommand({Bucket:bucket(),Key:storageKey,ContentType:mimeType}),
+        {expiresIn:3600}
+      );
+    }
+    await pool.query(
+      "INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active')",
+      [id,projectId,originalName,relativePath,storageKey,mimeType,size,mode==="multipart"?partSize:size,multipartUploadId,mode]
+    );
+    res.json({uploadId:id,mode,partSize,size,url,multipartUploadId});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not initialize cloud upload."})}
+});
+
+app.get("/api/uploads/:id/state",admin,async(req,res)=>{
+  try{
+    var q=await pool.query("SELECT * FROM upload_sessions WHERE id=$1",[req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
+    var u=q.rows[0];
+    if(u.mode!=="multipart")return res.json({uploadId:u.id,mode:u.mode,status:u.status,parts:[]});
+    var parts=[];
+    var marker=0;
+    while(true){
+      var r=await s3.send(new ListPartsCommand({
+        Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,
+        PartNumberMarker:marker||undefined,MaxParts:1000
+      }));
+      for(var i=0;i<(r.Parts||[]).length;i++){
+        var p=r.Parts[i];
+        parts.push({partNumber:p.PartNumber,etag:p.ETag,size:p.Size});
+      }
+      if(!r.IsTruncated)break;
+      marker=r.NextPartNumberMarker;
+    }
+    res.json({uploadId:u.id,mode:u.mode,status:u.status,partSize:Number(u.part_size),size:Number(u.size_bytes),parts:parts});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not read upload state."})}
+});
+
+app.post("/api/uploads/:id/parts",admin,async(req,res)=>{
+  try{
+    if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
+    var q=await pool.query("SELECT * FROM upload_sessions WHERE id=$1",[req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
+    var u=q.rows[0];
+    if(u.mode!=="multipart"||!u.multipart_upload_id)return res.status(400).json({error:"This upload does not use multipart storage."});
+    var nums=Array.isArray(req.body.partNumbers)?req.body.partNumbers.map(Number).filter(function(n){return Number.isInteger(n)&&n>0&&n<=MAX_PARTS;}):[];
+    if(!nums.length||nums.length>25)return res.status(400).json({error:"Provide 1 to 25 part numbers."});
+    var parts=[];
+    for(var i=0;i<nums.length;i++){
+      var partNumber=nums[i];
+      var partUrl=await getSignedUrl(
+        s3,
+        new UploadPartCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,PartNumber:partNumber}),
+        {expiresIn:PRESIGN_SECONDS}
+      );
+      parts.push({partNumber:partNumber,url:partUrl});
+    }
+    res.json({parts:parts,expiresIn:PRESIGN_SECONDS});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not create upload URLs."})}
+});
+
+app.post("/api/uploads/:id/complete",admin,async(req,res)=>{
+  try{
+    if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
+    var q=await pool.query("SELECT * FROM upload_sessions WHERE id=$1",[req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
+    var u=q.rows[0];
+    if(u.status==="completed"){
+      var done=await pool.query("SELECT * FROM files WHERE storage_path=$1",[u.storage_key]);
+      return res.json({ok:true,file:done.rows[0]||null,alreadyCompleted:true});
+    }
+    if(u.mode==="multipart"){
+      var incoming=Array.isArray(req.body.parts)?req.body.parts:[];
+      var parts=incoming.map(function(p){
+        return {ETag:String(p.etag||p.ETag||"").replace(/^"+|"+$/g,""),PartNumber:Number(p.partNumber||p.PartNumber)};
+      }).filter(function(p){return p.ETag&&Number.isInteger(p.PartNumber)&&p.PartNumber>0;})
+        .sort(function(a,b){return a.PartNumber-b.PartNumber;});
+      if(!parts.length)return res.status(400).json({error:"Multipart upload has no completed parts."});
+      var seen=new Set(parts.map(function(p){return p.PartNumber;}));
+      if(seen.size!==parts.length)return res.status(400).json({error:"Duplicate multipart part."});
+      await s3.send(new CompleteMultipartUploadCommand({
+        Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,
+        MultipartUpload:{Parts:parts}
+      }));
+    }else{
+      await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:u.storage_key}));
+    }
+    var head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:u.storage_key}));
+    var actualSize=Number(head.ContentLength||0);
+    if(actualSize!==Number(u.size_bytes)){
+      return res.status(400).json({error:"Uploaded size mismatch. Resume the upload and complete it again."});
+    }
+    var fileId=uid();
+    var ins=await pool.query(
+      "INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING RETURNING *",
+      [fileId,u.project_id,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,actualSize,u.relative_path]
+    );
+    var fileRow=ins.rows[0];
+    if(!fileRow)fileRow=(await pool.query("SELECT * FROM files WHERE storage_path=$1",[u.storage_key])).rows[0];
+    await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
+    await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[u.project_id]);
+    res.json({ok:true,file:fileRow});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not complete upload. The upload can be resumed."})}
+});
+
+app.post("/api/uploads/:id/abort",admin,async(req,res)=>{
+  try{
+    var q=await pool.query("SELECT * FROM upload_sessions WHERE id=$1",[req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
+    var u=q.rows[0];
+    if(u.mode==="multipart"&&u.multipart_upload_id){
+      await s3.send(new AbortMultipartUploadCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id})).catch(function(){});
+    }else if(s3Ready()){
+      await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:u.storage_key})).catch(function(){});
+    }
+    await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
+    res.json({ok:true});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not cancel upload."})}
 });
 
 app.post("/api/projects/:id/files",admin,(req,res)=>{
@@ -228,7 +450,7 @@ app.get("/api/public/share/:token",async(req,res)=>{
   const q=await pool.query("SELECT id,name,client_name,note,expires_at FROM projects WHERE share_token=$1 AND shared=true",[req.params.token]);
   if(!q.rowCount)return res.status(404).json({error:"This delivery link is invalid, disabled, or expired."});
   const p=q.rows[0];if(p.expires_at&&new Date(p.expires_at).getTime()<Date.now())return res.status(404).json({error:"This delivery link has expired."});
-  const f=await pool.query("SELECT id,original_name,mime_type,size_bytes,created_at FROM files WHERE project_id=$1 ORDER BY created_at DESC",[p.id]);
+  const f=await pool.query("SELECT id,original_name,relative_path,mime_type,size_bytes,created_at FROM files WHERE project_id=$1 ORDER BY created_at DESC",[p.id]);
   const base=PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`;
   res.json({project:p,files:f.rows.map(x=>({...x,download_url:`${base}/api/public/file/${x.id}?token=${encodeURIComponent(req.params.token)}`}))});
  }catch(e){console.error(e);res.status(500).json({error:"Could not load delivery"})}
@@ -245,4 +467,4 @@ app.get("/api/public/file/:id",async(req,res)=>{
 
 app.use((req,res)=>res.sendFile(path.join(ROOT,"index.html")));
 
-initDb().then(()=>app.listen(PORT,"0.0.0.0",()=>console.log(`FBI Client File Studio listening on ${PORT}`))).catch(e=>{console.error(e);process.exit(1)});
+initDb().then(async()=>{await ensureBucketCors();app.listen(PORT,"0.0.0.0",()=>console.log("FBI Client File Studio listening on port "+PORT))}).catch(e=>{console.error(e);process.exit(1)});

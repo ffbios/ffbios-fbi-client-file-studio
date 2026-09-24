@@ -26,7 +26,7 @@
 .client{min-height:100vh;padding:20px;background:radial-gradient(circle at 50% 0,rgba(212,175,55,.08),transparent 40%),#09090a}.clientwrap{width:min(980px,100%);margin:auto}.ctop{text-align:center;padding:20px 10px 15px}.ctop img{width:100px;height:38px;object-fit:contain}.ctop h1{margin:12px 0 5px;font-size:25px}.ctop p{margin:0;color:var(--muted);font-size:11px}.ccard{border:1px solid var(--border);background:#121214;border-radius:19px;overflow:hidden;box-shadow:var(--shadow)}.chead{padding:18px;border-bottom:1px solid var(--border)}.chead h2{margin:0;font-size:20px}.chead p{margin:6px 0 0;color:var(--muted);font-size:11px;line-height:1.5}.cfiles{padding:14px}.cfile{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:12px;border:1px solid var(--border);background:#101012;border-radius:13px;margin-bottom:9px}.cfile .name{font-size:12px;font-weight:700;word-break:break-word}.cfile .meta{font-size:10px;color:var(--muted);margin-top:3px}.clientfoot{text-align:center;color:#66666e;font-size:9px;padding:18px}.viewer{position:fixed;inset:0;background:rgba(0,0,0,.82);display:none;align-items:center;justify-content:center;padding:16px;z-index:40}.viewer.show{display:flex}.viewerbox{width:min(1100px,100%);max-height:95vh;background:#111;border:1px solid var(--border);border-radius:16px;overflow:hidden}.vh{display:flex;justify-content:space-between;padding:11px 13px;border-bottom:1px solid var(--border)}.vc{padding:14px;display:grid;place-items:center;max-height:88vh;overflow:auto}.vc img,.vc video{max-width:100%;max-height:80vh;border-radius:10px}.vc iframe{width:100%;height:78vh;border:0;border-radius:10px;background:white}
 @media(max-width:1000px){.cards{grid-template-columns:repeat(2,1fr)}.layout{grid-template-columns:1fr}.side{width:205px}}
 @media(max-width:720px){.app{display:block}.side{width:100%;height:auto;position:static;border-right:0;border-bottom:1px solid var(--border)}.sidefoot{display:none}.brand{padding-bottom:10px}.nav{grid-template-columns:repeat(4,1fr)}.nav button{text-align:center}.main{padding:15px}.top{flex-direction:column}.actions{width:100%}.cards{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}.file{grid-template-columns:auto 1fr}.file .acts{grid-column:2}.cfile{grid-template-columns:auto 1fr}.cfile .btn{grid-column:2}}
-</style>
+.upload-item{border:1px solid var(--border);background:#101012;border-radius:12px;padding:10px;margin-top:8px}.upload-item .utop{display:flex;justify-content:space-between;gap:8px;align-items:center}.upload-item .uname{font-size:10px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.upload-item .ustatus{font-size:9px;color:var(--muted);margin-top:3px}.upload-item .ubar{height:6px;border-radius:99px;background:#26262a;overflow:hidden;margin-top:7px}.upload-item .ubar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--gold),var(--gold2))}.upload-item .ufoot{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:7px;font-size:9px;color:var(--muted)}.upload-item button{font-size:9px;padding:5px 7px}.foldernote{font-size:9px;color:var(--muted);margin-top:7px}</style>
 </head>
 <body>
 <div id="root"></div>
@@ -103,7 +103,7 @@ function renderCurrent(){
     <div class="field"><label>Client Note</label><textarea id="note">${esc(current.note)}</textarea></div>
     <div class="row" style="margin:6px 0 10px"><div style="font-size:10px;color:var(--muted)">CLIENT SHARE LINK</div><button class="btn primary" id="shareNow">${current.shared?'Copy Link':'Create Share Link'}</button></div>
     <div class="share" style="margin-bottom:12px"><input id="link" readonly value="${share}" placeholder="Create a share link"></div>
-    <div class="drop" id="drop"><h3>Drop files here</h3><p>Photos, videos, PDFs, ZIPs and client deliverables.</p><div style="height:10px"></div><label class="btn" for="pick">Choose Files</label><input id="pick" type="file" multiple></div>
+    <div class="drop" id="drop"><h3>Drop files here</h3><p>Photos, videos, PDFs, ZIPs and client deliverables.</p><div style="height:10px"></div><div style="display:flex;gap:7px;justify-content:center;flex-wrap:wrap"><label class="btn" for="pick">Choose Files</label><label class="btn" for="pickFolder">Upload Folder</label></div><input id="pick" type="file" multiple><input id="pickFolder" type="file" webkitdirectory directory multiple><div class="foldernote">Large files upload directly to cloud storage in resumable chunks. Folder upload preserves the folder path.</div></div>
     <div id="uploadBox"></div>
     <div style="height:12px"></div>
     <div class="row"><b style="font-size:12px">Files (${current.files.length})</b><span style="font-size:10px;color:var(--muted)">${fmt(current.files.reduce((a,f)=>a+Number(f.size_bytes||0),0))}</span></div>
@@ -113,7 +113,7 @@ function renderCurrent(){
   document.querySelector('#regen').onclick=async()=>{const d=await api('/api/projects/'+current.id+'/regenerate-link',{method:'POST'});current={...current,...d.project};renderCurrent();loadProjects()};
   document.querySelector('#shareNow').onclick=async()=>{if(!current.shared){const d=await api('/api/projects/'+current.id+'/regenerate-link',{method:'POST'});current={...current,...d.project};await loadProjects();renderCurrent();}else{navigator.clipboard.writeText(document.querySelector('#link').value);toast('Link copied')}};
   ['pn','cn','ce','note','ex'].forEach(id=>document.querySelector('#'+id).onchange=saveProject);
-  const pick=document.querySelector('#pick');pick.onchange=()=>uploadFiles(pick.files);
+  const pick=document.querySelector('#pick');pick.onchange=()=>uploadFiles(pick.files);const pickFolder=document.querySelector('#pickFolder');pickFolder.onchange=()=>uploadFiles(pickFolder.files);
   const drop=document.querySelector('#drop');['dragenter','dragover'].forEach(e=>drop.addEventListener(e,x=>{x.preventDefault();drop.classList.add('drag')}));['dragleave','drop'].forEach(e=>drop.addEventListener(e,x=>{x.preventDefault();drop.classList.remove('drag')}));drop.addEventListener('drop',e=>uploadFiles(e.dataTransfer.files));
   document.querySelector('#files').innerHTML=current.files.length?current.files.map(f=>`<div class="file"><div class="ico">${icon(f.original_name)}</div><div><b>${esc(f.original_name)}</b><small>${fmt(f.size_bytes)} • ${esc(f.mime_type)}</small></div><div class="acts"><button class="mini" data-prev="${f.id}">Preview</button><button class="mini" data-del="${f.id}">Delete</button></div></div>`).join(''):'<div class="empty">No files uploaded yet.</div>';
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{if(!confirm('Delete this file?'))return;await api('/api/files/'+b.dataset.del,{method:'DELETE'});openProject(current.id);toast('File deleted')});
@@ -123,17 +123,150 @@ async function saveProject(){
   const body={name:pn.value,client_name:cn.value,client_email:ce.value,note:note.value,expires_at:ex.value?new Date(ex.value).toISOString():null};
   const d=await api('/api/projects/'+current.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});current={...current,...d.project};loadProjects();toast('Project saved');
 }
-function uploadFiles(list){
-  if(!list||!list.length)return;
-  const files=Array.from(list);const box=document.querySelector('#uploadBox');
-  box.innerHTML=`<div class="card" style="margin-top:10px"><small>Uploading</small><div id="progText" style="font-size:11px;margin-top:5px">Preparing ${files.length} file${files.length===1?'':'s'}…</div><div class="progress"><i id="bar"></i></div></div>`;
-  const form=new FormData();files.forEach(f=>form.append('files',f));
-  const xhr=new XMLHttpRequest();xhr.open('POST','/api/projects/'+current.id+'/files');xhr.withCredentials=true;
-  xhr.upload.onprogress=e=>{if(e.lengthComputable){const pct=Math.round(e.loaded/e.total*100);document.querySelector('#bar').style.width=pct+'%';document.querySelector('#progText').textContent=pct+'% • '+fmt(e.loaded)+' / '+fmt(e.total)}};
-  xhr.onload=()=>{if(xhr.status>=200&&xhr.status<300){toast('Upload complete');openProject(current.id)}else{let t='Upload failed';try{t=JSON.parse(xhr.responseText).error||t}catch{};toast(t)}};xhr.onerror=()=>toast('Network error during upload');xhr.send(form);
+
+let uploadQueue=[];
+let uploadTicker=null;
+const PART_CONCURRENCY=4;
+const FILE_CONCURRENCY=2;
+
+function fmtRate(n){return fmt(n)+"/s"}
+function etaText(sec){
+  if(!Number.isFinite(sec)||sec<=0)return"--";
+  sec=Math.round(sec);var hh=Math.floor(sec/3600);var mm=Math.floor((sec%3600)/60);var ss=sec%60;
+  return hh?hh+"h "+mm+"m":mm?mm+"m "+ss+"s":ss+"s";
 }
+function uploadStats(item){
+  var elapsed=Math.max(.1,(Date.now()-item.startedAt)/1000);
+  var rate=item.loadedBytes/elapsed;
+  var remain=Math.max(0,item.totalBytes-item.loadedBytes);
+  return {rate:rate,eta:rate?remain/rate:Infinity,pct:item.totalBytes?Math.min(100,item.loadedBytes/item.totalBytes*100):0};
+}
+function renderUploadQueue(){
+  var box=document.querySelector("#uploadBox");if(!box)return;
+  var list=uploadQueue.filter(function(x){return x.projectId===current.id && x.status!=="cancelled";});
+  if(!list.length){box.innerHTML="";return}
+  var html="";
+  list.forEach(function(item){
+    var p=uploadStats(item);
+    var action=item.status==="paused"?"<button class='mini' data-upresume='"+item.id+"'>Resume</button>":(item.status==="queued"?"":"<button class='mini' data-uppause='"+item.id+"'>Pause</button>");
+    html+="<div class='upload-item'><div class='utop'><div class='uname'>"+esc(item.relativePath)+"</div><div>"+p.pct.toFixed(0)+"%</div></div>";
+    html+="<div class='ustatus'>"+esc(item.status)+(item.mode?" • "+esc(item.mode):"")+" • "+fmt(item.loadedBytes)+" / "+fmt(item.totalBytes)+" • "+(p.rate?fmtRate(p.rate):"--")+" • ETA "+etaText(p.eta)+"</div>";
+    html+="<div class='ubar'><i style='width:"+p.pct+"%'></i></div>";
+    html+="<div class='ufoot'><span>"+(item.resumed?"Resumed session":"Direct cloud upload")+"</span><span>"+action+" <button class='mini' data-upcancel='"+item.id+"'>Cancel</button></span></div></div>";
+  });
+  box.innerHTML=html;
+  box.querySelectorAll("[data-uppause]").forEach(function(b){b.onclick=function(){pauseUpload(b.dataset.uppause)}});
+  box.querySelectorAll("[data-upresume]").forEach(function(b){b.onclick=function(){resumeUpload(b.dataset.upresume)}});
+  box.querySelectorAll("[data-upcancel]").forEach(function(b){b.onclick=function(){cancelUpload(b.dataset.upcancel)}});
+}
+function xhrPut(url,blob,headers,item,onProgress){
+  return new Promise(function(resolve,reject){
+    var x=new XMLHttpRequest();item.xhrs.add(x);x.open("PUT",url,true);x.timeout=0;
+    Object.keys(headers||{}).forEach(function(k){x.setRequestHeader(k,headers[k])});
+    x.upload.onprogress=function(e){if(e.lengthComputable)onProgress(e.loaded)};
+    x.onload=function(){item.xhrs.delete(x);if(x.status>=200&&x.status<300)resolve({etag:x.getResponseHeader("ETag")||""});else reject(new Error("Upload returned HTTP "+x.status))};
+    x.onerror=function(){item.xhrs.delete(x);reject(new Error("Network error during upload"))};
+    x.onabort=function(){item.xhrs.delete(x);reject(new Error("Upload paused"))};
+    x.ontimeout=function(){item.xhrs.delete(x);reject(new Error("Upload timed out"))};
+    x.send(blob);
+  });
+}
+function wait(ms){return new Promise(function(r){setTimeout(r,ms)})}
+async function retry(fn,max){
+  var last=null;max=max||3;
+  for(var i=0;i<max;i++){try{return await fn()}catch(e){last=e;if(i<max-1)await wait(800*(i+1))}}
+  throw last;
+}
+async function uploadSingle(item,session){
+  item.loadedBytes=0;renderUploadQueue();
+  await retry(function(){return xhrPut(session.url,item.file,{"Content-Type":item.file.type||"application/octet-stream"},item,function(n){item.loadedBytes=n;renderUploadQueue()})});
+  if(item.paused)throw new Error("Upload paused");
+  await api("/api/uploads/"+item.sessionId+"/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+  item.loadedBytes=item.totalBytes;
+}
+async function getPartUrl(sessionId,pn){
+  var d=await api("/api/uploads/"+sessionId+"/parts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({partNumbers:[pn]})});
+  return d.parts[0].url;
+}
+async function uploadMultipart(item,session){
+  var partSize=Number(session.partSize);
+  var totalParts=Math.ceil(item.file.size/partSize);
+  var state=await api("/api/uploads/"+item.sessionId+"/state");
+  var completed=new Map((state.parts||[]).map(function(p){return [Number(p.partNumber),p]}));
+  item.loadedBytes=0;var parts=[];
+  completed.forEach(function(p,pn){
+    var a=(pn-1)*partSize,b=Math.min(item.file.size,a+partSize);
+    item.loadedBytes+=Math.max(0,b-a);parts.push({partNumber:pn,etag:p.etag});
+  });
+  var missing=[];for(var pn=1;pn<=totalParts;pn++)if(!completed.has(pn))missing.push(pn);
+  renderUploadQueue();
+  while(missing.length){
+    if(item.paused)throw new Error("Upload paused");
+    var batch=missing.splice(0,PART_CONCURRENCY);
+    await Promise.all(batch.map(async function(partNumber){
+      var start=(partNumber-1)*partSize,end=Math.min(item.file.size,start+partSize),blob=item.file.slice(start,end),lastLoaded=0;
+      var out=await retry(async function(){
+        var url=await getPartUrl(item.sessionId,partNumber);
+        lastLoaded=0;
+        return xhrPut(url,blob,{},item,function(n){item.loadedBytes+=(n-lastLoaded);lastLoaded=n;renderUploadQueue()});
+      },3);
+      var i=parts.findIndex(function(p){return p.partNumber===partNumber});
+      if(i>=0)parts[i]={partNumber:partNumber,etag:out.etag};else parts.push({partNumber:partNumber,etag:out.etag});
+    }));
+  }
+  if(item.paused)throw new Error("Upload paused");
+  await api("/api/uploads/"+item.sessionId+"/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({parts:parts})});
+  item.loadedBytes=item.totalBytes;
+}
+async function uploadOne(item){
+  item.status="uploading";item.startedAt=Date.now();renderUploadQueue();
+  try{
+    var session=await api("/api/uploads/init",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      projectId:item.projectId,name:item.file.name,relativePath:item.relativePath,size:item.file.size,mimeType:item.file.type||"application/octet-stream"
+    })});
+    item.sessionId=session.uploadId;item.mode=session.mode;item.resumed=!!session.resumed;
+    if(session.mode==="single")await uploadSingle(item,session);else await uploadMultipart(item,session);
+    item.status="completed";item.error="";renderUploadQueue();
+    await loadProjects();await openProject(item.projectId);toast("Uploaded: "+item.file.name);
+  }catch(e){
+    if(item.paused){item.status="paused";renderUploadQueue();return}
+    item.status="error";item.error=e.message||"Upload failed";renderUploadQueue();toast(item.error);
+  }
+}
+async function pumpUploads(){
+  var running=uploadQueue.filter(function(x){return x.status==="uploading"}).length;
+  while(running<FILE_CONCURRENCY){
+    var next=uploadQueue.find(function(x){return x.status==="queued"});
+    if(!next)break;running++;uploadOne(next).finally(function(){pumpUploads()});
+  }
+  renderUploadQueue();
+}
+function uploadFiles(list){
+  if(!list||!list.length||!current)return;
+  Array.from(list).forEach(function(file){
+    uploadQueue.push({id:crypto.randomUUID(),projectId:current.id,file:file,relativePath:file.webkitRelativePath||file.name,totalBytes:file.size,loadedBytes:0,status:"queued",xhrs:new Set()});
+  });
+  if(!uploadTicker)uploadTicker=setInterval(renderUploadQueue,500);
+  renderUploadQueue();pumpUploads();
+}
+function pauseUpload(id){
+  var item=uploadQueue.find(function(x){return x.id===id});if(!item)return;
+  item.paused=true;Array.from(item.xhrs||[]).forEach(function(x){try{x.abort()}catch{}});
+  item.status="paused";renderUploadQueue();
+}
+function resumeUpload(id){
+  var item=uploadQueue.find(function(x){return x.id===id});if(!item)return;
+  item.paused=false;item.status="queued";pumpUploads();
+}
+async function cancelUpload(id){
+  var item=uploadQueue.find(function(x){return x.id===id});if(!item)return;
+  item.paused=true;Array.from(item.xhrs||[]).forEach(function(x){try{x.abort()}catch{}});
+  if(item.sessionId)await api("/api/uploads/"+item.sessionId+"/abort",{method:"POST"}).catch(function(){});
+  item.status="cancelled";renderUploadQueue();toast("Upload cancelled");
+}
+
 function studioView(){
- document.body.innerHTML=`<div class="app"><aside class="side"><div class="brand"><div><img src="${LOGO}"><small>Client File Studio</small></div></div><nav class="nav"><button class="active">▣ &nbsp;Projects</button><button onclick="toast('Dashboard is the Projects workspace')">⌂ &nbsp;Dashboard</button><button onclick="toast('Analytics will use download records')">◔ &nbsp;Downloads</button><button onclick="toast('Settings are managed from Railway Variables')">⚙ &nbsp;Settings</button></nav><div class="sidefoot">Cloud storage: Railway<br>Database: Railway PostgreSQL<br>Files: persistent /data volume</div></aside><main class="main"><div class="top"><div><h1>FBI Client File Studio</h1><p>Upload, organize and securely deliver client files.</p></div><div class="actions"><button class="btn" id="logout">Logout</button><button class="btn primary" id="new">＋ New Project</button></div></div><div class="cards"><div class="card"><small>Projects</small><strong id="sp">0</strong><span>Client delivery spaces</span></div><div class="card"><small>Files</small><strong id="sf">0</strong><span>Uploaded deliverables</span></div><div class="card"><small>Storage</small><strong id="ss">0 B</strong><span>Current file storage</span></div><div class="card"><small>Shared</small><strong id="sh">0</strong><span>Active delivery links</span></div></div><div class="layout"><div class="panel"><div class="ph"><div><h2>Projects</h2><p>Search and select a client delivery.</p></div></div><div class="body"><input id="search" class="search" placeholder="Search projects or clients"><div id="projectList"></div></div></div><div class="panel" id="current"><div class="empty">Select a project or create a new one.</div></div></div></main></div>
+ document.body.innerHTML=`<div class="app"><aside class="side"><div class="brand"><div><img src="${LOGO}"><small>Client File Studio</small></div></div><nav class="nav"><button class="active">▣ &nbsp;Projects</button><button onclick="toast('Dashboard is the Projects workspace')">⌂ &nbsp;Dashboard</button><button onclick="toast('Analytics will use download records')">◔ &nbsp;Downloads</button><button onclick="toast('Settings are managed from Railway Variables')">⚙ &nbsp;Settings</button></nav><div class="sidefoot">Cloud storage: Railway<br>Database: Railway PostgreSQL<br>Files: Railway Object Storage</div></aside><main class="main"><div class="top"><div><h1>FBI Client File Studio</h1><p>Upload, organize and securely deliver client files.</p></div><div class="actions"><button class="btn" id="logout">Logout</button><button class="btn primary" id="new">＋ New Project</button></div></div><div class="cards"><div class="card"><small>Projects</small><strong id="sp">0</strong><span>Client delivery spaces</span></div><div class="card"><small>Files</small><strong id="sf">0</strong><span>Uploaded deliverables</span></div><div class="card"><small>Storage</small><strong id="ss">0 B</strong><span>Current file storage</span></div><div class="card"><small>Shared</small><strong id="sh">0</strong><span>Active delivery links</span></div></div><div class="layout"><div class="panel"><div class="ph"><div><h2>Projects</h2><p>Search and select a client delivery.</p></div></div><div class="body"><input id="search" class="search" placeholder="Search projects or clients"><div id="projectList"></div></div></div><div class="panel" id="current"><div class="empty">Select a project or create a new one.</div></div></div></main></div>
  <div id="modal" class="modal"><div class="box"><div class="mh"><b>Create New Project</b><button class="close" id="mc">×</button></div><div class="mb"><div class="field"><label>Project Name</label><input id="newName" placeholder="e.g. Ama & Kojo Wedding"></div><div class="field"><label>Client Name</label><input id="newClient" placeholder="Client name"></div><div class="field"><label>Client Email</label><input id="newEmail" placeholder="client@email.com"></div><div class="field"><label>Client Note</label><textarea id="newNote">Your files are ready for download.</textarea></div></div><div class="mf"><button class="btn" id="mcan">Cancel</button><button class="btn primary" id="mcreate">Create Project</button></div></div></div><div id="toast" style="position:fixed;right:18px;bottom:18px;padding:11px 13px;border:1px solid var(--border);background:#1b1b1e;border-radius:11px;font-size:11px;display:none;z-index:80"></div>`;
  document.querySelector('#logout').onclick=async()=>{await api('/api/auth/logout',{method:'POST'});location.reload()};
  document.querySelector('#new').onclick=()=>document.querySelector('#modal').classList.add('show');
@@ -150,7 +283,7 @@ function previewAdmin(f){
 }
 async function clientView(token){
  try{
-  const d=await api('/api/public/share/'+encodeURIComponent(token));document.body.innerHTML=`<div class="client"><div class="clientwrap"><div class="ctop"><img src="${LOGO}"><h1>FBI Client File Delivery</h1><p>Secure client download area</p></div><div class="ccard"><div class="chead"><h2>${esc(d.project.name)}</h2><p>${esc(d.project.client_name||'')} ${d.project.note?'• '+esc(d.project.note):''}</p></div><div class="cfiles">${d.files.length?d.files.map(f=>`<div class="cfile"><div class="ico">${icon(f.original_name)}</div><div><div class="name">${esc(f.original_name)}</div><div class="meta">${fmt(f.size_bytes)} • ${esc(f.mime_type)}</div></div><div><button class="btn" data-prev="${f.id}">Preview</button> <a class="btn primary" href="${f.download_url}&download=1">Download</a></div></div>`).join(''):'<div class="empty">No files have been uploaded yet.</div>'}</div></div><div class="clientfoot">FILM BEYOND IMAGINATION • FBI Client File Studio</div></div><div id="v" class="viewer"></div></div>`;
+  const d=await api('/api/public/share/'+encodeURIComponent(token));document.body.innerHTML=`<div class="client"><div class="clientwrap"><div class="ctop"><img src="${LOGO}"><h1>FBI Client File Delivery</h1><p>Secure client download area</p></div><div class="ccard"><div class="chead"><h2>${esc(d.project.name)}</h2><p>${esc(d.project.client_name||'')} ${d.project.note?'• '+esc(d.project.note):''}</p></div><div class="cfiles">${d.files.length?d.files.map(f=>`<div class="cfile"><div class="ico">${icon(f.original_name)}</div><div><div class="name">${esc(f.original_name)}</div><div class="meta">${f.relative_path&&f.relative_path!==f.original_name?esc(f.relative_path)+" • ":""}${fmt(f.size_bytes)} • ${esc(f.mime_type)}</div></div><div><button class="btn" data-prev="${f.id}">Preview</button> <a class="btn primary" href="${f.download_url}&download=1">Download</a></div></div>`).join(''):'<div class="empty">No files have been uploaded yet.</div>'}</div></div><div class="clientfoot">FILM BEYOND IMAGINATION • FBI Client File Studio</div></div><div id="v" class="viewer"></div></div>`;
   document.querySelectorAll('[data-prev]').forEach(b=>b.onclick=()=>clientPreview(d.files.find(f=>f.id===b.dataset.prev)));
  }catch(e){document.body.innerHTML=`<div class="client"><div class="clientwrap"><div class="ctop"><img src="${LOGO}"><h1>Delivery unavailable</h1><p>${esc(e.message)}</p></div></div></div>`}
 }
