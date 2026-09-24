@@ -146,6 +146,34 @@ async function initDb(){
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false;
     CREATE INDEX IF NOT EXISTS idx_upload_sessions_project ON upload_sessions(project_id);
     CREATE INDEX IF NOT EXISTS idx_upload_sessions_active ON upload_sessions(project_id,status);
+    CREATE TABLE IF NOT EXISTS streams(
+      id uuid PRIMARY KEY,
+      name text NOT NULL,
+      title text DEFAULT '',
+      description text DEFAULT '',
+      stream_key text UNIQUE NOT NULL,
+      stream_path text UNIQUE NOT NULL,
+      viewer_token text UNIQUE NOT NULL,
+      shared boolean NOT NULL DEFAULT true,
+      enabled boolean NOT NULL DEFAULT true,
+      status text NOT NULL DEFAULT 'offline',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      started_at timestamptz,
+      ended_at timestamptz
+    );
+    CREATE TABLE IF NOT EXISTS stream_viewers(
+      id uuid PRIMARY KEY,
+      stream_id uuid NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
+      session_key text NOT NULL,
+      started_at timestamptz NOT NULL DEFAULT now(),
+      last_seen timestamptz NOT NULL DEFAULT now(),
+      ended_at timestamptz,
+      user_agent text DEFAULT '',
+      ip_address text DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_streams_updated ON streams(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_stream_viewers_stream ON stream_viewers(stream_id,last_seen);
     CREATE TABLE IF NOT EXISTS app_settings(
       key text PRIMARY KEY,
       value text NOT NULL DEFAULT ''
@@ -196,7 +224,54 @@ async function hashAdminPassword(password){
   return `scrypt${N}${r}${p}${salt.toString("base64")}${Buffer.from(derived).toString("base64")}`;
 }
 
-app.use(express.json({limit:"2mb"}));
+
+function escHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
+function streamPathForKey(key){return "live/"+key;}
+function streamHlsUrl(row){
+  const base=String(process.env.STREAM_HLS_BASE||"").replace(/\\/+$/,"");
+  return base+"/"+row.stream_path;
+}
+function randomStreamKey(){return crypto.randomBytes(24).toString("base64url");}
+function randomViewerToken(){return crypto.randomBytes(24).toString("base64url");}
+function parseQueryString(q){
+  const raw=String(q||"");
+  const out={};
+  try{const params=new URLSearchParams(raw);for(const [k,v] of params.entries())out[k]=v;}catch{}
+  return out;
+}
+async function checkStreamLive(row){
+  if(!row || !row.enabled)return false;
+  const url=streamHlsUrl(row)+"/index.m3u8";
+  if(!url.startsWith("http"))return false;
+  try{
+    const r=await fetch(url,{method:"GET",cache:"no-store"});
+    if(!r.ok)return false;
+    const text=await r.text();
+    return /#EXTM3U/.test(text);
+  }catch{return false;}
+}
+async function refreshStreamStatus(row){
+  const live=await checkStreamLive(row);
+  const status=live?"live":"offline";
+  if(status!==row.status){
+    if(live){
+      await pool.query("UPDATE streams SET status='live',started_at=COALESCE(started_at,now()),updated_at=now() WHERE id=$1",[row.id]);
+    }else{
+      await pool.query("UPDATE streams SET status='offline',ended_at=now(),updated_at=now() WHERE id=$1",[row.id]);
+    }
+  }
+  return {...row,status};
+}
+async function streamRows(){
+  const r=await pool.query(`SELECT s.*,
+    COALESCE((SELECT count(*) FROM stream_viewers v WHERE v.stream_id=s.id),0)::int AS total_viewers,
+    COALESCE((SELECT count(*) FROM stream_viewers v WHERE v.stream_id=s.id AND v.last_seen>=now()-interval '45 seconds'),0)::int AS current_viewers,
+    COALESCE((SELECT max(c) FROM (SELECT count(*)::int c FROM stream_viewers v WHERE v.stream_id=s.id GROUP BY date_trunc('minute',v.last_seen)) z),0)::int AS peak_viewers
+    FROM streams s ORDER BY s.updated_at DESC`);
+  const out=[];for(const row of r.rows)out.push(await refreshStreamStatus(row));
+  return out;
+}
+\napp.use(express.json({limit:"2mb"}));
 app.use(express.urlencoded({extended:true}));
 
 app.get("/health",(req,res)=>res.json({ok:true,service:"FBI Client File Studio",storage:s3Ready()?"railway-object-storage":"not-ready",time:new Date().toISOString()}));
@@ -271,6 +346,145 @@ app.post("/api/projects/:id/regenerate-link",admin,async(req,res)=>{
 
 
 
+
+app.post("/api/stream/auth",async(req,res)=>{
+  try{
+    const action=String(req.body.action||"");
+    const pathValue=String(req.body.path||"").replace(/^\\/+|\\/+$/g,"");
+    const query=parseQueryString(req.body.query);
+    const presentedToken=String(req.body.token||query.token||"");
+    const presentedPassword=String(req.body.password||"");
+    if(!pathValue)return res.status(401).end();
+    const r=await pool.query("SELECT * FROM streams WHERE stream_path=$1 LIMIT 1",[pathValue]);
+    if(!r.rowCount)return res.status(403).end();
+    const stream=r.rows[0];
+    if(action==="publish"){
+      if(!stream.enabled || presentedPassword!==stream.stream_key && presentedToken!==stream.stream_key)return res.status(403).end();
+      await pool.query("UPDATE streams SET updated_at=now() WHERE id=$1",[stream.id]);
+      return res.status(200).end();
+    }
+    if(action==="read"||action==="playback"){
+      if(!stream.enabled || !stream.shared)return res.status(403).end();
+      return res.status(200).end();
+    }
+    if(action==="api"||action==="metrics"||action==="pprof")return res.status(200).end();
+    return res.status(403).end();
+  }catch(e){console.error(e);res.status(500).end();}
+});
+
+app.get("/api/streams",admin,async(req,res)=>{
+  try{
+    const rows=await streamRows();
+    const rtmpHost=String(process.env.STREAM_RTMP_HOST||"");
+    const rtmpPort=String(process.env.STREAM_RTMP_PORT||"");
+    res.json({streams:rows.map(s=>({
+      ...s,
+      stream_key:s.stream_key,
+      stream_path:s.stream_path,
+      rtmp_server:rtmpHost&&rtmpPort?`rtmp://${rtmpHost}:${rtmpPort}/live`:"",
+      hls_url:streamHlsUrl(s),
+      viewer_url:(PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`)+"/watch/"+s.viewer_token
+    }))});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not load live streams"});}
+});
+
+app.post("/api/streams",admin,async(req,res)=>{
+  try{
+    const name=String(req.body.name||"").trim();
+    if(!name)return res.status(400).json({error:"Stream name is required."});
+    const key=randomStreamKey(),viewer=randomViewerToken();
+    const r=await pool.query(
+      "INSERT INTO streams(id,name,title,description,stream_key,stream_path,viewer_token,shared,enabled) VALUES($1,$2,$3,$4,$5,$6,$7,true,true) RETURNING *",
+      [uid(),name,String(req.body.title||name).trim(),String(req.body.description||"").trim(),key,streamPathForKey(key),viewer]
+    );
+    res.json({stream:r.rows[0]});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not create stream"});}
+});
+
+app.get("/api/streams/:id",admin,async(req,res)=>{
+  try{
+    const r=await pool.query("SELECT * FROM streams WHERE id=$1",[req.params.id]);
+    if(!r.rowCount)return res.status(404).json({error:"Stream not found."});
+    const s=await refreshStreamStatus(r.rows[0]);
+    const viewers=await pool.query("SELECT count(*)::int AS total,count(*) FILTER (WHERE last_seen>=now()-interval '45 seconds')::int AS current FROM stream_viewers WHERE stream_id=$1",[s.id]);
+    res.json({stream:{...s,rtmp_server:(process.env.STREAM_RTMP_HOST&&process.env.STREAM_RTMP_PORT)?`rtmp://${process.env.STREAM_RTMP_HOST}:${process.env.STREAM_RTMP_PORT}/live`:"",hls_url:streamHlsUrl(s),viewer_url:(PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`)+"/watch/"+s.viewer_token},viewers:viewers.rows[0]});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not load stream"});}
+});
+
+app.patch("/api/streams/:id",admin,async(req,res)=>{
+  try{
+    const allowed=["name","title","description","shared","enabled"];
+    const fields=[],values=[];let n=1;
+    for(const k of allowed)if(Object.prototype.hasOwnProperty.call(req.body,k)){
+      fields.push(`${k}=${n++}`);
+      values.push(k==="shared"||k==="enabled"?Boolean(req.body[k]):String(req.body[k]??"").trim().slice(0,2000));
+    }
+    if(!fields.length)return res.status(400).json({error:"Nothing to update"});
+    fields.push("updated_at=now()");values.push(req.params.id);
+    const r=await pool.query(`UPDATE streams SET ${fields.join(",")} WHERE id=${n} RETURNING *`,values);
+    if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
+    res.json({stream:r.rows[0]});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not update stream"});}
+});
+
+app.post("/api/streams/:id/regenerate-key",admin,async(req,res)=>{
+  try{
+    const key=randomStreamKey();
+    const r=await pool.query("UPDATE streams SET stream_key=$1,stream_path=$2,updated_at=now(),status='offline',started_at=NULL,ended_at=now() WHERE id=$3 RETURNING *",[key,streamPathForKey(key),req.params.id]);
+    if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
+    res.json({stream:r.rows[0]});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not regenerate stream key"});}
+});
+
+app.delete("/api/streams/:id",admin,async(req,res)=>{
+  try{
+    const r=await pool.query("DELETE FROM streams WHERE id=$1 RETURNING id",[req.params.id]);
+    if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
+    res.json({ok:true});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not delete stream"});}
+});
+
+app.post("/api/public/stream/:token/heartbeat",async(req,res)=>{
+  try{
+    const r=await pool.query("SELECT id FROM streams WHERE viewer_token=$1 AND enabled=true AND shared=true",[req.params.token]);
+    if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
+    const sessionKey=String(req.body.sessionKey||"").slice(0,120);
+    if(!sessionKey)return res.status(400).json({error:"Session key required"});
+    const existing=await pool.query("SELECT id FROM stream_viewers WHERE stream_id=$1 AND session_key=$2",[r.rows[0].id,sessionKey]);
+    if(existing.rowCount){
+      await pool.query("UPDATE stream_viewers SET last_seen=now(),ended_at=NULL,user_agent=$1,ip_address=$2 WHERE id=$3",[String(req.headers["user-agent"]||"").slice(0,1000),clientIp(req),existing.rows[0].id]);
+    }else{
+      await pool.query("INSERT INTO stream_viewers(id,stream_id,session_key,user_agent,ip_address) VALUES($1,$2,$3,$4,$5)",[uid(),r.rows[0].id,sessionKey,String(req.headers["user-agent"]||"").slice(0,1000),clientIp(req)]);
+    }
+    res.json({ok:true});
+  }catch(e){res.status(500).json({error:"Heartbeat failed"});}
+});
+
+app.get("/api/public/stream/:token/status",async(req,res)=>{
+  try{
+    const r=await pool.query("SELECT * FROM streams WHERE viewer_token=$1 AND enabled=true AND shared=true",[req.params.token]);
+    if(!r.rowCount)return res.status(404).json({error:"This stream link is invalid, disabled, or expired."});
+    const s=await refreshStreamStatus(r.rows[0]);
+    const v=await pool.query("SELECT count(*)::int AS current FROM stream_viewers WHERE stream_id=$1 AND last_seen>=now()-interval '45 seconds'",[s.id]);
+    res.json({live:s.status==="live",title:s.title,name:s.name,current_viewers:v.rows[0].current});
+  }catch(e){res.status(500).json({error:"Could not load stream status"});}
+});
+
+app.get("/watch/:token",async(req,res)=>{
+  try{
+    const r=await pool.query("SELECT * FROM streams WHERE viewer_token=$1 AND enabled=true AND shared=true",[req.params.token]);
+    if(!r.rowCount)return res.status(404).send("Stream link is invalid or disabled.");
+    const s=r.rows[0], hls=streamHlsUrl(s);
+    const title=escHtml(s.title||s.name), base=PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`;
+    const logo=(base||"")+"/__fbi_logo.svg";
+    const tokenJs=JSON.stringify(req.params.token);
+    res.type("html").send(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} • FBI Live</title><style>body{margin:0;background:#09090a;color:#f6f6f7;font-family:Inter,system-ui,sans-serif;min-height:100vh}.wrap{max-width:1100px;margin:auto;padding:20px}.head{text-align:center;padding:18px}.head h1{font-size:24px;margin:10px 0 5px}.head p{color:#9b9ba4;margin:0;font-size:12px}.player{background:#111;border:1px solid #29292e;border-radius:16px;overflow:hidden;min-height:320px;box-shadow:0 20px 70px rgba(0,0,0,.35)}iframe{width:100%;height:min(70vh,620px);border:0;display:block}.offline{display:grid;place-items:center;min-height:360px;color:#9b9ba4}.badge{display:inline-block;padding:5px 9px;border-radius:999px;border:1px solid #29292e;font-size:10px}.live{color:#4ade80}.foot{text-align:center;color:#66666e;font-size:9px;padding:18px}</style></head><body><div class="wrap"><div class="head"><div class="badge" id="status">Checking live status…</div><h1>${title}</h1><p id="viewers">FBI Live Stream</p></div><div class="player"><iframe id="frame" src="${escHtml(hls)}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen scrolling="no"></iframe></div><div class="foot">FILM BEYOND IMAGINATION • FBI Live</div></div><script>
+const token=${tokenJs};const frame=document.getElementById("frame");const statusEl=document.getElementById("status");const viewers=document.getElementById("viewers");const sessionKey=crypto.randomUUID();
+async function refresh(){try{const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/status",{cache:"no-store"});const d=await r.json();if(!r.ok)throw new Error(d.error);statusEl.textContent=d.live?"● LIVE":"OFFLINE";statusEl.className="badge "+(d.live?"live":"");viewers.textContent=d.live?(d.current_viewers||0)+" watching now":"Waiting for the stream to start";if(!d.live)frame.style.visibility="hidden";else frame.style.visibility="visible";if(d.live)await fetch("/api/public/stream/"+encodeURIComponent(token)+"/heartbeat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionKey})});}catch(e){statusEl.textContent="STREAM UNAVAILABLE";viewers.textContent=e.message;}}
+refresh();setInterval(refresh,15000);
+</script></body></html>`);
+  }catch(e){res.status(500).send("Could not load stream.");}
+});
 app.get("/api/dashboard",admin,async(req,res)=>{
   try{
     const [counts,recentProjects,recentDownloads,typeRows]=await Promise.all([
