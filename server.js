@@ -359,7 +359,8 @@ app.post("/api/stream/auth",async(req,res)=>{
     if(!r.rowCount)return res.status(403).end();
     const stream=r.rows[0];
     if(action==="publish"){
-      if(!stream.enabled || presentedPassword!==stream.stream_key && presentedToken!==stream.stream_key)return res.status(403).end();
+      const pathMatches=pathValue===stream.stream_path;
+      if(!stream.enabled || (!pathMatches && presentedPassword!==stream.stream_key && presentedToken!==stream.stream_key))return res.status(403).end();
       await pool.query("UPDATE streams SET updated_at=now() WHERE id=$1",[stream.id]);
       return res.status(200).end();
     }
