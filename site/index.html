@@ -550,7 +550,7 @@ async function renderNdiPage(){
   }catch(e){}
   c.innerHTML=`
     <div class="cards">
-      <div class="card"><small>NDI Gateway</small><strong id="ndiGatewayState">Offline</strong><span>Local bridge connection</span></div>
+      <div class="card"><small>NDI Gateway</small><strong id="ndiGatewayState">Offline</strong><span id="ndiDiscoveryMode">Automatic LAN discovery</span></div>
       <div class="card"><small>NDI Sources</small><strong id="ndiSourceCount">0</strong><span>Discovered on this computer</span></div>
       <div class="card"><small>NDI In</small><strong id="ndiInState">Stopped</strong><span>NDI → FBI Live</span></div>
       <div class="card"><small>NDI Out</small><strong id="ndiOutState">Stopped</strong><span>FBI Live → NDI</span></div>
@@ -583,6 +583,7 @@ async function renderNdiPage(){
     </div>
     <div style="height:12px"></div>
     <div class="panel"><div class="ph"><div><h2>How it works</h2><p>Built for your production LAN and cloud streaming workflow.</p></div></div><div class="body smallnote">
+      <b>NDI discovery:</b> The gateway uses native NDI discovery on the LAN. Sources are discovered automatically through mDNS and the default <b>Public</b> NDI group, so computers on the same subnet do not need IP addresses or manual source registration.<br><br>
       <b>NDI IN:</b> Camera, vMix, OBS, ProPresenter or another NDI sender → local FBI NDI Gateway → FBI Live ingest.<br><br>
       <b>NDI OUT:</b> FBI Live viewer stream → local FBI NDI Gateway → an NDI receiver such as vMix, OBS, ProPresenter or another NDI-enabled device.<br><br>
       Native NDI is a local/network media protocol. The cloud Studio controls the gateway, while the gateway performs the actual NDI discovery and media transport on your production computer.
@@ -628,6 +629,7 @@ function updateNdiGatewayUI(g){
   const b=document.querySelector('#ndiGatewayBadge'),c=document.querySelector('#ndiGatewayState');
   if(b){b.textContent=on?'Gateway connected':'Gateway offline';b.className='ndi-status'+(on?' on':'')}
   if(c)c.textContent=on?'Connected':'Offline';
+  const dm=document.querySelector('#ndiDiscoveryMode');if(dm)dm.textContent=(g&&g.discovery)||'Automatic LAN discovery';
   const sc=document.querySelector('#ndiSourceCount');if(sc)sc.textContent=String((g&&g.sources)||0);
   const i=document.querySelector('#ndiInState');if(i)i.textContent=g&&g.input&&g.input.running?'Running':'Stopped';
   const o=document.querySelector('#ndiOutState');if(o)o.textContent=g&&g.output&&g.output.running?'Running':'Stopped';
