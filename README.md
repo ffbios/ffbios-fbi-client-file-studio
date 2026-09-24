@@ -47,3 +47,5 @@ The studio uses resumable uploads for larger media and standard uploads for smal
 Every push to `main` triggers GitHub Actions and publishes the `site/` directory to GitHub Pages.
 
 Workflow: `.github/workflows/deploy-pages.yml`
+
+<!-- Pages deployment configured for GitHub Actions. -->
