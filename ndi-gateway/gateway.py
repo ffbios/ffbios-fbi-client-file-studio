@@ -180,13 +180,13 @@ def ndi_to_rtmp(source_name, rtmp_url):
         except Exception:
             pass
 
-def hls_to_ndi(hls_url, ndi_name):
+def media_to_ndi(source_url, ndi_name):
     if ndi is None:
         raise RuntimeError("NDI SDK/runtime is not installed")
     if av is None:
         raise RuntimeError("PyAV is not installed")
-    if not hls_url.endswith(".m3u8"):
-        hls_url = hls_url.rstrip("/") + "/index.m3u8"
+    if not (source_url.startswith("rtmp://") or source_url.startswith("rtmps://") or source_url.endswith(".m3u8")):
+        source_url = source_url.rstrip("/") + "/index.m3u8"
     if not ndi.initialize():
         raise RuntimeError("NDI initialization failed")
 
@@ -200,7 +200,7 @@ def hls_to_ndi(hls_url, ndi_name):
 
     container = None
     try:
-        container = av.open(hls_url, mode="r")
+        container = av.open(source_url, mode="r")
         for frame in container.decode():
             if STOP.is_set():
                 break
@@ -262,7 +262,7 @@ def start_output(payload):
     def run():
         set_state("output", True, "Sending FBI Live as " + name)
         try:
-            hls_to_ndi(hls, name)
+            media_to_ndi(hls, name)
             set_state("output", False, "Stopped")
         except Exception as exc:
             set_state("output", False, "Error: " + str(exc))
