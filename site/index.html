@@ -476,7 +476,7 @@ function renderSelectedStream(){
   const s=selectedStream();
   if(!s){pane.innerHTML='<div class="empty">Select a stream or create a new live stream.</div>';return}
   const watch=esc(s.viewer_url||''),rtmp=esc(s.rtmp_server||''),key=esc(s.stream_key||'');
-  const player=s.status==='live'&&s.hls_url?'<iframe src="'+esc(s.hls_url)+'" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>':'<div class="offline"><div><b>OFFLINE</b><br><span>Start publishing from OBS, vMix, Streamlabs or a mobile RTMP app. The preview will appear here automatically.</span></div></div>';
+  const player=s.status==='live'&&s.viewer_url?'<iframe src="'+esc(s.viewer_url)+'" title="FBI Live Preview" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>':'<div class="offline"><div><b>OFFLINE</b><br><span>Start publishing from OBS, vMix, Streamlabs or a mobile RTMP app. The preview will appear here automatically.</span></div></div>';
   pane.innerHTML=`
     <div class="ph"><div><h2>${esc(s.name)}</h2><p>${esc(s.title||'')} • ${s.status==='live'?'<span style="color:var(--green)">Live now</span>':'Waiting for encoder'}</p></div><div class="pillline">${streamStatusBadge(s)} <span class="onoff">${Number(s.current_viewers||0)} watching</span></div></div>
     <div class="body">
