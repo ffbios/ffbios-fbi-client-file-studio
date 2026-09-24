@@ -544,20 +544,16 @@ function copyText(value){
 async function renderNdiPage(){
   const c=document.querySelector('#content');
   c.innerHTML='<div class="empty">Loading NDI control center...</div>';
-  let gateways=[],pair=null;
-  try{
-    const d=await api('/api/ndi/gateways');gateways=d.gateways||[];
-  }catch(e){}
   c.innerHTML=`
     <div class="cards">
-      <div class="card"><small>NDI Gateway</small><strong id="ndiGatewayState">Offline</strong><span id="ndiDiscoveryMode">Automatic LAN discovery</span></div>
-      <div class="card"><small>NDI Sources</small><strong id="ndiSourceCount">0</strong><span>Discovered on this computer</span></div>
+      <div class="card"><small>NDI Gateway</small><strong id="ndiGatewayState">Offline</strong><span id="ndiDiscoveryMode">Native NDI / mDNS</span></div>
+      <div class="card"><small>NDI Sources</small><strong id="ndiSourceCount">0</strong><span>Discovered automatically on the LAN</span></div>
       <div class="card"><small>NDI In</small><strong id="ndiInState">Stopped</strong><span>NDI → FBI Live</span></div>
       <div class="card"><small>NDI Out</small><strong id="ndiOutState">Stopped</strong><span>FBI Live → NDI</span></div>
     </div>
-    <div class="panel"><div class="ph"><div><h2>Gateway Connection</h2><p>The browser cannot access native NDI directly. FBI uses a small local NDI Gateway on your production computer for LAN discovery and media I/O.</p></div><div class="pillline"><span id="ndiGatewayBadge" class="ndi-status">Gateway offline</span><button class="btn" id="ndiPair">Generate Pair Code</button></div></div>
+    <div class="panel"><div class="ph"><div><h2>NDI Network</h2><p>No pairing code is required. Native NDI discovers compatible devices automatically on the local network.</p></div><div class="pillline"><span id="ndiGatewayBadge" class="ndi-status">Gateway offline</span></div></div>
       <div class="body">
-        <div id="ndiPairBox" class="ndimonitor">Start the FBI NDI Gateway on this PC, then pair it with the code generated here.</div>
+        <div class="ndimonitor">Start the FBI NDI Gateway on the production PC. It uses the native NDI discovery protocol, so NDI senders and receivers on the same LAN appear automatically without entering an IP address or pair code.</div>
       </div>
     </div>
     <div style="height:12px"></div>
@@ -590,15 +586,6 @@ async function renderNdiPage(){
     </div></div>`;
   try{const st=await fetch('http://127.0.0.1:8765/status',{cache:'no-store'});if(st.ok){const g=await st.json();updateNdiGatewayUI(g)}}catch(e){}
   try{const sr=await api('/api/streams');window.__streams=sr.streams||[];document.querySelector('#ndiInStream').innerHTML='<option value="">Select a stream</option>'+window.__streams.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+'</option>').join('');document.querySelector('#ndiOutStream').innerHTML=document.querySelector('#ndiInStream').innerHTML}catch(e){}
-  document.querySelector('#ndiPair').onclick=async function(){
-    try{
-      const d=await api('/api/ndi/gateway/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'FBI NDI Gateway'})});
-      pair=d.gateway.pair_token;
-      document.querySelector('#ndiPairBox').innerHTML='<div class="paircode">'+esc(pair)+'</div><div style="height:8px"></div>Run the local FBI NDI Gateway and enter this pairing code. The code is private and should only be used on your production computer. <button class="btn" id="copyNdiPair" style="margin-top:8px">Copy Pair Code</button>';
-      document.querySelector('#copyNdiPair').onclick=function(){copyText(pair)};
-      toast('NDI pairing code generated');
-    }catch(e){toast(e.message)}
-  };
   document.querySelector('#ndiInStart').onclick=async function(){
     try{
       const sel=document.querySelector('input[name="ndiSource"]:checked');if(!sel)throw new Error('Select an NDI source');
