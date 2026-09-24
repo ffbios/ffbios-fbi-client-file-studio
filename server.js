@@ -311,7 +311,7 @@ app.get("/api/public/file/:id",async(req,res)=>{
   }catch(e){console.error(e);res.status(500).send("Unable to serve file.");}
 });
 
-app.get("*",(req,res)=>{
+app.use((req,res)=>{
   res.sendFile(path.join(ROOT,"index.html"));
 });
 
