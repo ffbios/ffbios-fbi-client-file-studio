@@ -271,7 +271,7 @@ async function streamRows(){
   const out=[];for(const row of r.rows)out.push(await refreshStreamStatus(row));
   return out;
 }
-\napp.use(express.json({limit:"2mb"}));
+app.use(express.json({limit:"2mb"}));
 app.use(express.urlencoded({extended:true}));
 
 app.get("/health",(req,res)=>res.json({ok:true,service:"FBI Client File Studio",storage:s3Ready()?"railway-object-storage":"not-ready",time:new Date().toISOString()}));
