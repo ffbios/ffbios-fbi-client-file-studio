@@ -27,6 +27,7 @@ STATE = {
     "version": VERSION,
     "sources": 0,
     "source_names": [],
+    "discovery": "mDNS / NDI Public Group",
     "input": {"running": False, "message": "Stopped"},
     "output": {"running": False, "message": "Stopped"},
 }
@@ -192,6 +193,7 @@ def media_to_ndi(source_url, ndi_name):
 
     settings = ndi.SendCreate()
     settings.ndi_name = ndi_name
+    settings.groups = "Public"
     settings.clock_video = False
     settings.clock_audio = False
     sender = ndi.send_create(settings)
