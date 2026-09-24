@@ -1,0 +1,20 @@
+logLevel: info
+logDestinations: [stdout]
+
+rtmp: true
+rtmpAddress: :1935
+
+hls: true
+hlsAddress: :8888
+hlsAllowOrigins: ["*"]
+hlsAlwaysRemux: true
+hlsVariant: mpegts
+hlsSegmentCount: 7
+
+# Keep WebRTC disabled for the first validation pass.
+# We will enable it after RTMP -> HLS is proven.
+webrtc: false
+
+# MediaMTX accepts publisher paths dynamically.
+# The FBI application controls the stream key/authentication layer.
+paths: {}
