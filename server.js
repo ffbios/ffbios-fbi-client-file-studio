@@ -228,7 +228,7 @@ async function hashAdminPassword(password){
 function escHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 function streamPathForKey(key){return "live/"+key;}
 function streamHlsUrl(row){
-  const base=String(process.env.STREAM_HLS_BASE||"").replace(/\\/+$/,"");
+  const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
   return base+"/"+row.stream_path;
 }
 function randomStreamKey(){return crypto.randomBytes(24).toString("base64url");}
