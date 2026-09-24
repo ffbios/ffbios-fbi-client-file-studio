@@ -372,7 +372,14 @@ app.post("/api/stream/auth",async(req,res)=>{
     const presentedToken=String(req.body.token||query.token||"");
     const presentedPassword=String(req.body.password||"");
     if(!pathValue)return res.status(401).end();
-    const r=await pool.query("SELECT * FROM streams WHERE stream_path=$1 LIMIT 1",[pathValue]);
+    // MediaMTX authenticates not only the parent HLS path (live/<key>)
+    // but also child playlists and media segments such as
+    // live/<key>/video1_stream.m3u8. Resolve both the exact stream path
+    // and any descendant path to the same stream record.
+    const r=await pool.query(
+      "SELECT * FROM streams WHERE stream_path=$1 OR $1 LIKE stream_path || '/%' ORDER BY length(stream_path) DESC LIMIT 1",
+      [pathValue]
+    );
     if(!r.rowCount)return res.status(403).end();
     const stream=r.rows[0];
     if(action==="publish"){
