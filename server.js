@@ -552,7 +552,7 @@ app.get("/watch/:token",async(req,res)=>{
   try{
     const r=await pool.query("SELECT * FROM streams WHERE viewer_token=$1 AND enabled=true AND shared=true",[req.params.token]);
     if(!r.rowCount)return res.status(404).send("Stream link is invalid or disabled.");
-    const s=r.rows[0], hls=streamHlsUrl(s);
+    const s=r.rows[0], hls=streamHlsUrl(s)+"/index.m3u8";
     const title=escHtml(s.title||s.name), base=PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`;
     const logo=(base||"")+"/__fbi_logo.svg";
     const tokenJs=JSON.stringify(req.params.token);
