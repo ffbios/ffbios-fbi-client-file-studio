@@ -563,7 +563,7 @@ async function renderNdiPage(){
         <div class="body">
           <div class="field"><label>Local NDI Source</label><div id="ndiSources" class="ndi-list"><div class="empty">Connect the NDI Gateway to discover sources.</div></div></div>
           <div class="field"><label>FBI Live Channel</label><select id="ndiInStream" class="search"><option value="">Select a stream</option>${(window.__streams||[]).map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+'</option>').join('')}</select></div>
-          <button class="btn primary" id="ndiInStart">Start NDI Input</button>
+          <button class="btn primary" id="ndiInToggle">Turn NDI IN ON</button>
           <div id="ndiInMonitor" class="ndimonitor">NDI IN status: <b>Stopped</b></div>
         </div>
       </div>
@@ -572,7 +572,7 @@ async function renderNdiPage(){
         <div class="body">
           <div class="field"><label>FBI Live Channel</label><select id="ndiOutStream" class="search"><option value="">Select a stream</option>${(window.__streams||[]).map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+'</option>').join('')}</select></div>
           <div class="field"><label>NDI Output Name</label><input id="ndiOutName" class="search" value="FBI Live OUT"></div>
-          <button class="btn primary" id="ndiOutStart">Start NDI Output</button>
+          <button class="btn primary" id="ndiOutToggle">Turn NDI OUT ON</button>
           <div id="ndiOutMonitor" class="ndimonitor">NDI OUT status: <b>Stopped</b></div>
         </div>
       </div>
@@ -586,20 +586,44 @@ async function renderNdiPage(){
     </div></div>`;
   try{const st=await fetch('http://127.0.0.1:8765/status',{cache:'no-store'});if(st.ok){const g=await st.json();updateNdiGatewayUI(g)}}catch(e){}
   try{const sr=await api('/api/streams');window.__streams=sr.streams||[];document.querySelector('#ndiInStream').innerHTML='<option value="">Select a stream</option>'+window.__streams.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+'</option>').join('');document.querySelector('#ndiOutStream').innerHTML=document.querySelector('#ndiInStream').innerHTML}catch(e){}
-  document.querySelector('#ndiInStart').onclick=async function(){
+  async function refreshNdiToggleState(){
     try{
-      const sel=document.querySelector('input[name="ndiSource"]:checked');if(!sel)throw new Error('Select an NDI source');
-      const stream=(window.__streams||[]).find(s=>s.id===document.querySelector('#ndiInStream').value);if(!stream)throw new Error('Select an FBI Live channel');
-      await ndiLocal('/input/start',{source_name:sel.value,rtmp_server:stream.rtmp_server,stream_key:stream.stream_key});
-      toast('NDI input started');
+      const st=await fetch('http://127.0.0.1:8765/status',{cache:'no-store'});
+      if(st.ok) updateNdiGatewayUI(await st.json());
+    }catch(e){}
+  }
+  document.querySelector('#ndiInToggle').onclick=async function(){
+    const b=document.querySelector('#ndiInToggle');
+    try{
+      const st=await fetch('http://127.0.0.1:8765/status',{cache:'no-store'});
+      const g=st.ok?await st.json():{};
+      if(g&&g.input&&g.input.running){
+        await ndiLocal('/input/stop',{});
+        toast('NDI IN turned off');
+      }else{
+        const sel=document.querySelector('input[name="ndiSource"]:checked');if(!sel)throw new Error('Select an NDI source');
+        const stream=(window.__streams||[]).find(s=>s.id===document.querySelector('#ndiInStream').value);if(!stream)throw new Error('Select an FBI Live channel');
+        await ndiLocal('/input/start',{source_name:sel.value,rtmp_server:stream.rtmp_server,stream_key:stream.stream_key});
+        toast('NDI IN turned on');
+      }
+      await refreshNdiToggleState();
     }catch(e){toast(e.message)}
   };
-  document.querySelector('#ndiOutStart').onclick=async function(){
+  document.querySelector('#ndiOutToggle').onclick=async function(){
+    const b=document.querySelector('#ndiOutToggle');
     try{
-      const stream=(window.__streams||[]).find(s=>s.id===document.querySelector('#ndiOutStream').value);if(!stream)throw new Error('Select an FBI Live channel');
-      const name=document.querySelector('#ndiOutName').value.trim()||'FBI Live OUT';
-      await ndiLocal('/output/start',{source_url:(stream.rtmp_server||'')+'/'+(stream.stream_key||''),ndi_name:name});
-      toast('NDI output started');
+      const st=await fetch('http://127.0.0.1:8765/status',{cache:'no-store'});
+      const g=st.ok?await st.json():{};
+      if(g&&g.output&&g.output.running){
+        await ndiLocal('/output/stop',{});
+        toast('NDI OUT turned off');
+      }else{
+        const stream=(window.__streams||[]).find(s=>s.id===document.querySelector('#ndiOutStream').value);if(!stream)throw new Error('Select an FBI Live channel');
+        const name=document.querySelector('#ndiOutName').value.trim()||'FBI Live OUT';
+        await ndiLocal('/output/start',{source_url:(stream.rtmp_server||'')+'/'+(stream.stream_key||''),ndi_name:name});
+        toast('NDI OUT turned on');
+      }
+      await refreshNdiToggleState();
     }catch(e){toast(e.message)}
   };
   window.__ndiPoll=window.__ndiPoll||setInterval(async function(){if(activeStudioView!=='ndi')return;try{const st=await fetch('http://127.0.0.1:8765/status',{cache:'no-store'});if(st.ok)updateNdiGatewayUI(await st.json());}catch(e){updateNdiGatewayUI({connected:false,sources:[],input:null,output:null})}},3000);
@@ -618,8 +642,12 @@ function updateNdiGatewayUI(g){
   if(c)c.textContent=on?'Connected':'Offline';
   const dm=document.querySelector('#ndiDiscoveryMode');if(dm)dm.textContent=(g&&g.discovery)||'Automatic LAN discovery';
   const sc=document.querySelector('#ndiSourceCount');if(sc)sc.textContent=String((g&&g.sources)||0);
-  const i=document.querySelector('#ndiInState');if(i)i.textContent=g&&g.input&&g.input.running?'Running':'Stopped';
-  const o=document.querySelector('#ndiOutState');if(o)o.textContent=g&&g.output&&g.output.running?'Running':'Stopped';
+  const inOn=Boolean(g&&g.input&&g.input.running);
+  const outOn=Boolean(g&&g.output&&g.output.running);
+  const i=document.querySelector('#ndiInState');if(i)i.textContent=inOn?'Running':'Stopped';
+  const o=document.querySelector('#ndiOutState');if(o)o.textContent=outOn?'Running':'Stopped';
+  const ib=document.querySelector('#ndiInToggle');if(ib){ib.textContent=inOn?'Turn NDI IN OFF':'Turn NDI IN ON';ib.className='btn '+(inOn?'danger':'primary');}
+  const ob=document.querySelector('#ndiOutToggle');if(ob){ob.textContent=outOn?'Turn NDI OUT OFF':'Turn NDI OUT ON';ob.className='btn '+(outOn?'danger':'primary');}
   const im=document.querySelector('#ndiInMonitor');if(im)im.innerHTML='NDI IN status: <b>'+esc(g&&g.input&&g.input.message||'Stopped')+'</b>';
   const om=document.querySelector('#ndiOutMonitor');if(om)om.innerHTML='NDI OUT status: <b>'+esc(g&&g.output&&g.output.message||'Stopped')+'</b>';
 }
