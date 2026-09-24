@@ -174,6 +174,21 @@ async function initDb(){
     );
     CREATE INDEX IF NOT EXISTS idx_streams_updated ON streams(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_stream_viewers_stream ON stream_viewers(stream_id,last_seen);
+    CREATE TABLE IF NOT EXISTS ndi_gateways(
+      id uuid PRIMARY KEY,
+      name text NOT NULL DEFAULT '',
+      pair_token text UNIQUE NOT NULL,
+      version text DEFAULT '',
+      capabilities jsonb NOT NULL DEFAULT '{}'::jsonb,
+      status text NOT NULL DEFAULT 'offline',
+      active_input text DEFAULT '',
+      active_output text DEFAULT '',
+      last_ip text DEFAULT '',
+      last_seen timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_ndi_gateways_seen ON ndi_gateways(last_seen DESC);
     CREATE TABLE IF NOT EXISTS app_settings(
       key text PRIMARY KEY,
       value text NOT NULL DEFAULT ''
@@ -233,6 +248,8 @@ function streamHlsUrl(row){
 }
 function randomStreamKey(){return crypto.randomBytes(24).toString("base64url");}
 function randomViewerToken(){return crypto.randomBytes(24).toString("base64url");}
+function randomNdiPairToken(){return crypto.randomBytes(20).toString("base64url");}
+function streamRtmpServer(){const h=String(process.env.STREAM_RTMP_HOST||"").trim(),p=String(process.env.STREAM_RTMP_PORT||"").trim();return h&&p?"rtmp://"+h+":"+p+"/live":"";}
 function parseQueryString(q){
   const raw=String(q||"");
   const out={};
@@ -443,6 +460,66 @@ app.delete("/api/streams/:id",admin,async(req,res)=>{
     if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
     res.json({ok:true});
   }catch(e){console.error(e);res.status(500).json({error:"Could not delete stream"});}
+});
+
+app.post("/api/ndi/gateway/pair",admin,async(req,res)=>{
+  try{
+    const name=String(req.body.name||"FBI NDI Gateway").trim().slice(0,120)||"FBI NDI Gateway";
+    const pair=randomNdiPairToken();
+    const r=await pool.query("INSERT INTO ndi_gateways(id,name,pair_token,status,last_seen) VALUES($1,$2,$3,'pending',now()) RETURNING id,name,pair_token,status,created_at",[uid(),name,pair]);
+    res.json({gateway:r.rows[0],studio_url:PUBLIC_BASE_URL||req.protocol+"://"+req.get("host")});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not create NDI pairing code"});}
+});
+
+app.get("/api/ndi/gateways",admin,async(req,res)=>{
+  try{
+    const r=await pool.query("SELECT id,name,version,capabilities,status,active_input,active_output,last_ip,last_seen,created_at,updated_at FROM ndi_gateways ORDER BY updated_at DESC");
+    const rows=r.rows.map(g=>({...g,status:(g.last_seen&&Date.now()-new Date(g.last_seen).getTime()<30000)?(g.status||"connected"):"offline"}));
+    res.json({gateways:rows});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not load NDI gateways"});}
+});
+
+app.delete("/api/ndi/gateway/:id",admin,async(req,res)=>{
+  try{
+    const r=await pool.query("DELETE FROM ndi_gateways WHERE id=$1 RETURNING id",[req.params.id]);
+    if(!r.rowCount)return res.status(404).json({error:"Gateway not found"});
+    res.json({ok:true});
+  }catch(e){res.status(500).json({error:"Could not remove gateway"});}
+});
+
+app.post("/api/ndi/gateway/:pairToken/register",async(req,res)=>{
+  try{
+    const r=await pool.query("SELECT id,name FROM ndi_gateways WHERE pair_token=$1",[req.params.pairToken]);
+    if(!r.rowCount)return res.status(403).json({error:"Invalid NDI pairing code"});
+    const caps=req.body.capabilities&&typeof req.body.capabilities==="object"?req.body.capabilities:{};
+    const name=String(req.body.name||r.rows[0].name||"FBI NDI Gateway").trim().slice(0,120);
+    await pool.query("UPDATE ndi_gateways SET name=$1,version=$2,capabilities=$3,status='connected',last_ip=$4,last_seen=now(),updated_at=now() WHERE id=$5",[name,String(req.body.version||"").slice(0,80),JSON.stringify(caps),clientIp(req),r.rows[0].id]);
+    res.json({ok:true,gateway_id:r.rows[0].id,studio_url:PUBLIC_BASE_URL||req.protocol+"://"+req.get("host")});
+  }catch(e){console.error(e);res.status(500).json({error:"NDI gateway registration failed"});}
+});
+
+app.get("/api/ndi/gateway/:pairToken/config",async(req,res)=>{
+  try{
+    const r=await pool.query("SELECT id,name,status FROM ndi_gateways WHERE pair_token=$1",[req.params.pairToken]);
+    if(!r.rowCount)return res.status(403).json({error:"Invalid NDI pairing code"});
+    const streams=await streamRows();
+    res.json({
+      gateway:{id:r.rows[0].id,name:r.rows[0].name,status:r.rows[0].status},
+      studio_url:PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"),
+      rtmp_server:streamRtmpServer(),
+      streams:streams.map(s=>({id:s.id,name:s.name,title:s.title,stream_key:s.stream_key,stream_path:s.stream_path,shared:s.shared,enabled:s.enabled,hls_url:streamHlsUrl(s),viewer_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+s.viewer_token}))
+    });
+  }catch(e){console.error(e);res.status(500).json({error:"Could not load NDI gateway configuration"});}
+});
+
+app.post("/api/ndi/gateway/:pairToken/heartbeat",async(req,res)=>{
+  try{
+    const r=await pool.query("SELECT id FROM ndi_gateways WHERE pair_token=$1",[req.params.pairToken]);
+    if(!r.rowCount)return res.status(403).json({error:"Invalid NDI pairing code"});
+    const state=req.body&&typeof req.body==="object"?req.body:{};
+    await pool.query("UPDATE ndi_gateways SET status=$1,active_input=$2,active_output=$3,last_ip=$4,last_seen=now(),updated_at=now() WHERE id=$5",[String(state.status||"connected").slice(0,40),String(state.active_input||"").slice(0,200),String(state.active_output||"").slice(0,200),clientIp(req),r.rows[0].id]);
+    res.json({ok:true});
+  }catch(e){res.status(500).json({error:"NDI heartbeat failed"});}
 });
 
 app.post("/api/public/stream/:token/heartbeat",async(req,res)=>{
