@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0a0a0b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.webmanifest">
 <title>FBI Client File Studio</title>
 <style>
 :root{--bg:#09090a;--panel:#141416;--panel2:#1b1b1e;--border:#29292e;--text:#f6f6f7;--muted:#9b9ba4;--gold:#d4af37;--gold2:#f4d56d;--green:#4ade80;--red:#fb7185;--blue:#60a5fa;--shadow:0 18px 50px rgba(0,0,0,.28);--r:18px}
@@ -63,7 +67,27 @@ const LOGO='data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(`<svg xmlns="h
 </svg>`);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 const fmt=n=>{n=Number(n||0);if(!n)return'0 B';const u=['B','KB','MB','GB','TB'];const i=Math.min(u.length-1,Math.floor(Math.log(n)/Math.log(1024)));return(n/1024**i).toFixed(i?1:0)+' '+u[i]};
-const api=async(url,opt={})=>{const r=await fetch(url,{credentials:'same-origin',...opt});let d=null;try{d=await r.json()}catch{}if(!r.ok)throw new Error(d?.error||'Request failed');return d};
+const api=async(url,opt={})=>{
+  try{
+    const r=await fetch(url,{credentials:'same-origin',...opt});
+    let d=null;try{d=await r.json()}catch{}
+    if(!r.ok)throw new Error(d?.error||'Request failed');
+    if(String(url).startsWith('/api/public/share/')){
+      const token=decodeURIComponent(String(url).split('/').pop()||'');
+      if(token)try{localStorage.setItem('fbi:share:'+token,JSON.stringify(d))}catch{}
+    }
+    return d;
+  }catch(e){
+    if(String(url).startsWith('/api/public/share/')){
+      const token=decodeURIComponent(String(url).split('/').pop()||'');
+      try{
+        const cached=localStorage.getItem('fbi:share:'+token);
+        if(cached)return {...JSON.parse(cached),__offline:true};
+      }catch{}
+    }
+    throw e;
+  }
+};
 const ext=n=>String(n||'').split('.').pop().toLowerCase();
 const icon=n=>{const e=ext(n);if(['jpg','jpeg','png','gif','webp','heic'].includes(e))return'🖼️';if(['mp4','mov','mkv','avi','webm'].includes(e))return'🎬';if(['mp3','wav','m4a','aac'].includes(e))return'🎵';if(e==='pdf')return'📕';if(['zip','rar','7z'].includes(e))return'📦';if(['doc','docx','txt'].includes(e))return'📄';if(['xls','xlsx','csv'].includes(e))return'📊';return'📎'};
 const isImage=f=>/^image\//.test(f.mime_type||'');
@@ -72,7 +96,7 @@ const isPdf=f=>f.mime_type==='application/pdf';
 let current=null,projects=[];
 
 function loginView(){
-  document.body.innerHTML=`<div class="login"><div class="loginbox"><div class="loginhead"><img src="${LOGO}"><h1>FBI Client File Studio</h1><p>Cloud client delivery system</p></div><div class="loginbody"><div class="field"><label>Email</label><input id="email" value="filmbyfbi@gmail.com"></div><div class="field"><label>Password</label><input id="password" type="password" placeholder="Studio password"></div><button class="btn primary" id="login" style="width:100%">Cloud Login</button><div id="err" style="color:#fecaca;font-size:11px;margin-top:8px"></div><div class="notice">This studio is hosted on Railway. Your projects and uploaded files are kept in the Railway database and persistent storage.</div></div></div></div>`;
+  document.body.innerHTML=`<div class="login"><div class="loginbox"><div class="loginhead"><img src="${LOGO}"><h1>FBI Client File Studio</h1><p>Cloud client delivery system</p></div><div class="loginbody"><div class="field"><label>Email</label><input id="email" value="filmbyfbi@gmail.com"></div><div class="field"><label>Password</label><input id="password" type="password" placeholder="Studio password"></div><button class="btn primary" id="login" style="width:100%">Cloud Login</button><button class="btn" id="installApp" style="width:100%;margin-top:8px">Install App</button><div id="err" style="color:#fecaca;font-size:11px;margin-top:8px"></div><div class="notice">This studio is hosted on Railway. Your projects and uploaded files are kept in the Railway database and persistent storage.</div></div></div></div>`;
   document.querySelector('#login').onclick=async()=>{try{await api('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email.value,password:password.value})});location.href='/'}catch(e){document.querySelector('#err').textContent=e.message}};
 }
 async function boot(){
@@ -693,7 +717,7 @@ function studioView(){
         <div class="sidefoot">Cloud storage connected<br>Project archive enabled<br>Live streaming enabled<br>Secure client delivery</div>
       </aside>
       <main class="main">
-        <div class="top"><div><h1 id="pageTitle">${esc(studioSettings.studio_name)}</h1><p id="pageSubtitle">Overview of your client file studio.</p></div><div class="actions"><button class="btn" id="logout">Logout</button><button class="btn primary" id="new">＋ New Project</button></div></div>
+        <div class="top"><div><h1 id="pageTitle">${esc(studioSettings.studio_name)}</h1><p id="pageSubtitle">Overview of your client file studio.</p></div><div class="actions"><button class="btn" id="installApp">Install App</button><button class="btn" id="logout">Logout</button><button class="btn primary" id="new">＋ New Project</button></div></div>
         <div id="content"></div>
       </main>
     </div>
@@ -732,7 +756,7 @@ function previewAdmin(f){
 }
 async function clientView(token){
  try{
-  const d=await api('/api/public/share/'+encodeURIComponent(token));document.body.innerHTML=`<div class="client"><div class="clientwrap"><div class="ctop"><img src="${LOGO}"><h1>${esc(d.settings?.portal_title||'FBI Client File Delivery')}</h1><p>Secure client download area</p></div><div class="ccard"><div class="chead"><h2>${esc(d.project.name)}</h2><p>${esc(d.project.client_name||'')} ${d.project.note?'• '+esc(d.project.note):''}</p></div><div class="cfiles">${d.files.length?d.files.map(f=>`<div class="cfile"><div class="ico">${icon(f.original_name)}</div><div><div class="name">${esc(f.original_name)}</div><div class="meta">${f.relative_path&&f.relative_path!==f.original_name?esc(f.relative_path)+" • ":""}${d.settings?.show_file_size?fmt(f.size_bytes)+" • ":""}${esc(f.mime_type)}</div></div><div>${d.settings?.allow_client_preview?'<button class="btn" data-prev="'+f.id+'">Preview</button> ':''}<a class="btn primary" href="${f.download_url}&download=1">Download</a></div></div>`).join(''):'<div class="empty">No files have been uploaded yet.</div>'}</div></div><div class="clientfoot">FILM BEYOND IMAGINATION • FBI Client File Studio</div></div><div id="v" class="viewer"></div></div>`;
+  const d=await api('/api/public/share/'+encodeURIComponent(token));document.body.innerHTML=`<div class="client"><div class="clientwrap"><div class="ctop"><img src="${LOGO}"><h1>${esc(d.settings?.portal_title||'FBI Client File Delivery')}</h1><p>Secure client download area</p><button class="btn" id="installApp" style="margin-top:12px">Install App</button>${d.__offline?'<div class="notice">You are offline. This is the last saved version of this delivery. Download links may require an internet connection.</div>':''}</div><div class="ccard"><div class="chead"><h2>${esc(d.project.name)}</h2><p>${esc(d.project.client_name||'')} ${d.project.note?'• '+esc(d.project.note):''}</p></div><div class="cfiles">${d.files.length?d.files.map(f=>`<div class="cfile"><div class="ico">${icon(f.original_name)}</div><div><div class="name">${esc(f.original_name)}</div><div class="meta">${f.relative_path&&f.relative_path!==f.original_name?esc(f.relative_path)+" • ":""}${d.settings?.show_file_size?fmt(f.size_bytes)+" • ":""}${esc(f.mime_type)}</div></div><div>${d.settings?.allow_client_preview?'<button class="btn" data-prev="'+f.id+'">Preview</button> ':''}<a class="btn primary" href="${f.download_url}&download=1">Download</a></div></div>`).join(''):'<div class="empty">No files have been uploaded yet.</div>'}</div></div><div class="clientfoot">FILM BEYOND IMAGINATION • FBI Client File Studio</div></div><div id="v" class="viewer"></div></div>`;
   document.querySelectorAll('[data-prev]').forEach(b=>b.onclick=()=>clientPreview(d.files.find(f=>f.id===b.dataset.prev)));
  }catch(e){document.body.innerHTML=`<div class="client"><div class="clientwrap"><div class="ctop"><img src="${LOGO}"><h1>Delivery unavailable</h1><p>${esc(e.message)}</p></div></div></div>`}
 }
@@ -741,7 +765,46 @@ function clientPreview(f){
  m.innerHTML=`<div class="viewerbox"><div class="vh"><b>${esc(f.original_name)}</b><button class="close">×</button></div><div class="vc">${isImage(f)?`<img src="${u}">`:isVideo(f)?`<video controls src="${u}"></video>`:isPdf(f)?`<iframe src="${u}"></iframe>`:`<div class="empty">No inline preview for this file type. <a href="${u}&download=1" style="color:var(--gold2)">Download file</a></div>`}</div></div>`;m.classList.add('show');m.querySelector('.close').onclick=()=>m.classList.remove('show');
 }
 function toast(msg){const t=document.querySelector('#toast');if(!t)return;t.textContent=msg;t.style.display='block';clearTimeout(window.__tt);window.__tt=setTimeout(()=>t.style.display='none',2200)}
-boot();
+let deferredInstallPrompt=null;
+window.addEventListener('beforeinstallprompt',event=>{
+  event.preventDefault();
+  deferredInstallPrompt=event;
+});
+async function installFbiApp(){
+  if(deferredInstallPrompt){
+    deferredInstallPrompt.prompt();
+    try{await deferredInstallPrompt.userChoice}catch{}
+    deferredInstallPrompt=null;
+    return;
+  }
+  alert('To install FBI Client File Studio, use your browser menu and choose Install App or Add to Home Screen. On iPhone or iPad, use Safari Share and choose Add to Home Screen.');
+}
+document.addEventListener('click',event=>{
+  if(event.target && event.target.id==='installApp')installFbiApp();
+});
+function updateOfflineBadge(){
+  let el=document.querySelector('#pwaStatus');
+  if(!el){
+    el=document.createElement('div');
+    el.id='pwaStatus';
+    el.style.cssText='position:fixed;right:12px;bottom:12px;z-index:90;padding:8px 11px;border:1px solid var(--border);border-radius:999px;background:#111113;color:#9b9ba4;font-size:10px;box-shadow:0 10px 30px rgba(0,0,0,.25)';
+    document.body.appendChild(el);
+  }
+  el.textContent=navigator.onLine?'● Online':'● Offline mode';
+  el.style.color=navigator.onLine?'#4ade80':'#f4d56d';
+}
+window.addEventListener('online',updateOfflineBadge);
+window.addEventListener('offline',updateOfflineBadge);
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('/sw.js').catch(err=>console.warn('PWA service worker registration failed',err));
+  });
+}
+boot().then(()=>updateOfflineBadge()).catch(err=>{
+  console.error(err);
+  document.body.innerHTML='<div class="client"><div class="clientwrap"><div class="ctop"><img src="'+LOGO+'"><h1>Studio unavailable</h1><p>'+esc(err.message||'Please check your connection and try again.')+'</p><button class="btn" id="installApp" style="margin-top:12px">Install App</button></div></div></div>';
+  updateOfflineBadge();
+});
 </script>
 </body>
 </html>
