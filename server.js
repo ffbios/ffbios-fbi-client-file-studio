@@ -941,6 +941,16 @@ app.get("/api/public/file/:id",async(req,res)=>{
  }catch(e){console.error(e);res.status(500).send("Unable to serve file")}
 });
 
+app.get("/manifest.webmanifest",(req,res)=>{
+  res.type("application/manifest+json").sendFile(path.join(ROOT,"manifest.webmanifest"));
+});
+app.get("/pwa-icon.svg",(req,res)=>{
+  res.type("image/svg+xml").sendFile(path.join(ROOT,"pwa-icon.svg"));
+});
+app.get("/sw.js",(req,res)=>{
+  res.type("application/javascript").set("Cache-Control","no-cache").sendFile(path.join(ROOT,"sw.js"));
+});
+
 app.use((req,res)=>res.sendFile(path.join(ROOT,"index.html")));
 
 initDb().then(async()=>{await ensureBucketCors();app.listen(PORT,"0.0.0.0",()=>console.log("FBI Client File Studio listening on port "+PORT))}).catch(e=>{console.error(e);process.exit(1)});
