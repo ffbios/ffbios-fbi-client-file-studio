@@ -941,6 +941,35 @@ app.get("/api/public/file/:id",async(req,res)=>{
  }catch(e){console.error(e);res.status(500).send("Unable to serve file")}
 });
 
+app.get("/share/:token/manifest.webmanifest",async(req,res)=>{
+  try{
+    const tokenValue=String(req.params.token||"");
+    const q=await pool.query("SELECT id,name,expires_at FROM projects WHERE share_token=$1 AND shared=true",[tokenValue]);
+    if(!q.rowCount)return res.status(404).type("text/plain").send("Delivery not found");
+    const p=q.rows[0];
+    if(p.expires_at&&new Date(p.expires_at).getTime()<Date.now())return res.status(404).type("text/plain").send("Delivery expired");
+    const short=String(p.name||"FBI Client Delivery").trim().slice(0,24)||"FBI Client Delivery";
+    const manifest={
+      name:"FBI Client Delivery",
+      short_name:short,
+      start_url:"/share/"+encodeURIComponent(tokenValue),
+      scope:"/share/",
+      display:"standalone",
+      orientation:"any",
+      background_color:"#09090a",
+      theme_color:"#0a0a0b",
+      description:"Secure client delivery from Film Beyond Imagination.",
+      icons:[
+        {src:"/pwa-icon.svg",sizes:"any",type:"image/svg+xml",purpose:"any maskable"}
+      ]
+    };
+    res.type("application/manifest+json").send(JSON.stringify(manifest));
+  }catch(e){
+    console.error(e);
+    res.status(500).type("text/plain").send("Unable to build delivery manifest");
+  }
+});
+
 app.get("/manifest.webmanifest",(req,res)=>{
   res.type("application/manifest+json").sendFile(path.join(ROOT,"manifest.webmanifest"));
 });
