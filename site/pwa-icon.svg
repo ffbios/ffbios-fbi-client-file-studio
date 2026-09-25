@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" rx="96" fill="#09090a"/>
+<rect x="26" y="26" width="460" height="460" rx="82" fill="none" stroke="#d4af37" stroke-width="10"/>
+<text x="256" y="298" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="168" font-weight="900" letter-spacing="-12" fill="#d4af37">FBI</text>
+<text x="256" y="360" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="24" font-weight="700" letter-spacing="3" fill="#f4d56d">CLIENT FILE STUDIO</text>
+</svg>
