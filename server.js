@@ -588,6 +588,8 @@ app.get("/api/dashboard",admin,async(req,res)=>{
         (SELECT count(*) FROM projects WHERE shared=true AND archived=false) shared_projects,
         (SELECT count(*) FROM files) file_count,
         COALESCE((SELECT sum(size_bytes) FROM files),0) storage_bytes,
+        100000000000000::numeric storage_quota_bytes,
+        GREATEST(0,100000000000000::numeric-COALESCE((SELECT sum(size_bytes) FROM files),0)) storage_available_bytes,
         (SELECT count(*) FROM downloads) download_count,
         (SELECT count(*) FROM downloads WHERE downloaded_at>=now()-interval '7 days') downloads_7d,
         (SELECT count(*) FROM downloads WHERE downloaded_at>=now()-interval '30 days') downloads_30d`),
