@@ -696,6 +696,7 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
     var relativePath=safeRelativePath(req.body.relativePath,originalName);
     var size=Number(req.body.size||0);
     var mimeType=String(req.body.mimeType||"application/octet-stream");
+    var fingerprint=String(req.body.fingerprint||"").trim().slice(0,128);
     if(!projectId||!originalName)return res.status(400).json({error:"Project and file name are required."});
     if(!Number.isFinite(size)||size<0||size>MAX_FILE_SIZE)return res.status(400).json({error:"File size is outside the supported range."});
     var pr=await pool.query("SELECT id FROM projects WHERE id=$1 AND archived=false",[projectId]);
@@ -721,6 +722,22 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
       return res.json({uploadId:u.id,mode:"single",size:Number(u.size_bytes),url:singleUrl,resumed:true});
     }
 
+    if(fingerprint){
+      var dup=await pool.query(
+        "SELECT * FROM files WHERE project_id=$1 AND content_fingerprint=$2 AND size_bytes=$3 ORDER BY created_at DESC LIMIT 1",
+        [projectId,fingerprint,size]
+      );
+      if(dup.rowCount){
+        return res.json({uploadId:null,deduplicated:true,resumed:false,mode:"deduplicated",size:size,file:dup.rows[0]});
+      }
+    }
+    var usage=await pool.query(
+      "SELECT COALESCE((SELECT sum(size_bytes) FROM files),0)::numeric stored, COALESCE((SELECT sum(size_bytes) FROM upload_sessions WHERE status='active' AND updated_at>=now()-interval '7 days'),0)::numeric reserved"
+    );
+    var stored=Number(usage.rows[0]?.stored||0),reserved=Number(usage.rows[0]?.reserved||0);
+    if(stored+reserved+size>STORAGE_QUOTA_BYTES){
+      return res.status(413).json({error:"Studio storage quota reached.",quotaBytes:STORAGE_QUOTA_BYTES,usedBytes:stored,reservedBytes:reserved,availableBytes:Math.max(0,STORAGE_QUOTA_BYTES-stored-reserved)});
+    }
     var id=uid();
     var partSize=choosePartSize(size||1);
     var mode=size>=MIN_PART_SIZE?"multipart":"single";
@@ -729,7 +746,7 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
     var url=null;
     if(mode==="multipart"){
       var created=await s3.send(new CreateMultipartUploadCommand({
-        Bucket:bucket(),Key:storageKey,ContentType:mimeType
+        Bucket:bucket(),Key:storageKey,ContentType:mimeType,ChecksumAlgorithm:"SHA256"
       }));
       multipartUploadId=created.UploadId;
     }else{
@@ -740,8 +757,8 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
       );
     }
     await pool.query(
-      "INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active')",
-      [id,projectId,originalName,relativePath,storageKey,mimeType,size,mode==="multipart"?partSize:size,multipartUploadId,mode]
+      "INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11')",
+      [id,projectId,originalName,relativePath,storageKey,mimeType,size,mode==="multipart"?partSize:size,multipartUploadId,mode,fingerprint||null]
     );
     res.json({uploadId:id,mode,partSize,size,url,multipartUploadId});
   }catch(e){console.error(e);res.status(500).json({error:"Could not initialize cloud upload."})}
