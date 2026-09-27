@@ -1,4 +1,4 @@
-const CACHE_NAME="fbi-client-file-studio-v1";
+const CACHE_NAME="fbi-client-file-studio-v2";
 const APP_SHELL=["/","/manifest.webmanifest","/pwa-icon.svg"];
 
 self.addEventListener("install",event=>{
@@ -17,7 +17,9 @@ self.addEventListener("activate",event=>{
 
 self.addEventListener("fetch",event=>{
   const req=event.request;
-  if(req.method!=="GET") return;
+  const url=new URL(req.url);
+  if(req.method!=="GET" || url.origin!==self.location.origin) return;
+  if(url.pathname.startsWith("/api/") || url.pathname.startsWith("/watch/") || url.pathname.startsWith("/share/")) return;
 
   event.respondWith((async()=>{
     if(req.mode==="navigate"){
@@ -31,13 +33,11 @@ self.addEventListener("fetch",event=>{
         return (await caches.match("/")) || Response.error();
       }
     }
-
     const cached=await caches.match(req);
-    if(cached) return cached;
-
+    if(cached)return cached;
     try{
       const fresh=await fetch(req);
-      if(new URL(req.url).origin===self.location.origin){
+      if(fresh.ok){
         const copy=fresh.clone();
         const cache=await caches.open(CACHE_NAME);
         await cache.put(req,copy);
