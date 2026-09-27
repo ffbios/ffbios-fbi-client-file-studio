@@ -246,8 +246,8 @@ function renderUploadQueue(){
   });
   box.innerHTML=html;
   box.querySelectorAll("[data-uppause]").forEach(function(b){b.onclick=function(){pauseUpload(b.dataset.uppause)}});
-  box.querySelectorAll("[data-upresume]").forEach(function(b){b.onclick=function(){resumeUpload(b.dataset.uppresume)}});
-  box.querySelectorAll("[data-upcancel]").forEach(function(b){b.onclick=function(){cancelUpload(b.dataset.uppcancel)}});
+  box.querySelectorAll("[data-upresume]").forEach(function(b){b.onclick=function(){resumeUpload(b.dataset.upresume)}});
+  box.querySelectorAll("[data-upcancel]").forEach(function(b){b.onclick=function(){cancelUpload(b.dataset.upcancel)}});
 }
 function xhrPut(url,blob,headers,item,onProgress){
   return new Promise(function(resolve,reject){
