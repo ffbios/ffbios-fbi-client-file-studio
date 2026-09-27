@@ -230,6 +230,13 @@ async function loadSettings(){
 }
 function settingBool(v){return String(v)==="true";}
 function settingInt(v,fallback){const n=Number(v);return Number.isFinite(n)?Math.max(0,Math.min(3650,Math.round(n))):fallback;}
+function formatStorageBytes(v){
+  var n=Math.max(0,Number(v||0));
+  if(n===0)return"0 B";
+  var units=["B","KB","MB","GB","TB","PB"],i=0;
+  while(n>=1000&&i<units.length-1){n/=1000;i++;}
+  return (i===0?n.toFixed(0):n<10?n.toFixed(2):n<100?n.toFixed(1):n.toFixed(0))+" "+units[i];
+}
 async function adminPasswordMatches(password){
   const r=await pool.query("SELECT value FROM app_settings WHERE key='admin_password_hash'");
   const stored=r.rows[0]?.value||"";
@@ -579,6 +586,45 @@ refresh();setInterval(refresh,10000);
 </script></body></html>`);
   }catch(e){res.status(500).send("Could not load stream.");}
 });
+app.get("/api/storage",admin,async(req,res)=>{
+  try{
+    const r=await pool.query(`
+      SELECT
+        COALESCE((SELECT sum(size_bytes) FROM files),0)::numeric AS used_bytes,
+        COALESCE((SELECT sum(size_bytes) FROM upload_sessions WHERE status='active' AND updated_at>=now()-interval '7 days'),0)::numeric AS reserved_bytes,
+        (SELECT count(*) FROM files)::int AS file_count,
+        (SELECT count(*) FROM projects WHERE archived=false)::int AS project_count
+    `);
+    const row=r.rows[0]||{};
+    const used=Number(row.used_bytes||0);
+    const reserved=Number(row.reserved_bytes||0);
+    const quota=Math.max(0,Number(STORAGE_QUOTA_BYTES||0));
+    const available=Math.max(0,quota-used-reserved);
+    const percent=quota?Math.min(100,((used+reserved)/quota)*100):0;
+    res.json({
+      storage:{
+        quota_bytes:quota,
+        used_bytes:used,
+        reserved_bytes:reserved,
+        available_bytes:available,
+        usage_percent:percent,
+        file_count:Number(row.file_count||0),
+        project_count:Number(row.project_count||0),
+        format_quota:formatStorageBytes(quota),
+        format_used:formatStorageBytes(used),
+        format_reserved:formatStorageBytes(reserved),
+        format_available:formatStorageBytes(available),
+        storage_ready:s3Ready(),
+        bucket_name:String(process.env.S3_BUCKET||""),
+        bucket_region:String(process.env.S3_REGION||"")
+      }
+    });
+  }catch(e){
+    console.error(e);
+    res.status(500).json({error:"Could not load storage information"});
+  }
+});
+
 app.get("/api/dashboard",admin,async(req,res)=>{
   try{
     const [counts,recentProjects,recentDownloads,typeRows]=await Promise.all([
