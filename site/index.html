@@ -411,7 +411,7 @@ async function renderDashboardPage(){
     c.innerHTML=`
       <div class="cards">
         <div class="card"><small>Active Projects</small><strong>${s.active_projects||0}</strong><span>Current client workspaces</span></div>
-        <div class="card"><small>Files</small><strong>${s.file_count||0}</strong><span>${fmt(s.storage_bytes||0)} in storage</span></div>
+        <div class="card"><small>Storage Used</small><strong>${fmt(s.storage_bytes||0)}</strong><span>of ${fmt(s.storage_quota_bytes||0)} capacity</span></div>
         <div class="card"><small>Shared Projects</small><strong>${s.shared_projects||0}</strong><span>Active delivery links</span></div>
         <div class="card"><small>Total Downloads</small><strong>${s.download_count||0}</strong><span>${s.downloads_7d||0} in the last 7 days</span></div>
       </div>
@@ -429,7 +429,7 @@ async function renderDashboardPage(){
         <div class="panel span6"><div class="ph"><div><h2>Studio Snapshot</h2><p>Operational information.</p></div></div><div class="body">
           <div class="quick"><button class="btn primary" id="dashNew">＋ New Project</button><button class="btn" id="dashSettings">Open Settings</button></div>
           <div style="height:15px"></div>
-          <div class="smallnote">Archived projects: <b>${s.archived_projects||0}</b><br>Downloads in 30 days: <b>${s.downloads_30d||0}</b><br>Client sharing is controlled per project. Uploads remain in the project archive until you remove a file.</div>
+          <div class="smallnote">Archived projects: <b>${s.archived_projects||0}</b><br>Downloads in 30 days: <b>${s.downloads_30d||0}</b><br>Storage policy: <b>original bytes preserved</b><br>Transfer policy: <b>resumable + duplicate-aware</b></div>
         </div></div>
       </div>`;
     document.querySelector('#dashProjects').onclick=function(){showView('projects')};
