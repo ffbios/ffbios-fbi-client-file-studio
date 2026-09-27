@@ -697,6 +697,7 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
     var size=Number(req.body.size||0);
     var mimeType=String(req.body.mimeType||"application/octet-stream");
     var fingerprint=String(req.body.fingerprint||"").trim().slice(0,128);
+    var checksum=String(req.body.checksum||"").trim().slice(0,128);
     if(!projectId||!originalName)return res.status(400).json({error:"Project and file name are required."});
     if(!Number.isFinite(size)||size<0||size>MAX_FILE_SIZE)return res.status(400).json({error:"File size is outside the supported range."});
     var pr=await pool.query("SELECT id FROM projects WHERE id=$1 AND archived=false",[projectId]);
@@ -750,17 +751,15 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
       }));
       multipartUploadId=created.UploadId;
     }else{
-      url=await getSignedUrl(
-        s3,
-        new PutObjectCommand({Bucket:bucket(),Key:storageKey,ContentType:mimeType}),
-        {expiresIn:3600}
-      );
+      var putInput={Bucket:bucket(),Key:storageKey,ContentType:mimeType};
+      if(checksum)putInput.ChecksumSHA256=checksum;
+      url=await getSignedUrl(s3,new PutObjectCommand(putInput),{expiresIn:3600});
     }
     await pool.query(
-      "INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11')",
+      "INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11)",
       [id,projectId,originalName,relativePath,storageKey,mimeType,size,mode==="multipart"?partSize:size,multipartUploadId,mode,fingerprint||null]
     );
-    res.json({uploadId:id,mode,partSize,size,url,multipartUploadId});
+    res.json({uploadId:id,mode,partSize,size,url,multipartUploadId,checksum:checksum||null,fingerprint:fingerprint||null});
   }catch(e){console.error(e);res.status(500).json({error:"Could not initialize cloud upload."})}
 });
 
