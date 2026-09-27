@@ -795,17 +795,20 @@ app.post("/api/uploads/:id/parts",admin,async(req,res)=>{
     if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
     var u=q.rows[0];
     if(u.mode!=="multipart"||!u.multipart_upload_id)return res.status(400).json({error:"This upload does not use multipart storage."});
-    var nums=Array.isArray(req.body.partNumbers)?req.body.partNumbers.map(Number).filter(function(n){return Number.isInteger(n)&&n>0&&n<=MAX_PARTS;}):[];
-    if(!nums.length||nums.length>25)return res.status(400).json({error:"Provide 1 to 25 part numbers."});
+    var requested=Array.isArray(req.body.parts)?req.body.parts.map(function(x){return {partNumber:Number(x.partNumber),checksum:String(x.checksum||"").trim()};}):[];
+    if(!requested.length&&Array.isArray(req.body.partNumbers)){
+      requested=req.body.partNumbers.map(function(n){return {partNumber:Number(n),checksum:""};});
+    }
+    requested=requested.filter(function(x){return Number.isInteger(x.partNumber)&&x.partNumber>0&&x.partNumber<=MAX_PARTS;});
+    if(!requested.length||requested.length>25)return res.status(400).json({error:"Provide 1 to 25 part numbers."});
     var parts=[];
-    for(var i=0;i<nums.length;i++){
-      var partNumber=nums[i];
-      var partUrl=await getSignedUrl(
-        s3,
-        new UploadPartCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,PartNumber:partNumber}),
-        {expiresIn:PRESIGN_SECONDS}
-      );
-      parts.push({partNumber:partNumber,url:partUrl});
+    for(var i=0;i<requested.length;i++){
+      var partNumber=requested[i].partNumber;
+      var checksum=requested[i].checksum;
+      var commandInput={Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,PartNumber:partNumber};
+      if(checksum)commandInput.ChecksumSHA256=checksum;
+      var partUrl=await getSignedUrl(s3,new UploadPartCommand(commandInput),{expiresIn:PRESIGN_SECONDS});
+      parts.push({partNumber:partNumber,url:partUrl,checksum:checksum||null});
     }
     res.json({parts:parts,expiresIn:PRESIGN_SECONDS});
   }catch(e){console.error(e);res.status(500).json({error:"Could not create upload URLs."})}
@@ -844,8 +847,8 @@ app.post("/api/uploads/:id/complete",admin,async(req,res)=>{
     }
     var fileId=uid();
     var ins=await pool.query(
-      "INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING RETURNING *",
-      [fileId,u.project_id,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,actualSize,u.relative_path]
+      "INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING RETURNING *",
+      [fileId,u.project_id,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,actualSize,u.relative_path,u.content_fingerprint||null]
     );
     var fileRow=ins.rows[0];
     if(!fileRow)fileRow=(await pool.query("SELECT * FROM files WHERE storage_path=$1",[u.storage_key])).rows[0];
