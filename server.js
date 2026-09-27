@@ -1053,6 +1053,10 @@ app.get("/pwa-icon.svg",(req,res)=>{
 app.get("/sw.js",(req,res)=>{
   res.type("application/javascript").set("Cache-Control","no-cache").sendFile(path.join(ROOT,"sw.js"));
 });
+app.get("/editor.html",(req,res)=>{
+  if(!validSession(req))return res.redirect("/");
+  res.type("html").sendFile(path.join(ROOT,"editor.html"));
+});
 
 app.use((req,res)=>res.sendFile(path.join(ROOT,"index.html")));
 
