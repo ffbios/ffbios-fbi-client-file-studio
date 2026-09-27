@@ -36,7 +36,7 @@
 .segment{display:flex;border:1px solid var(--border);border-radius:10px;padding:3px;background:#0e0e10}.segment button{border:0;background:transparent;color:var(--muted);padding:8px 11px;border-radius:8px;font-size:10px}.segment button.active{background:#1b1b1e;color:var(--text)}
 .metric{border:1px solid var(--border);background:linear-gradient(180deg,#161619,#121214);padding:16px;border-radius:15px;box-shadow:var(--shadow)}.metric small{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.08em}.metric strong{display:block;font-size:27px;margin-top:7px}.metric span{display:block;color:var(--muted);font-size:10px;margin-top:5px}
 .tablewrap{overflow:auto}.table{width:100%;border-collapse:collapse;min-width:760px}.table th,.table td{padding:11px;border-bottom:1px solid var(--border);text-align:left;font-size:10px;vertical-align:top}.table th{color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.08em;position:sticky;top:0;background:#151517}.table td b{font-size:10px}.muted{color:var(--muted)}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9px}
-.barline{display:grid;grid-template-columns:88px 1fr 60px;gap:8px;align-items:center;margin:9px 0;font-size:10px}.bar{height:8px;background:#26262a;border-radius:99px;overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2))}
+.barline{display:grid;grid-template-columns:88px 1fr 60px;gap:8px;align-items:center;margin:9px 0;font-size:10px}.bar{height:8px;background:#26262a;border-radius:99px;overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2))}.storagehero{border:1px solid var(--border);background:linear-gradient(180deg,#17171a,#101012);border-radius:18px;padding:18px;box-shadow:var(--shadow)}.storagehero .storow{display:flex;justify-content:space-between;gap:15px;align-items:flex-end}.storagehero .used{font-size:33px;font-weight:800;line-height:1}.storagehero .capacity{font-size:11px;color:var(--muted);text-align:right}.storageprogress{height:13px;background:#26262a;border-radius:999px;overflow:hidden;margin:16px 0 12px}.storageprogress i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--gold),var(--gold2));transition:width .25s}.storagelegend{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.storageitem{border:1px solid var(--border);border-radius:12px;padding:12px;background:#0f0f11}.storageitem small{display:block;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.08em}.storageitem b{display:block;font-size:15px;margin-top:5px}@media(max-width:700px){.storagelegend{grid-template-columns:1fr}.storagehero .storow{align-items:flex-start;flex-direction:column}.storagehero .capacity{text-align:left}}
 .filefolder{margin-bottom:12px}.filefolder h4{margin:0 0 7px;color:#ddd;font-size:10px}.filefolder .file{margin-bottom:7px}
 .settinggrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.toggle{display:flex;align-items:center;gap:10px;border:1px solid var(--border);background:#0f0f11;padding:11px;border-radius:10px}.toggle input{width:17px;height:17px}.statusdot{width:9px;height:9px;border-radius:50%;background:var(--red);display:inline-block;margin-right:7px}.statusdot.ok{background:var(--green)}
 .quick{display:flex;gap:8px;flex-wrap:wrap}.smallnote{font-size:10px;color:var(--muted);line-height:1.5}
@@ -382,6 +382,9 @@ async function showView(view){
   if(view==="dashboard"){
     setPageHead("Dashboard","Overview of your client file studio.");
     await renderDashboardPage();
+  }else if(view==="storage"){
+    setPageHead("Storage","See exactly how much cloud space is used and how much is left.");
+    await renderStoragePage();
   }else if(view==="projects"){
     setPageHead("Projects","Manage client projects, archives, files and delivery links.");
     renderProjectsPage();
@@ -437,6 +440,34 @@ async function renderDashboardPage(){
     document.querySelector('#dashSettings').onclick=function(){showView('settings')};
     document.querySelector('#dashNew').onclick=function(){document.querySelector('#modal').classList.add('show')};
   }catch(e){c.innerHTML='<div class="empty">'+esc(e.message)+'</div>'}
+}
+async function renderStoragePage(){
+  const c=document.querySelector('#content');
+  c.innerHTML='<div class="empty">Loading storage...</div>';
+  try{
+    const d=await api('/api/storage'),s=d.storage||{};
+    const pct=Number(s.usage_percent||0);
+    c.innerHTML='<div class="storagehero">'+
+      '<div class="storow"><div><div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:.08em">FBI Cloud Storage</div><div class="used">'+esc(s.format_used)+'</div></div>'+
+      '<div class="capacity"><b>'+esc(s.format_available)+'</b> left<br>of <b>'+esc(s.format_quota)+'</b></div></div>'+
+      '<div class="storageprogress"><i style="width:'+Math.min(100,Math.max(0,pct))+'%"></i></div>'+
+      '<div style="display:flex;justify-content:space-between;gap:10px;font-size:10px;color:var(--muted)"><span>'+pct.toFixed(3)+'% used</span><span>'+Number(s.file_count||0).toLocaleString()+' stored files</span></div></div>'+
+      '<div style="height:14px"></div>'+
+      '<div class="viewgrid">'+
+      '<div class="metric"><small>Storage Used</small><strong>'+esc(s.format_used)+'</strong><span>Completed files currently stored.</span></div>'+
+      '<div class="metric"><small>Storage Available</small><strong>'+esc(s.format_available)+'</strong><span>Remaining inside the Studio quota.</span></div>'+
+      '<div class="metric"><small>Pending Uploads</small><strong>'+esc(s.format_reserved)+'</strong><span>Space reserved by active resumable uploads.</span></div>'+
+      '<div class="metric"><small>Capacity</small><strong>'+esc(s.format_quota)+'</strong><span>Configured Studio storage capacity.</span></div></div>'+
+      '<div style="height:14px"></div>'+
+      '<div class="viewgrid">'+
+      '<div class="panel span8"><div class="ph"><div><h2>Storage Details</h2><p>Live storage accounting from the Studio database.</p></div><button class="btn" id="refreshStorage">Refresh</button></div><div class="body">'+
+      '<div class="barline"><span>Used</span><div class="bar"><i style="width:'+Math.min(100,pct)+'%"></i></div><b style="text-align:right">'+pct.toFixed(2)+'%</b></div>'+
+      '<div style="height:14px"></div><div class="smallnote"><b>'+esc(s.format_used)+'</b> is the total size of completed files recorded in the Studio.<br><b>'+esc(s.format_reserved)+'</b> is temporarily reserved for active uploads.<br><b>'+esc(s.format_available)+'</b> is available after completed storage and active upload reservations.<br>Files are stored as original bytes. No media quality reduction is applied.</div></div></div>'+
+      '<div class="panel span4"><div class="ph"><div><h2>Storage Status</h2><p>Current cloud storage connection.</p></div></div><div class="body">'+
+      '<div class="pillline"><span class="statusdot '+(s.storage_ready?'ok':'')+'"></span><b>'+(s.storage_ready?'Connected':'Not ready')+'</b></div><div style="height:10px"></div>'+
+      '<div class="smallnote">Bucket: <b>'+esc(s.bucket_name||'Configured bucket')+'</b><br>Region: <b>'+esc(s.bucket_region||'Configured region')+'</b><br>Policy: <b>Lossless original bytes</b><br>Transfers: <b>Resumable and duplicate-aware</b></div></div></div></div>';
+    document.querySelector('#refreshStorage').onclick=function(){renderStoragePage()};
+  }catch(e){c.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}
 }
 async function renderDownloadsPage(){
   const c=document.querySelector('#content');
@@ -765,6 +796,7 @@ function studioView(){
         <div class="brand"><div><img src="${LOGO}"><small>Client File Studio</small></div></div>
         <nav class="nav">
           <button data-view="dashboard">⌂ &nbsp;Dashboard</button>
+          <button data-view="storage">▤ &nbsp;Storage</button>
           <button data-view="projects">▣ &nbsp;Projects</button>
           <button data-view="streams">◉ &nbsp;Live Streaming</button>
           <button data-view="ndi">◈ &nbsp;NDI I/O</button>
