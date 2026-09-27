@@ -16,7 +16,8 @@ const ADMIN_EMAIL=(process.env.ADMIN_EMAIL||"filmbyfbi@gmail.com").trim().toLowe
 const ADMIN_PASSWORD=process.env.ADMIN_PASSWORD||"";
 const SESSION_SECRET=process.env.SESSION_SECRET||crypto.randomBytes(32).toString("hex");
 const PUBLIC_BASE_URL=(process.env.PUBLIC_BASE_URL||"").replace(/\/+$/,"");
-const MAX_FILE_SIZE=5*1024*1024*1024*1024;
+const MAX_FILE_SIZE=5*1000*1000*1000*1000;
+const STORAGE_QUOTA_BYTES=Number(process.env.STORAGE_QUOTA_BYTES||100000000000000);
 const MIN_PART_SIZE=64*1024*1024;
 const MAX_PARTS=10000;
 const PRESIGN_SECONDS=1200;
@@ -114,6 +115,7 @@ async function initDb(){
       storage_path text NOT NULL,
       mime_type text NOT NULL DEFAULT 'application/octet-stream',
       size_bytes bigint NOT NULL DEFAULT 0,
+      content_fingerprint text,
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS downloads(
@@ -139,12 +141,17 @@ async function initDb(){
       multipart_upload_id text,
       mode text NOT NULL,
       status text NOT NULL DEFAULT 'active',
+      content_fingerprint text,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     );
     ALTER TABLE files ADD COLUMN IF NOT EXISTS relative_path text NOT NULL DEFAULT '';
+    ALTER TABLE files ADD COLUMN IF NOT EXISTS content_fingerprint text;
+    ALTER TABLE files ADD COLUMN IF NOT EXISTS sha256 text;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false;
+    CREATE INDEX IF NOT EXISTS idx_files_fingerprint ON files(project_id,content_fingerprint,size_bytes);
     CREATE INDEX IF NOT EXISTS idx_upload_sessions_project ON upload_sessions(project_id);
+    ALTER TABLE upload_sessions ADD COLUMN IF NOT EXISTS content_fingerprint text;
     CREATE INDEX IF NOT EXISTS idx_upload_sessions_active ON upload_sessions(project_id,status);
     CREATE TABLE IF NOT EXISTS streams(
       id uuid PRIMARY KEY,
