@@ -414,7 +414,7 @@ async function renderDashboardPage(){
     c.innerHTML=`
       <div class="cards">
         <div class="card"><small>Active Projects</small><strong>${s.active_projects||0}</strong><span>Current client workspaces</span></div>
-        <div class="card"><small>Storage Used</small><strong>${fmt(s.storage_bytes||0)}</strong><span>of ${fmt(s.storage_quota_bytes||0)} capacity</span></div>
+        <div class="card"><small>Storage</small><strong>${fmt(s.storage_bytes||0)}</strong><span>${fmt(s.storage_available_bytes||0)} left of ${fmt(s.storage_quota_bytes||0)}</span></div>
         <div class="card"><small>Shared Projects</small><strong>${s.shared_projects||0}</strong><span>Active delivery links</span></div>
         <div class="card"><small>Total Downloads</small><strong>${s.download_count||0}</strong><span>${s.downloads_7d||0} in the last 7 days</span></div>
       </div>
