@@ -172,6 +172,52 @@ let uploadQueue=[];
 let uploadTicker=null;
 const PART_CONCURRENCY=4;
 const FILE_CONCURRENCY=2;
+const MIN_PART_SIZE=64*1024*1024;
+const MAX_PARTS=10000;
+
+function chooseLocalPartSize(size){
+  var part=MIN_PART_SIZE;
+  while(Math.ceil(size/part)>MAX_PARTS)part*=2;
+  return part;
+}
+function bytesToBase64(bytes){
+  var out="";
+  for(var i=0;i<bytes.length;i++)out+=String.fromCharCode(bytes[i]);
+  return btoa(out);
+}
+async function sha256Base64(blob){
+  var digest=await crypto.subtle.digest("SHA-256",await blob.arrayBuffer());
+  return bytesToBase64(new Uint8Array(digest));
+}
+async function prepareIntegrity(item){
+  var partSize=chooseLocalPartSize(item.file.size||1);
+  var totalParts=Math.max(1,Math.ceil(item.file.size/partSize));
+  item.status="checking";
+  item.checksums=[];
+  item.loadedBytes=0;
+  renderUploadQueue();
+  var rawHashes=[];
+  for(var pn=1;pn<=totalParts;pn++){
+    if(item.paused)throw new Error("Upload paused");
+    var start=(pn-1)*partSize,end=Math.min(item.file.size,start+partSize);
+    var digest=await crypto.subtle.digest("SHA-256",await item.file.slice(start,end).arrayBuffer());
+    var bytes=new Uint8Array(digest);
+    item.checksums.push(bytesToBase64(bytes));
+    rawHashes.push(bytes);
+    item.loadedBytes=Math.min(item.totalBytes,end);
+    renderUploadQueue();
+  }
+  var header=new TextEncoder().encode(String(item.file.size)+":"+String(partSize)+":");
+  var combined=new Uint8Array(header.length+rawHashes.length*32),offset=0;
+  combined.set(header,offset);offset+=header.length;
+  rawHashes.forEach(function(bytes){combined.set(bytes,offset);offset+=bytes.length});
+  item.fingerprint=bytesToBase64(new Uint8Array(await crypto.subtle.digest("SHA-256",combined)));
+  item.fileChecksum=totalParts===1?item.checksums[0]:null;
+  item.integrityPartSize=partSize;
+  item.loadedBytes=0;
+  item.status="uploading";
+  renderUploadQueue();
+}
 
 function fmtRate(n){return fmt(n)+"/s"}
 function etaText(sec){
@@ -192,16 +238,16 @@ function renderUploadQueue(){
   var html="";
   list.forEach(function(item){
     var p=uploadStats(item);
-    var action=item.status==="paused"?"<button class='mini' data-upresume='"+item.id+"'>Resume</button>":(item.status==="queued"?"":"<button class='mini' data-uppause='"+item.id+"'>Pause</button>");
+    var action=item.status==="paused"?"<button class='mini' data-upresume='"+item.id+"'>Resume</button>":(item.status==="queued"||item.status==="checking"||item.status==="deduplicated"?"":"<button class='mini' data-uppause='"+item.id+"'>Pause</button>");
     html+="<div class='upload-item'><div class='utop'><div class='uname'>"+esc(item.relativePath)+"</div><div>"+p.pct.toFixed(0)+"%</div></div>";
     html+="<div class='ustatus'>"+esc(item.status)+(item.mode?" • "+esc(item.mode):"")+" • "+fmt(item.loadedBytes)+" / "+fmt(item.totalBytes)+" • "+(p.rate?fmtRate(p.rate):"--")+" • ETA "+etaText(p.eta)+"</div>";
     html+="<div class='ubar'><i style='width:"+p.pct+"%'></i></div>";
-    html+="<div class='ufoot'><span>"+(item.resumed?"Resumed session":"Direct cloud upload")+"</span><span>"+action+" <button class='mini' data-upcancel='"+item.id+"'>Cancel</button></span></div></div>";
+    html+="<div class='ufoot'><span>"+(item.resumed?"Resumed session":item.status==="deduplicated"?"Already stored":"Lossless direct cloud upload")+"</span><span>"+action+" <button class='mini' data-upcancel='"+item.id+"'>Cancel</button></span></div></div>";
   });
   box.innerHTML=html;
   box.querySelectorAll("[data-uppause]").forEach(function(b){b.onclick=function(){pauseUpload(b.dataset.uppause)}});
-  box.querySelectorAll("[data-upresume]").forEach(function(b){b.onclick=function(){resumeUpload(b.dataset.upresume)}});
-  box.querySelectorAll("[data-upcancel]").forEach(function(b){b.onclick=function(){cancelUpload(b.dataset.upcancel)}});
+  box.querySelectorAll("[data-upresume]").forEach(function(b){b.onclick=function(){resumeUpload(b.dataset.uppresume)}});
+  box.querySelectorAll("[data-upcancel]").forEach(function(b){b.onclick=function(){cancelUpload(b.dataset.uppcancel)}});
 }
 function xhrPut(url,blob,headers,item,onProgress){
   return new Promise(function(resolve,reject){
@@ -223,14 +269,17 @@ async function retry(fn,max){
 }
 async function uploadSingle(item,session){
   item.loadedBytes=0;renderUploadQueue();
-  await retry(function(){return xhrPut(session.url,item.file,{"Content-Type":item.file.type||"application/octet-stream"},item,function(n){item.loadedBytes=n;renderUploadQueue()})});
+  var headers={"Content-Type":item.file.type||"application/octet-stream"};
+  if(item.fileChecksum)headers["x-amz-checksum-sha256"]=item.fileChecksum;
+  await retry(function(){return xhrPut(session.url,item.file,headers,item,function(n){item.loadedBytes=n;renderUploadQueue()})});
   if(item.paused)throw new Error("Upload paused");
   await api("/api/uploads/"+item.sessionId+"/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
   item.loadedBytes=item.totalBytes;
 }
-async function getPartUrl(sessionId,pn){
-  var d=await api("/api/uploads/"+sessionId+"/parts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({partNumbers:[pn]})});
-  return d.parts[0].url;
+async function getPartUrl(sessionId,pn,checksum){
+  var body={parts:[{partNumber:pn,checksum:checksum||""}]};
+  var d=await api("/api/uploads/"+sessionId+"/parts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  return d.parts[0];
 }
 async function uploadMultipart(item,session){
   var partSize=Number(session.partSize);
@@ -249,13 +298,16 @@ async function uploadMultipart(item,session){
     var batch=missing.splice(0,PART_CONCURRENCY);
     await Promise.all(batch.map(async function(partNumber){
       var start=(partNumber-1)*partSize,end=Math.min(item.file.size,start+partSize),blob=item.file.slice(start,end),lastLoaded=0;
+      var checksum=(item.checksums||[])[partNumber-1]||"";
       var out=await retry(async function(){
-        var url=await getPartUrl(item.sessionId,partNumber);
+        var signed=await getPartUrl(item.sessionId,partNumber,checksum);
         lastLoaded=0;
-        return xhrPut(url,blob,{},item,function(n){item.loadedBytes+=(n-lastLoaded);lastLoaded=n;renderUploadQueue()});
+        var headers={};
+        if(signed.checksum)headers["x-amz-checksum-sha256"]=signed.checksum;
+        return xhrPut(signed.url,blob,headers,item,function(n){item.loadedBytes+=(n-lastLoaded);lastLoaded=n;renderUploadQueue()});
       },3);
-      var i=parts.findIndex(function(p){return p.partNumber===partNumber});
-      if(i>=0)parts[i]={partNumber:partNumber,etag:out.etag};else parts.push({partNumber:partNumber,etag:out.etag});
+      var idx=parts.findIndex(function(p){return p.partNumber===partNumber});
+      if(idx>=0)parts[idx]={partNumber:partNumber,etag:out.etag};else parts.push({partNumber:partNumber,etag:out.etag});
     }));
   }
   if(item.paused)throw new Error("Upload paused");
@@ -263,22 +315,28 @@ async function uploadMultipart(item,session){
   item.loadedBytes=item.totalBytes;
 }
 async function uploadOne(item){
-  item.status="uploading";item.startedAt=Date.now();renderUploadQueue();
+  item.startedAt=Date.now();item.status="queued";renderUploadQueue();
   try{
+    await prepareIntegrity(item);
     var session=await api("/api/uploads/init",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      projectId:item.projectId,name:item.file.name,relativePath:item.relativePath,size:item.file.size,mimeType:item.file.type||"application/octet-stream"
+      projectId:item.projectId,name:item.file.name,relativePath:item.relativePath,size:item.file.size,mimeType:item.file.type||"application/octet-stream",
+      fingerprint:item.fingerprint||"",checksum:item.fileChecksum||""
     })});
     item.sessionId=session.uploadId;item.mode=session.mode;item.resumed=!!session.resumed;
+    if(session.deduplicated){
+      item.status="deduplicated";item.loadedBytes=item.totalBytes;renderUploadQueue();
+      await loadProjects();await openProject(item.projectId);toast("Already stored: "+item.file.name);return;
+    }
     if(session.mode==="single")await uploadSingle(item,session);else await uploadMultipart(item,session);
     item.status="completed";item.error="";renderUploadQueue();
-    await loadProjects();await openProject(item.projectId);toast("Uploaded: "+item.file.name);
+    await loadProjects();await openProject(item.projectId);toast("Uploaded without quality loss: "+item.file.name);
   }catch(e){
     if(item.paused){item.status="paused";renderUploadQueue();return}
     item.status="error";item.error=e.message||"Upload failed";renderUploadQueue();toast(item.error);
   }
 }
 async function pumpUploads(){
-  var running=uploadQueue.filter(function(x){return x.status==="uploading"}).length;
+  var running=uploadQueue.filter(function(x){return x.status==="uploading"||x.status==="checking"}).length;
   while(running<FILE_CONCURRENCY){
     var next=uploadQueue.find(function(x){return x.status==="queued"});
     if(!next)break;running++;uploadOne(next).finally(function(){pumpUploads()});
@@ -288,7 +346,7 @@ async function pumpUploads(){
 function uploadFiles(list){
   if(!list||!list.length||!current)return;
   Array.from(list).forEach(function(file){
-    uploadQueue.push({id:crypto.randomUUID(),projectId:current.id,file:file,relativePath:file.webkitRelativePath||file.name,totalBytes:file.size,loadedBytes:0,status:"queued",xhrs:new Set()});
+    uploadQueue.push({id:crypto.randomUUID(),projectId:current.id,file:file,relativePath:file.webkitRelativePath||file.name,totalBytes:file.size,loadedBytes:0,status:"queued",xhrs:new Set(),checksums:[]});
   });
   if(!uploadTicker)uploadTicker=setInterval(renderUploadQueue,500);
   renderUploadQueue();pumpUploads();
@@ -308,7 +366,6 @@ async function cancelUpload(id){
   if(item.sessionId)await api("/api/uploads/"+item.sessionId+"/abort",{method:"POST"}).catch(function(){});
   item.status="cancelled";renderUploadQueue();toast("Upload cancelled");
 }
-
 
 let studioSettings={studio_name:"FBI Client File Studio",portal_title:"FBI Client File Delivery",default_client_note:"Your files are ready for download.",default_expiry_days:30,log_downloads:true,allow_client_preview:true,show_file_size:true};
 let activeStudioView="dashboard";
