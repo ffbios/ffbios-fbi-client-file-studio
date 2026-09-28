@@ -1055,6 +1055,9 @@ app.get("/sw.js",(req,res)=>{
 });
 app.get("/editor.html",(req,res)=>{
   if(!validSession(req))return res.redirect("/");
+  res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma","no-cache");
+  res.set("Expires","0");
   res.type("html").sendFile(path.join(ROOT,"editor.html"));
 });
 
