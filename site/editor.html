@@ -211,6 +211,29 @@ function applyVisual(){
   if(c.transition==='Push'&&rel<tr)transform='translate('+(c.positionX+(1-rel/tr)*80)+'px,'+c.positionY+'px) scale('+(c.scale/100)+') rotate('+c.rotation+'deg)';
   v.style.transform=transform;v.style.opacity=String(opacity);v.style.filter='brightness('+S.effect.brightness+'%) contrast('+S.effect.contrast+'%) saturate('+S.effect.saturate+'%) blur('+S.effect.blur+'px) grayscale('+S.effect.grayscale+'%) sepia('+S.effect.sepia+'%)';
 }
+function renderLibraryForTab(tab){
+  const q=document.getElementById('quickEffects');if(!q)return;
+  const data={
+    effects:[
+      ['Video Transitions','Cross Dissolve'],['Video Transitions','Dip to Black'],['Video Transitions','Dip to White'],['Video Transitions','Film Dissolve'],['Video Transitions','Push'],['Video Transitions','Wipe'],['Video Transitions','Zoom'],
+      ['Video Effects','Gaussian Blur'],['Video Effects','Sharpen'],['Video Effects','Unsharp Mask'],['Stylize','Film Grain'],['Stylize','Vignette']
+    ],
+    color:[
+      ['Basic Correction','Exposure'],['Basic Correction','Contrast'],['Basic Correction','Highlights / Shadows'],['Basic Correction','Temperature'],['Basic Correction','Tint'],['Basic Correction','Saturation'],['Looks','FBI Gold'],['Looks','Cinematic Teal']
+    ],
+    audio:[
+      ['Audio Transitions','Constant Power'],['Audio Transitions','Constant Gain'],['Audio Effects','Parametric EQ'],['Audio Effects','Dynamics'],['Audio Effects','DeNoise'],['Audio Effects','Limiter'],['Sound Effects','Whoosh'],['Sound Effects','Impact'],['Sound Effects','Riser'],['Sound Effects','Camera Shutter']
+    ],
+    graphics:[
+      ['Titles','Main Title'],['Lower Thirds','FBI Gold Lower Third'],['Logos','FBI Logo'],['Text','Callout']
+    ],
+    captions:[
+      ['Captions','Open Captions'],['Captions','Subtitle Style'],['Captions','Burn-in Captions']
+    ]
+  }[tab]||[];
+  q.innerHTML=data.map(function(x){return "<div class='effect'><span>"+esc(x[0]+" • "+x[1])+"</span><button data-add='"+esc(x[1])+"'>Add</button></div>"}).join('');
+  q.querySelectorAll('[data-add]').forEach(function(b){b.onclick=function(){applyPreset(b.dataset.add)}});
+}
 function activateLeftPanel(name){
   document.querySelectorAll('#subtabs button').forEach(b=>b.classList.toggle('active',b.dataset.left===name));
   document.querySelectorAll('.leftview').forEach(v=>v.classList.toggle('active',v.id==='left-'+name));
@@ -218,7 +241,7 @@ function activateLeftPanel(name){
 function setWorkspace(tab){
   S.workspace=tab;
   document.querySelectorAll('#workspaces button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
-  const map={assembly:'project',editing:'browser',color:'effects',effects:'effects',audio:'effects',graphics:'libraries',captions:'info',more:'project'};
+  const map={assembly:'project',editing:'browser',color:'effects',effects:'effects',audio:'effects',graphics:'libraries',captions:'libraries',more:'project'};
   activateLeftPanel(map[tab]||'project');
   const w=document.getElementById('inspectorWrap');if(w)w.classList.toggle('show',tab!=='assembly'||!!selectedClip());
   renderLibraryForTab(tab);renderLibrariesForTab(tab);renderInspector();showGraphics();showCaptions();
