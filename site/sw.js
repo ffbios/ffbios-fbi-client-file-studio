@@ -19,6 +19,7 @@ self.addEventListener("fetch",event=>{
   const req=event.request;
   const url=new URL(req.url);
   if(req.method!=="GET" || url.origin!==self.location.origin) return;
+  if(url.pathname==="/editor.html") return;
   if(url.pathname.startsWith("/api/") || url.pathname.startsWith("/watch/") || url.pathname.startsWith("/share/")) return;
 
   event.respondWith((async()=>{
