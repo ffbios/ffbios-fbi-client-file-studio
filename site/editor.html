@@ -53,7 +53,7 @@
     </section>
     <section class="monitor">
       <div class="monitorhead"><span class="title">Program: <span id="programTitle">Untitled Sequence</span></span><span class="small">Program Monitor</span></div>
-      <div class="canvas"><div class="screen"><video id="programVideo" controls playsinline></video><div id="graphicsOverlay" style="position:absolute;inset:auto 8% 10%;font-size:28px;font-weight:800;text-align:center;text-shadow:0 2px 10px #000;display:none"></div><div id="captionOverlay" style="position:absolute;left:8%;right:8%;bottom:8%;font-size:19px;text-align:center;text-shadow:0 2px 7px #000;display:none"></div></div></div>
+      <div class="canvas"><div class="screen"><video id="programVideo" controls playsinline></video><audio id="programAudio" style="display:none"></audio><div id="graphicsOverlay" style="position:absolute;inset:auto 8% 10%;font-size:28px;font-weight:800;text-align:center;text-shadow:0 2px 10px #000;display:none"></div><div id="captionOverlay" style="position:absolute;left:8%;right:8%;bottom:8%;font-size:19px;text-align:center;text-shadow:0 2px 7px #000;display:none"></div></div></div>
       <div class="transport"><button id="prev">◀|</button><button id="play">▶</button><button id="next">|▶</button><span class="tc" id="programTc">00:00:00:00</span><span class="zoom" id="status">Ready</span></div>
     </section>
   </main>
@@ -71,7 +71,7 @@
     <div class="timelinearea">
       <div class="toolrail" id="toolrail"><button class="active" title="Selection">↖</button><button title="Track Select">⇥</button><button title="Ripple Edit">⌁</button><button title="Razor">✂</button><button title="Slip">◫</button><button title="Slide">⇆</button><button title="Pen">✎</button><button title="Hand">✋</button><button title="Type">T</button><button title="Zoom">⌕</button></div>
       <div class="timelinebar">
-        <button id="addMedia">Import Media</button><button id="addToTimeline">Add to Timeline</button><button id="razorBtn">Razor</button><button id="rippleBtn">Ripple Delete</button><span class="spacer"></span><select id="sequenceSelect"><option>24 fps</option><option>25 fps</option><option>30 fps</option><option>50 fps</option><option>60 fps</option></select><button id="toggleInspector">Inspector</button><button id="export">Export</button>
+        <button id="addMedia">Import Media</button><button id="addFolder">Import Folder</button><button id="addToTimeline">Add to Timeline</button><button id="razorBtn">Razor</button><button id="rippleBtn">Ripple Delete</button><span class="spacer"></span><select id="sequenceSelect"><option>24 fps</option><option>25 fps</option><option>30 fps</option><option>50 fps</option><option>60 fps</option></select><button id="toggleInspector">Inspector</button><button id="export">Export</button>
         <input id="fileInput" type="file" multiple accept="video/*,audio/*,image/*" style="display:none">
         <input id="folderInput" type="file" webkitdirectory directory multiple style="display:none">
       </div>
@@ -116,17 +116,33 @@ function setStatus(t){document.getElementById('status').textContent=t}
 function refreshSource(){const f=selectedFile();const v=document.getElementById('sourceVideo');document.getElementById('sourceTitle').textContent='Source: '+(f?f.original_name:'No media selected');if(f){v.src=fileUrl(f);v.load();document.getElementById('sourceTc').textContent='00:00:00:00'}else{v.removeAttribute('src');v.load()}}
 function activeClip(){return S.clips.find(c=>S.playhead>=c.start&&S.playhead<c.start+c.duration)||null}
 function refreshProgram(){
-  const c=activeClip();const v=document.getElementById('programVideo');const f=c&&S.files.find(x=>x.id===c.fileId);
-  if(!c||!f){v.removeAttribute('src');v.load();applyVisual();return}
+  const c=activeClip(),v=document.getElementById('programVideo'),a=document.getElementById('programAudio'),f=c&&S.files.find(x=>x.id===c.fileId);
+  document.getElementById('programTitle').textContent=S.sequence;
+  if(!c||!f){v.pause();v.removeAttribute('src');v.load();a.pause();a.removeAttribute('src');a.load();applyVisual();return}
   const offset=Math.max(0,(S.playhead-c.start)*c.speed);
-  v.src=fileUrl(f);v.onloadedmetadata=()=>{try{v.currentTime=Math.min((v.duration||c.sourceDuration)-.05,c.trimIn+offset)}catch{};applyVisual()};
-  v.load();document.getElementById('programTitle').textContent=S.sequence;
+  if(c.type==='audio'){
+    v.pause();v.removeAttribute('src');v.load();
+    a.src=fileUrl(f);a.onloadedmetadata=()=>{try{a.currentTime=Math.min((a.duration||c.sourceDuration)-.05,c.trimIn+offset)}catch{}};a.volume=Math.max(0,Math.min(1,(c.volume||100)/100));a.muted=!!c.mute;a.playbackRate=c.speed;a.load();
+  }else{
+    a.pause();a.removeAttribute('src');a.load();
+    v.src=fileUrl(f);v.onloadedmetadata=()=>{try{v.currentTime=Math.min((v.duration||c.sourceDuration)-.05,c.trimIn+offset)}catch{};applyVisual()};v.load();
+  }
 }
-function playProgram(){const v=document.getElementById('programVideo'),c=activeClip()||S.clips[0];if(!c)return setStatus('Add media to the timeline first.');if(S.playing){v.pause();S.playing=false;setStatus('Paused');return}S.selectedClip=c.id;refreshProgram();S.playing=true;v.play().then(()=>setStatus('Playing')).catch(()=>{S.playing=false;setStatus('Playback blocked by browser.')})}
+function playProgram(){const v=document.getElementById('programVideo'),a=document.getElementById('programAudio'),c=activeClip()||S.clips[0];if(!c)return setStatus('Add media to the timeline first.');if(S.playing){v.pause();a.pause();S.playing=false;setStatus('Paused');return}S.selectedClip=c.id;refreshProgram();S.playing=true;const p=c.type==='audio'?a:v;p.play().then(()=>setStatus('Playing')).catch(()=>{S.playing=false;setStatus('Playback blocked by browser.')})}
 function stepNext(dir){const ordered=[...S.clips].sort((a,b)=>a.start-b.start);const i=ordered.findIndex(c=>c.id===S.selectedClip);const n=ordered[i+(dir>0?1:-1)];if(n){S.selectedClip=n.id;S.playhead=n.start;renderAll();refreshProgram()}}
+function mediaDuration(f){
+  if(imageFile(f))return Promise.resolve(5);
+  const tag=audioFile(f)?'audio':'video',el=document.createElement(tag);el.preload='metadata';el.src=fileUrl(f);
+  return new Promise(resolve=>{
+    const ok=()=>{cleanup();resolve(Number(el.duration)||0)},bad=()=>{cleanup();resolve(0)},cleanup=()=>{el.removeEventListener('loadedmetadata',ok);el.removeEventListener('error',bad);el.removeAttribute('src')};
+    el.addEventListener('loadedmetadata',ok,{once:true});el.addEventListener('error',bad,{once:true});
+  });
+}
 async function addFileToTimeline(f){
-  if(!videoFile(f)&&!imageFile(f))return setStatus('Only video or still-image clips can be placed on the video timeline.');
-  const d=fileDuration(f);snapshot();const c={id:crypto.randomUUID(),fileId:f.id,name:f.original_name,sourceDuration:d,trimIn:0,trimOut:d,speed:1,start:total(),duration:d,track:'V1',scale:100,positionX:0,positionY:0,rotation:0,opacity:100,transition:'None',filter:'None'};
+  if(!videoFile(f)&&!audioFile(f)&&!imageFile(f))return setStatus('This media type cannot be placed on the timeline.');
+  const d=await mediaDuration(f);if(!d)return setStatus('Could not read media duration.');
+  snapshot();
+  const c={id:crypto.randomUUID(),fileId:f.id,name:f.original_name,sourceDuration:d,trimIn:0,trimOut:d,speed:1,start:total(),duration:d,track:audioFile(f)?'A1':'V1',type:audioFile(f)?'audio':'video',scale:100,positionX:0,positionY:0,rotation:0,opacity:100,transition:'None',volume:100,pan:0,fadeIn:0,fadeOut:0,mute:false};
   S.clips.push(c);S.selectedClip=c.id;S.selectedFile=f.id;S.playhead=c.start;save();renderAll();refreshProgram();setStatus('Added '+f.original_name)}
 function importFiles(list){
   Array.from(list||[]).forEach(file=>{const id='local-'+crypto.randomUUID();localFiles.push({id,original_name:file.name,mime_type:file.type||'application/octet-stream',size_bytes:file.size,localUrl:URL.createObjectURL(file),local:true,relative_path:file.webkitRelativePath||file.name});});S.files=[...S.files.filter(f=>!f.local),...localFiles];renderBin();setStatus(localFiles.length+' local media file(s) available.')}
@@ -150,54 +166,98 @@ function renderTimeline(){
   const width=(max+15)*px;track.style.minWidth=width+'px';r.style.minWidth=width+'px';track.querySelectorAll('.lane').forEach(x=>x.style.minWidth=width+'px');document.getElementById('playline').style.left=S.playhead*px+'px'
 }
 function renderInspector(){
-  const w=document.getElementById('inspectorWrap'),b=document.getElementById('inspect'),c=selectedClip();if(!c){w.classList.remove('show');return}w.classList.add('show');document.getElementById('inspectTitle').textContent=S.workspace==='effects'?'Effects':S.workspace==='color'?'Color Correction':S.workspace==='audio'?'Audio Controls':'Effect Controls';
-  b.innerHTML='<div class="inspectsec"><h4>Motion</h4><div class="ig"><div class="if"><label>Scale %</label><input id="scale" type="number" value="'+c.scale+'"></div><div class="if"><label>Opacity %</label><input id="opacity" type="number" value="'+c.opacity+'"></div><div class="if"><label>Position X</label><input id="px" type="number" value="'+c.positionX+'"></div><div class="if"><label>Position Y</label><input id="py" type="number" value="'+c.positionY+'"></div><div class="if"><label>Rotation</label><input id="rotation" type="number" value="'+c.rotation+'"></div><div class="if"><label>Speed</label><input id="speed" type="number" min=".25" max="4" step=".05" value="'+c.speed+'"></div></div></div>'+
-  '<div class="inspectsec"><h4>Video Transition</h4><div class="ig"><div class="if"><label>In / Out</label><select id="transition"><option>None</option><option>Cross Dissolve</option><option>Dip to Black</option><option>Dip to White</option><option>Film Dissolve</option><option>Push</option><option>Wipe</option><option>Zoom</option></select></div></div></div>'+
-  '<div class="inspectsec"><h4>Color</h4><div class="ig"><div class="if"><label>Brightness</label><input id="brightness" type="number" value="'+S.effect.brightness+'"></div><div class="if"><label>Contrast</label><input id="contrast" type="number" value="'+S.effect.contrast+'"></div><div class="if"><label>Saturation</label><input id="saturate" type="number" value="'+S.effect.saturate+'"></div><div class="if"><label>Blur px</label><input id="blur" type="number" value="'+S.effect.blur+'"></div><div class="if"><label>Grayscale %</label><input id="grayscale" type="number" value="'+S.effect.grayscale+'"></div><div class="if"><label>Sepia %</label><input id="sepia" type="number" value="'+S.effect.sepia+'"></div></div></div>';
-  document.getElementById('transition').value=c.transition||'None';
-  ['scale','opacity','px','py','rotation','speed','transition','brightness','contrast','saturate','blur','grayscale','sepia'].forEach(id=>document.getElementById(id).onchange=()=>{snapshot();c.scale=Number(document.getElementById('scale').value||100);c.opacity=Number(document.getElementById('opacity').value||100);c.positionX=Number(document.getElementById('px').value||0);c.positionY=Number(document.getElementById('py').value||0);c.rotation=Number(document.getElementById('rotation').value||0);c.speed=Math.max(.25,Math.min(4,Number(document.getElementById('speed').value||1)));c.transition=document.getElementById('transition').value;S.effect.brightness=Number(document.getElementById('brightness').value||100);S.effect.contrast=Number(document.getElementById('contrast').value||100);S.effect.saturate=Number(document.getElementById('saturate').value||100);S.effect.blur=Number(document.getElementById('blur').value||0);S.effect.grayscale=Number(document.getElementById('grayscale').value||0);S.effect.sepia=Number(document.getElementById('sepia').value||0);rebuild(c);save();renderTimeline();refreshProgram();applyVisual();})}
+  const w=document.getElementById('inspectorWrap'),b=document.getElementById('inspect'),c=selectedClip();
+  const title={assembly:'Effect Controls',editing:'Effect Controls',color:'Lumetri Color',effects:'Video Effects',audio:'Audio Mixer',graphics:'Essential Graphics',captions:'Captions'}[S.workspace]||'Effect Controls';
+  w.classList.toggle('show',S.workspace!=='assembly'||!!c);document.getElementById('inspectTitle').textContent=title;
+  if(S.workspace==='graphics'){
+    S.graphics=S.graphics||'';S.graphicsStyle=S.graphicsStyle||{size:28,opacity:100};
+    b.innerHTML='<div class="inspectsec"><h4>Title / Graphic</h4><div class="if"><label>Text</label><input id="gText" value="'+esc(S.graphics)+'" placeholder="Type your title"></div><div class="ig" style="margin-top:7px"><div class="if"><label>Size</label><input id="gSize" type="number" min="8" max="120" value="'+S.graphicsStyle.size+'"></div><div class="if"><label>Opacity %</label><input id="gOpacity" type="number" min="0" max="100" value="'+S.graphicsStyle.opacity+'"></div></div><div style="height:7px"></div><button class="topbtn primary" id="gApply">Apply Graphic</button></div>';
+    document.getElementById('gApply').onclick=()=>{S.graphics=document.getElementById('gText').value;S.graphicsStyle={size:Number(document.getElementById('gSize').value||28),opacity:Number(document.getElementById('gOpacity').value||100)};save();showGraphics();setStatus('Graphic applied.');};
+    return;
+  }
+  if(S.workspace==='captions'){
+    S.caption=S.caption||'';S.captionStyle=S.captionStyle||{size:19,opacity:100};
+    b.innerHTML='<div class="inspectsec"><h4>Caption</h4><div class="if"><label>Text</label><textarea id="capText" style="width:100%;height:90px;background:#1d1e20;border:1px solid #414247;color:#eee;border-radius:3px;padding:7px;font-size:9px">'+esc(S.caption)+'</textarea></div><div class="ig" style="margin-top:7px"><div class="if"><label>Size</label><input id="capSize" type="number" min="8" max="80" value="'+S.captionStyle.size+'"></div><div class="if"><label>Opacity %</label><input id="capOpacity" type="number" min="0" max="100" value="'+S.captionStyle.opacity+'"></div></div><div style="height:7px"></div><button class="topbtn primary" id="capApply">Apply Caption</button></div>';
+    document.getElementById('capApply').onclick=()=>{S.caption=document.getElementById('capText').value;S.captionStyle={size:Number(document.getElementById('capSize').value||19),opacity:Number(document.getElementById('capOpacity').value||100)};save();showCaptions();setStatus('Caption applied.');};
+    return;
+  }
+  if(!c){b.innerHTML='<div class="empty">Select a clip on the timeline. The selected workspace controls will appear here.</div>';return}
+  c.scale=Number(c.scale||100);c.opacity=Number(c.opacity??100);c.positionX=Number(c.positionX||0);c.positionY=Number(c.positionY||0);c.rotation=Number(c.rotation||0);c.speed=Number(c.speed||1);c.volume=Number(c.volume??100);c.pan=Number(c.pan||0);c.fadeIn=Number(c.fadeIn||0);c.fadeOut=Number(c.fadeOut||0);c.mute=!!c.mute;c.transition=c.transition||'None';
+  let html='';
+  if(S.workspace==='audio'){
+    html='<div class="inspectsec"><h4>Audio Controls</h4><div class="ig"><div class="if"><label>Volume %</label><input id="volume" type="number" min="0" max="200" value="'+c.volume+'"></div><div class="if"><label>Pan</label><input id="pan" type="number" min="-100" max="100" value="'+c.pan+'"></div><div class="if"><label>Fade In s</label><input id="fadeIn" type="number" min="0" max="30" step=".05" value="'+c.fadeIn+'"></div><div class="if"><label>Fade Out s</label><input id="fadeOut" type="number" min="0" max="30" step=".05" value="'+c.fadeOut+'"></div></div><div style="margin-top:8px"><label style="font-size:8px;color:#999"><input id="mute" type="checkbox" '+(c.mute?'checked':'')+'> Mute clip</label></div></div>';
+  }else if(S.workspace==='color'){
+    html='<div class="inspectsec"><h4>Color Correction</h4><div class="ig"><div class="if"><label>Brightness</label><input id="brightness" type="number" value="'+S.effect.brightness+'"></div><div class="if"><label>Contrast</label><input id="contrast" type="number" value="'+S.effect.contrast+'"></div><div class="if"><label>Saturation</label><input id="saturate" type="number" value="'+S.effect.saturate+'"></div><div class="if"><label>Grayscale %</label><input id="grayscale" type="number" value="'+S.effect.grayscale+'"></div><div class="if"><label>Sepia %</label><input id="sepia" type="number" value="'+S.effect.sepia+'"></div><div class="if"><label>Blur px</label><input id="blur" type="number" value="'+S.effect.blur+'"></div></div></div>';
+  }else if(S.workspace==='effects'){
+    html='<div class="inspectsec"><h4>Effects</h4><div class="note">Use the Effects panel for browser-preview effects and transitions.</div></div><div class="inspectsec"><h4>Transition</h4><div class="if"><label>Video Transition</label><select id="transition"><option>None</option><option>Cross Dissolve</option><option>Dip to Black</option><option>Dip to White</option><option>Film Dissolve</option><option>Push</option><option>Wipe</option><option>Zoom</option></select></div></div>';
+  }else{
+    html='<div class="inspectsec"><h4>Motion</h4><div class="ig"><div class="if"><label>Scale %</label><input id="scale" type="number" value="'+c.scale+'"></div><div class="if"><label>Opacity %</label><input id="opacity" type="number" value="'+c.opacity+'"></div><div class="if"><label>Position X</label><input id="px" type="number" value="'+c.positionX+'"></div><div class="if"><label>Position Y</label><input id="py" type="number" value="'+c.positionY+'"></div><div class="if"><label>Rotation</label><input id="rotation" type="number" value="'+c.rotation+'"></div><div class="if"><label>Speed</label><input id="speed" type="number" min=".25" max="4" step=".05" value="'+c.speed+'"></div></div></div><div class="inspectsec"><h4>Transition</h4><div class="if"><label>Video Transition</label><select id="transition"><option>None</option><option>Cross Dissolve</option><option>Dip to Black</option><option>Dip to White</option><option>Film Dissolve</option><option>Push</option><option>Wipe</option><option>Zoom</option></select></div></div>';
+  }
+  b.innerHTML=html;if(document.getElementById('transition'))document.getElementById('transition').value=c.transition;
+  ['scale','opacity','px','py','rotation','speed','transition','brightness','contrast','saturate','grayscale','sepia','blur','volume','pan','fadeIn','fadeOut','mute'].forEach(id=>{const el=document.getElementById(id);if(!el)return;el.onchange=()=>{snapshot();
+    if(id==='scale')c.scale=Number(el.value||100);else if(id==='opacity')c.opacity=Number(el.value||100);else if(id==='px')c.positionX=Number(el.value||0);else if(id==='py')c.positionY=Number(el.value||0);else if(id==='rotation')c.rotation=Number(el.value||0);else if(id==='speed')c.speed=Math.max(.25,Math.min(4,Number(el.value||1)));else if(id==='transition')c.transition=el.value;else if(id==='brightness')S.effect.brightness=Number(el.value||100);else if(id==='contrast')S.effect.contrast=Number(el.value||100);else if(id==='saturate')S.effect.saturate=Number(el.value||100);else if(id==='grayscale')S.effect.grayscale=Number(el.value||0);else if(id==='sepia')S.effect.sepia=Number(el.value||0);else if(id==='blur')S.effect.blur=Number(el.value||0);else if(id==='volume')c.volume=Math.max(0,Math.min(200,Number(el.value||100)));else if(id==='pan')c.pan=Math.max(-100,Math.min(100,Number(el.value||0)));else if(id==='fadeIn')c.fadeIn=Math.max(0,Number(el.value||0));else if(id==='fadeOut')c.fadeOut=Math.max(0,Number(el.value||0));else if(id==='mute')c.mute=!!el.checked;
+    rebuild(c);save();renderAll();applyVisual();setStatus('Updated '+id+'.');};
+  });
+}
 function applyVisual(){
   const c=selectedClip(),v=document.getElementById('programVideo');if(!v)return;
-  if(!c){v.style.transform='none';v.style.opacity='1';v.style.filter='none'}else{v.style.transform='translate('+c.positionX+'px,'+c.positionY+'px) scale('+(c.scale/100)+') rotate('+c.rotation+'deg)';v.style.opacity=String(Math.max(0,Math.min(100,c.opacity))/100);v.style.filter='brightness('+S.effect.brightness+'%) contrast('+S.effect.contrast+'%) saturate('+S.effect.saturate+'%) blur('+S.effect.blur+'px) grayscale('+S.effect.grayscale+'%) sepia('+S.effect.sepia+'%)'}
+  if(!c){v.style.transform='none';v.style.opacity='1';v.style.filter='none';return}
+  const rel=Math.max(0,S.playhead-c.start),remain=Math.max(0,c.start+c.duration-S.playhead),tr=.5;
+  let opacity=Math.max(0,Math.min(100,c.opacity||100))/100;
+  if(c.transition==='Dip to Black')opacity*=Math.min(1,rel/tr,remain/tr);
+  if(c.transition==='Cross Dissolve')opacity*=Math.min(1,rel/tr);
+  let transform='translate('+c.positionX+'px,'+c.positionY+'px) scale('+(c.scale/100)+') rotate('+c.rotation+'deg)';
+  if(c.transition==='Zoom'&&rel<tr)transform='translate('+c.positionX+'px,'+c.positionY+'px) scale('+(c.scale/100*(.94+.06*rel/tr))+') rotate('+c.rotation+'deg)';
+  if(c.transition==='Push'&&rel<tr)transform='translate('+(c.positionX+(1-rel/tr)*80)+'px,'+c.positionY+'px) scale('+(c.scale/100)+') rotate('+c.rotation+'deg)';
+  v.style.transform=transform;v.style.opacity=String(opacity);v.style.filter='brightness('+S.effect.brightness+'%) contrast('+S.effect.contrast+'%) saturate('+S.effect.saturate+'%) blur('+S.effect.blur+'px) grayscale('+S.effect.grayscale+'%) sepia('+S.effect.sepia+'%)';
 }
-function setWorkspace(tab){S.workspace=tab;document.querySelectorAll('#workspaces button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));renderInspector();renderLibraryForTab(tab);if(tab==='graphics')showGraphics();if(tab==='captions')showCaptions()}
-function renderLibraryForTab(tab){
-  const q=document.getElementById('quickEffects');if(!q)return;const data={
-    effects:[['Video Transitions','Cross Dissolve'],['Video Transitions','Dip to Black'],['Video Transitions','Push'],['Video Transitions','Wipe'],['Video Effects','Gaussian Blur'],['Video Effects','Sharpen'],['Video Effects','Unsharp Mask'],['Stylize','Film Grain'],['Stylize','Vignette'],['Color','Lumetri Basic'],['Distort','Lens Distortion'],['Utility','Transform']],
-    color:[['Color Correction','Exposure'],['Color Correction','Contrast'],['Color Correction','Highlights / Shadows'],['Color Correction','Temperature'],['Color Correction','Tint'],['Color Correction','Saturation'],['Look','FBI Gold'],['Look','Cinematic Teal'],
-    ],
-    audio:[['Audio Transitions','Constant Power'],['Audio Transitions','Constant Gain'],['Audio Effects','Parametric EQ'],['Audio Effects','Dynamics'],['Audio Effects','DeNoise'],['Audio Effects','Limiter'],['SFX','Whoosh'],['SFX','Impact'],['SFX','Riser'],['SFX','Camera Shutter']],
-    graphics:[['Titles','Main Title'],['Lower Thirds','FBI Gold Lower Third'],['Logos','FBI Logo'],['Text','Callout'],['Shapes','Rectangle'],['Shapes','Line']],
-    captions:[['Captions','Open Captions'],['Captions','Subtitle Style'],['Captions','Burn-in Captions']]
-  }[tab]||[];
-  q.innerHTML=data.map(x=>'<div class="effect"><span>'+esc(x[0]+' • '+x[1])+'</span><button data-add="'+esc(x[1])+'">Add</button></div>').join('');
-  q.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>applyPreset(b.dataset.add));
+function activateLeftPanel(name){
+  document.querySelectorAll('#subtabs button').forEach(b=>b.classList.toggle('active',b.dataset.left===name));
+  document.querySelectorAll('.leftview').forEach(v=>v.classList.toggle('active',v.id==='left-'+name));
 }
-function applyPreset(name){
-  const c=selectedClip();if(!c)return setStatus('Select a clip first.');
+function setWorkspace(tab){
+  S.workspace=tab;
+  document.querySelectorAll('#workspaces button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+  const map={assembly:'project',editing:'browser',color:'effects',effects:'effects',audio:'effects',graphics:'libraries',captions:'info',more:'project'};
+  activateLeftPanel(map[tab]||'project');
+  const w=document.getElementById('inspectorWrap');if(w)w.classList.toggle('show',tab!=='assembly'||!!selectedClip());
+  renderLibraryForTab(tab);renderLibrariesForTab(tab);renderInspector();showGraphics();showCaptions();
+  setStatus(tab==='assembly'?'Assembly workspace ready':tab.charAt(0).toUpperCase()+tab.slice(1)+' workspace ready');
+}
+function renderLibrariesForTab(tab){
+  const box=document.querySelector('#left-libraries .library');if(!box)return;
+  if(tab==='graphics'){
+    box.innerHTML='<div class="libgroup"><h4>Graphics & Titles</h4><div class="effect">Main Title <button data-library="Main Title">Use</button></div><div class="effect">FBI Gold Lower Third <button data-library="FBI Gold Lower Third">Use</button></div><div class="effect">FBI Logo <button data-library="FBI Logo">Use</button></div><div class="effect">Callout <button data-library="Callout">Use</button></div></div>';
+  }else{
+    box.innerHTML='<div class="libgroup"><h4>Templates</h4><div class="effect">Wedding Lower Third <button data-library="FBI Gold Lower Third">Use</button></div><div class="effect">Gold Title <button data-library="Main Title">Use</button></div><div class="effect">Cinematic Opener <button data-library="Main Tfunction applyPreset(name){
+  const c=selectedClip();
+  if(['Main Title','FBI Gold Lower Third','FBI Logo','Callout'].includes(name)){
+    S.graphics=name==='FBI Gold Lower Third'?'FILM BEYOND IMAGINATION':name==='FBI Logo'?'FBI':name==='Callout'?'CALL OUT':'YOUR TITLE';S.graphicsStyle=S.graphicsStyle||{size:28,opacity:100};showGraphics();setWorkspace('graphics');setStatus(name+' applied.');return;
+  }
+  if(['Open Captions','Subtitle Style','Burn-in Captions'].includes(name)){
+    S.caption=name==='Open Captions'?'Caption text':name==='Subtitle Style'?'Subtitle text':'BURN-IN CAPTION';S.captionStyle=S.captionStyle||{size:19,opacity:100};showCaptions();setWorkspace('captions');setStatus(name+' applied.');return;
+  }
+  if(!c)return setStatus('Select a clip first.');
   snapshot();
-  if(name==='Gaussian Blur')S.effect.blur=7;
-  if(name==='Sharpen')S.effect.contrast+=8;
-  if(name==='Grayscale')S.effect.grayscale=100;
-  if(name==='Cross Dissolve'||name==='Dip to Black'||name==='Dip to White'||name==='Film Dissolve'||name==='Push'||name==='Wipe'||name==='Zoom')c.transition=name;
-  if(name==='FBI Gold'){S.effect.saturate=115;S.effect.contrast=108}
-  if(name==='Cinematic Teal'){S.effect.saturate=108;S.effect.contrast=112}
-  if(name==='Main Title')S.graphics='YOUR TITLE';
-  if(name==='FBI Gold Lower Third')S.graphics='FILM BEYOND IMAGINATION';
-  if(name==='Open Captions')S.caption='Caption text';
-  save();renderInspector();applyVisual();showGraphics();showCaptions();setStatus(name+' added.')}
-function showGraphics(){const o=document.getElementById('graphicsOverlay');o.textContent=S.graphics;o.style.display=S.graphics?'block':'none'}
-function showCaptions(){const o=document.getElementById('captionOverlay');o.textContent=S.caption;o.style.display=S.caption?'block':'none'}
+  if(name==='Gaussian Blur')S.effect.blur=7;else if(name==='Sharpen')S.effect.contrast=Math.max(S.effect.contrast,108);else if(name==='Unsharp Mask')S.effect.contrast=Math.max(S.effect.contrast,112);else if(name==='Film Grain')S.effect.contrast+=4;else if(name==='Vignette')S.effect.brightness=Math.max(75,S.effect.brightness-8);else if(name==='Exposure')S.effect.brightness=110;else if(name==='Contrast')S.effect.contrast=115;else if(name==='Highlights / Shadows')S.effect.contrast=105;else if(name==='Temperature')S.effect.sepia=8;else if(name==='Tint')S.effect.sepia=4;else if(name==='Saturation')S.effect.saturate=120;else if(name==='FBI Gold'){S.effect.saturate=115;S.effect.contrast=108}else if(name==='Cinematic Teal'){S.effect.saturate=108;S.effect.contrast=112}else if(['Cross Dissolve','Dip to Black','Dip to White','Film Dissolve','Push','Wipe','Zoom'].includes(name))c.transition=name;else if(['Constant Power','Constant Gain'].includes(name)){c.fadeIn=Math.max(c.fadeIn||0,.25);c.fadeOut=Math.max(c.fadeOut||0,.25)}else if(['Parametric EQ','Dynamics','DeNoise','Limiter','Whoosh','Impact','Riser','Camera Shutter'].includes(name)){c.audioEffect=name}
+  save();renderAll();setStatus(name+' applied.');
+}
+function showGraphics(){const o=document.getElementById('graphicsOverlay');if(!o)return;S.graphicsStyle=S.graphicsStyle||{size:28,opacity:100};o.textContent=S.graphics;o.style.display=S.graphics?'block':'none';o.style.fontSize=(S.graphicsStyle.size||28)+'px';o.style.opacity=String((S.graphicsStyle.opacity??100)/100)}
+function showCaptions(){const o=document.getElementById('captionOverlay');if(!o)return;S.captionStyle=S.captionStyle||{size:19,opacity:100};o.textContent=S.caption;o.style.display=S.caption?'block':'none';o.style.fontSize=(S.captionStyle.size||19)+'px';o.style.opacity=String((S.captionStyle.opacity??100)/100)}
 function undo(){const h=S._history?.pop();if(!h)return;S._future=S._future||[];S._future.push(JSON.stringify({clips:S.clips,selectedClip:S.selectedClip,playhead:S.playhead,effect:S.effect}));Object.assign(S,JSON.parse(h));renderAll()}
 function redo(){const h=S._future?.pop();if(!h)return;S._history=S._history||[];S._history.push(JSON.stringify({clips:S.clips,selectedClip:S.selectedClip,playhead:S.playhead,effect:S.effect}));Object.assign(S,JSON.parse(h));renderAll()}
 function renderAll(){renderBin();renderProjects();renderTimeline();renderInspector();refreshSource();refreshProgram();renderLibraryForTab(S.workspace);showGraphics();showCaptions();document.getElementById('programTitle').textContent=S.sequence;document.getElementById('sequenceSelect').value='24 fps'}
 function wireTabs(){
   document.querySelectorAll('#workspaces button[data-tab]').forEach(b=>b.onclick=()=>setWorkspace(b.dataset.tab));
-  document.querySelectorAll('#subtabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#subtabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.leftview').forEach(x=>x.classList.remove('active'));document.getElementById('left-'+b.dataset.left).classList.add('active')});
+  document.querySelectorAll('#subtabs button').forEach(b=>b.onclick=()=>{activateLeftPanel(b.dataset.left);if(b.dataset.left==='effects')renderLibraryForTab(S.workspace);if(b.dataset.left==='libraries')renderLibrariesForTab(S.workspace);if(b.dataset.left==='info')renderInfo(selectedFile());setStatus(b.textContent+' panel opened.')});
 }
 document.getElementById('back').onclick=()=>location.href='/';
+document.querySelectorAll('.menubar>button:not(.home)').forEach(b=>{if(b.id!=='back')b.onclick=()=>setStatus(b.textContent+' menu selected.')});
 document.getElementById('saveTop').onclick=save;document.getElementById('save').onclick=save;
 document.getElementById('addMedia').onclick=()=>document.getElementById('fileInput').click();
+document.getElementById('addFolder').onclick=()=>document.getElementById('folderInput').click();
+document.getElementById('folderInput').onchange=e=>{importFiles(e.target.files);e.target.value=''};
+
 document.getElementById('fileInput').onchange=e=>{importFiles(e.target.files);e.target.value=''};
 document.getElementById('addToTimeline').onclick=()=>{const f=selectedFile();if(f)addFileToTimeline(f);else setStatus('Select media first.')};
 document.getElementById('razorBtn').onclick=()=>{const c=activeClip();if(!c)return setStatus('Place the playhead inside a clip.');const rel=S.playhead-c.start;if(rel<=.05||rel>=c.duration-.05)return setStatus('Place the playhead inside a clip.');snapshot();const cut=c.trimIn+rel*c.speed;const n=Object.assign({},c,{id:crypto.randomUUID(),trimIn:cut,start:c.start+rel});c.trimOut=cut;rebuild(c);rebuild(n);S.clips.push(n);S.selectedClip=n.id;save();renderAll();setStatus('Razor cut created.')};
@@ -205,7 +265,8 @@ document.getElementById('rippleBtn').onclick=()=>{const c=selectedClip();if(!c)r
 document.getElementById('toggleInspector').onclick=()=>document.getElementById('inspectorWrap').classList.toggle('show');
 document.getElementById('closeInspector').onclick=()=>document.getElementById('inspectorWrap').classList.remove('show');
 document.getElementById('play').onclick=playProgram;
-document.getElementById('programVideo').ontimeupdate=()=>{const c=activeClip();if(!c)return;S.playhead=c.start+Math.max(0,Math.min(c.duration,(document.getElementById('programVideo').currentTime-c.trimIn)/c.speed));document.getElementById('programTc').textContent=ft(S.playhead)+':00';renderTimeline()};
+document.getElementById('programVideo').ontimeupdate=()=>{const c=activeClip();if(!c)return;S.playhead=c.start+Math.max(0,Math.min(c.duration,(document.getElementById('programVideo').currentTime-c.trimIn)/c.speed));document.getElementById('programTc').textContent=ft(S.playhead)+':00';applyVisual();renderTimeline()};
+document.getElementById('programAudio').ontimeupdate=()=>{const c=activeClip();if(!c||c.type!=='audio')return;S.playhead=c.start+Math.max(0,Math.min(c.duration,(document.getElementById('programAudio').currentTime-c.trimIn)/c.speed));document.getElementById('programTc').textContent=ft(S.playhead)+':00';renderTimeline()};
 document.getElementById('programVideo').onended=()=>{if(S.playing){const n=[...S.clips].sort((a,b)=>a.start-b.start).find(x=>x.start>S.playhead+.01);if(n){S.selectedClip=n.id;S.playhead=n.start;refreshProgram()}else{S.playing=false;setStatus('Sequence complete.')}}};
 document.getElementById('prev').onclick=()=>stepNext(-1);document.getElementById('next').onclick=()=>stepNext(1);
 document.getElementById('sourcePlay').onclick=()=>{const v=document.getElementById('sourceVideo');if(v.paused)v.play();else v.pause()};document.getElementById('sourcePrev').onclick=()=>{document.getElementById('sourceVideo').currentTime=0};document.getElementById('sourceNext').onclick=()=>{const v=document.getElementById('sourceVideo');v.currentTime=v.duration||0};
@@ -224,7 +285,7 @@ document.getElementById('captionOverlay').onclick=()=>setStatus('Caption preview
     const d=await api('/api/projects?status=active');projects=d.projects||[];
     const base=JSON.parse(localStorage.getItem('fbi-editor-project')||'null');if(base?.projectId){S.project=base.projectId;S.sequence=base.sequence||S.sequence}
     document.getElementById('sequence').value=S.sequence;
-    wireTabs();renderAll();setWorkspace('assembly');
+    wireTabs();renderAll();setWorkspace('assembly');renderLibrariesForTab('assembly');
     if(S.project){document.getElementById('project').value=S.project;await loadProject(S.project)}else setStatus('Select a project or import media from your desktop.');
   }catch(e){document.body.innerHTML='<div class="empty">'+esc(e.message||'Editor unavailable')+'</div>'}
 })();
