@@ -40,7 +40,11 @@
     <button class="home">⌂</button>
     <button>File</button><button>Edit</button><button>Clip</button><button>Sequence</button><button>Markers</button><button>Graphics</button><button>Window</button><button>Help</button>
     <span style="margin-left:8px;color:#808187">FBI Client File Studio</span>
-    <div class="topright"><button class="topbtn" id="back">Back to Studio</button><button class="topbtn primary" id="saveTop">Save</button></div>
+    <div class="topright" style="display:flex;align-items:center;gap:6px">
+      <select id="project" style="width:210px;background:#1c1d1f;border:1px solid #44454a;color:#ddd;border-radius:3px;padding:5px 7px;font-size:8px"><option value="">Select Project</option></select>
+      <input id="sequence" value="Untitled Sequence" title="Sequence name" style="width:150px;background:#1c1d1f;border:1px solid #44454a;color:#ddd;border-radius:3px;padding:5px 7px;font-size:8px">
+      <button class="topbtn" id="back">Back to Studio</button><button class="topbtn primary" id="saveTop">Save</button>
+    </div>
   </div>
   <div class="workspaces" id="workspaces">
     <button class="active" data-tab="assembly">Assembly</button><button data-tab="editing">Editing</button><button data-tab="color">Color</button><button data-tab="effects">Effects</button><button data-tab="audio">Audio</button><button data-tab="graphics">Graphics</button><button data-tab="captions">Captions</button><button data-tab="more">»</button>
@@ -62,7 +66,7 @@
       <div class="subtabs" id="subtabs"><button class="active" data-left="project">Project</button><button data-left="browser">Media Browser</button><button data-left="libraries">Libraries</button><button data-left="info">Info</button><button data-left="effects">Effects</button></div>
       <div class="leftcontent">
         <div class="leftview active" id="left-project"><div class="projectlist" id="projects"></div></div>
-        <div class="leftview" id="left-browser"><div class="media-grid" id="mediaGrid"></div></div>
+        <div class="leftview" id="left-browser"><div style="padding:8px;border-bottom:1px solid #343539;display:flex;gap:6px;align-items:center"><input id="search" placeholder="Search media..." style="flex:1;background:#1d1e20;border:1px solid #424348;color:#eee;border-radius:3px;padding:7px;font-size:8px"><span id="count" style="font-size:8px;color:#999">0 media</span></div><div class="media-grid" id="mediaGrid"></div></div>
         <div class="leftview" id="left-libraries"><div class="library"><div class="libgroup"><h4>Templates</h4><div class="effect">Wedding Lower Third <button>Use</button></div><div class="effect">Gold Title <button>Use</button></div><div class="effect">Cinematic Opener <button>Use</button></div></div><div class="libgroup"><h4>Presets</h4><div class="effect">FBI Brand Gold <button>Apply</button></div><div class="effect">Clean Documentary <button>Apply</button></div></div></div></div>
         <div class="leftview" id="left-info"><div class="details" id="fileInfo">Select a media item to view metadata.</div></div>
         <div class="leftview" id="left-effects"><div class="library" id="quickEffects"></div></div>
@@ -71,7 +75,7 @@
     <div class="timelinearea">
       <div class="toolrail" id="toolrail"><button class="active" title="Selection">↖</button><button title="Track Select">⇥</button><button title="Ripple Edit">⌁</button><button title="Razor">✂</button><button title="Slip">◫</button><button title="Slide">⇆</button><button title="Pen">✎</button><button title="Hand">✋</button><button title="Type">T</button><button title="Zoom">⌕</button></div>
       <div class="timelinebar">
-        <button id="addMedia">Import Media</button><button id="addFolder">Import Folder</button><button id="addToTimeline">Add to Timeline</button><button id="razorBtn">Razor</button><button id="rippleBtn">Ripple Delete</button><span class="spacer"></span><select id="sequenceSelect"><option>24 fps</option><option>25 fps</option><option>30 fps</option><option>50 fps</option><option>60 fps</option></select><button id="toggleInspector">Inspector</button><button id="export">Export</button>
+        <button id="addMedia">Import Media</button><button id="addFolder">Import Folder</button><button id="addToTimeline">Add to Timeline</button><button id="save" title="Save sequence">Save Sequence</button><button id="razorBtn">Razor</button><button id="rippleBtn">Ripple Delete</button><span class="spacer"></span><select id="sequenceSelect"><option>24 fps</option><option>25 fps</option><option>30 fps</option><option>50 fps</option><option>60 fps</option></select><button id="toggleInspector">Inspector</button><button id="export">Export</button>
         <input id="fileInput" type="file" multiple accept="video/*,audio/*,image/*" style="display:none">
         <input id="folderInput" type="file" webkitdirectory directory multiple style="display:none">
       </div>
@@ -154,10 +158,10 @@ function renderBin(){
 }
 function renderProjects(){const b=document.getElementById('projects');if(!b)return;b.innerHTML=projects.map(p=>'<div class="projectrow '+(S.project===p.id?'sel':'')+'" data-id="'+p.id+'"><b>'+esc(p.name)+'</b><small>'+esc(p.client_name||'No client')+' • '+(p.file_count||0)+' files</small></div>').join('');b.querySelectorAll('[data-id]').forEach(e=>e.onclick=()=>loadProject(e.dataset.id))}
 async function loadProject(id){
-  if(!id)return;const d=await api('/api/projects/'+id);S.project=id;S.files=(d.files||[]).filter(f=>videoFile(f)||audioFile(f)||imageFile(f));S.selectedFile=null;S.selectedClip=null;S.playhead=0;
+  if(!id)return;const d=await api('/api/projects/'+id);S.project=id;document.getElementById('project').value=id;S.files=(d.files||[]).filter(f=>videoFile(f)||audioFile(f)||imageFile(f));S.selectedFile=null;S.selectedClip=null;S.playhead=0;
   try{S.clips=JSON.parse(localStorage.getItem('fbi-editor-clips-'+id)||'[]')}catch{S.clips=[]}if(!Array.isArray(S.clips))S.clips=[];S.clips.forEach(rebuild);saveProjectHeader();renderAll();setStatus(S.files.length+' cloud media loaded.')}
 function saveProjectHeader(){localStorage.setItem('fbi-editor-project',JSON.stringify({projectId:S.project,sequence:S.sequence}))}
-function renderInfo(f){document.getElementById('fileInfo').innerHTML=f?'<b>Filename:</b> '+esc(f.original_name)+'<br><b>Type:</b> '+esc(f.mime_type)+'<br><b>Size:</b> '+fmt(f.size_bytes)+'<br><b>Location:</b> '+(f.local?'Desktop / Local Browser':'FBI Cloud Storage'):'Select a media item to view metadata.'}
+function renderInfo(f){document.getElementById('fileInfo').innerHTML=f?'<b>Filename:</b> '+esc(f.original_name)+'<br><b>Type:</b> '+esc(f.mime_type)+'<br><b>Size:</b> '+fmt(f.size_bytes)+'<br><b>Location:</b> '+(f.local?'Desktop / Local Browser':'FBI Cloud Storage'):S.workspace==='more'?'<b>Advanced Tools</b><br>Selection, track select, ripple edit, razor, slip, slide, pen, hand, type and zoom tools are available from the timeline tool rail.<br><br><b>Keyboard</b><br>Space: Play/Pause • B: Razor • Delete: Ripple Delete • Ctrl/Cmd+Z: Undo • Ctrl/Cmd+Y: Redo':'Select a media item to view metadata.'}
 function renderTimeline(){
   const px=34,max=Math.max(60,Math.ceil(total()/10)*10),r=document.getElementById('ruler'),track=document.getElementById('trackarea');
   r.innerHTML=Array.from({length:max+1},(_,i)=>i%5===0?'<span class="tick" style="left:'+i*px+'px">'+i+'s</span>':'').join('');
@@ -241,7 +245,7 @@ function activateLeftPanel(name){
 function setWorkspace(tab){
   S.workspace=tab;
   document.querySelectorAll('#workspaces button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
-  const map={assembly:'project',editing:'browser',color:'effects',effects:'effects',audio:'effects',graphics:'libraries',captions:'libraries',more:'project'};
+  const map={assembly:'project',editing:'browser',color:'effects',effects:'effects',audio:'effects',graphics:'libraries',captions:'libraries',more:'info'};
   activateLeftPanel(map[tab]||'project');
   const w=document.getElementById('inspectorWrap');if(w)w.classList.toggle('show',tab!=='assembly'||!!selectedClip());
   renderLibraryForTab(tab);renderLibrariesForTab(tab);renderInspector();showGraphics();showCaptions();
@@ -293,7 +297,7 @@ function wireTabs(){
 }
 document.getElementById('back').onclick=()=>location.href='/';
 document.querySelectorAll('.menubar>button:not(.home)').forEach(b=>{if(b.id!=='back')b.onclick=()=>setStatus(b.textContent+' menu selected.')});
-document.getElementById('saveTop').onclick=save;document.getElementById('save').onclick=save;
+document.getElementById('saveTop').onclick=save;document.getElementById('save')&&(document.getElementById('save').onclick=save);
 document.getElementById('addMedia').onclick=()=>document.getElementById('fileInput').click();
 document.getElementById('addFolder').onclick=()=>document.getElementById('folderInput').click();
 document.getElementById('folderInput').onchange=e=>{importFiles(e.target.files);e.target.value=''};
@@ -311,7 +315,7 @@ document.getElementById('programVideo').onended=()=>{if(S.playing){const n=[...S
 document.getElementById('prev').onclick=()=>stepNext(-1);document.getElementById('next').onclick=()=>stepNext(1);
 document.getElementById('sourcePlay').onclick=()=>{const v=document.getElementById('sourceVideo');if(v.paused)v.play();else v.pause()};document.getElementById('sourcePrev').onclick=()=>{document.getElementById('sourceVideo').currentTime=0};document.getElementById('sourceNext').onclick=()=>{const v=document.getElementById('sourceVideo');v.currentTime=v.duration||0};
 document.getElementById('tlscroll').onclick=e=>{if(e.target.closest('.clip'))return;const rect=document.getElementById('tlscroll').getBoundingClientRect();const x=e.clientX-rect.left+document.getElementById('tlscroll').scrollLeft;S.playhead=Math.max(0,x/34);const c=activeClip();if(c)S.selectedClip=c.id;renderTimeline();renderInspector();refreshProgram()};
-document.getElementById('sequence').onchange=e=>{S.sequence=e.target.value||'Untitled Sequence';save()};
+document.getElementById('sequence')&&(document.getElementById('sequence').onchange=e=>{S.sequence=e.target.value||'Untitled Sequence';document.getElementById('programTitle').textContent=S.sequence;save()});
 document.getElementById('export').onclick=()=>setStatus('Preview export is available from the browser. Full multi-track master rendering will use the server render engine.');
 document.getElementById('toolrail').querySelectorAll('button').forEach(b=>b.onclick=()=>{document.getElementById('toolrail').querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active')});
 document.addEventListener('keydown',e=>{const t=document.activeElement?.tagName;if(t==='INPUT'||t==='SELECT'||t==='TEXTAREA')return;if(e.code==='Space'){e.preventDefault();playProgram()}else if(e.key.toLowerCase()==='b'){e.preventDefault();document.getElementById('razorBtn').click()}else if(e.key==='Delete'){e.preventDefault();document.getElementById('rippleBtn').click()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();undo()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();redo()}});
@@ -325,6 +329,7 @@ document.getElementById('captionOverlay').onclick=()=>setStatus('Caption preview
     const d=await api('/api/projects?status=active');projects=d.projects||[];
     const base=JSON.parse(localStorage.getItem('fbi-editor-project')||'null');if(base?.projectId){S.project=base.projectId;S.sequence=base.sequence||S.sequence}
     document.getElementById('sequence').value=S.sequence;
+    document.getElementById('project')&&(document.getElementById('project').onchange=e=>loadProject(e.target.value));
     wireTabs();renderAll();setWorkspace('assembly');renderLibrariesForTab('assembly');
     if(S.project){document.getElementById('project').value=S.project;await loadProject(S.project)}else setStatus('Select a project or import media from your desktop.');
   }catch(e){document.body.innerHTML='<div class="empty">'+esc(e.message||'Editor unavailable')+'</div>'}
