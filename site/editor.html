@@ -224,12 +224,29 @@ function setWorkspace(tab){
   renderLibraryForTab(tab);renderLibrariesForTab(tab);renderInspector();showGraphics();showCaptions();
   setStatus(tab==='assembly'?'Assembly workspace ready':tab.charAt(0).toUpperCase()+tab.slice(1)+' workspace ready');
 }
+
 function renderLibrariesForTab(tab){
-  const box=document.querySelector('#left-libraries .library');if(!box)return;
-  if(tab==='graphics'){
-    box.innerHTML='<div class="libgroup"><h4>Graphics & Titles</h4><div class="effect">Main Title <button data-library="Main Title">Use</button></div><div class="effect">FBI Gold Lower Third <button data-library="FBI Gold Lower Third">Use</button></div><div class="effect">FBI Logo <button data-library="FBI Logo">Use</button></div><div class="effect">Callout <button data-library="Callout">Use</button></div></div>';
+  const box=document.querySelector("#left-libraries .library");if(!box)return;
+  let html="";
+  if(tab==="graphics"){
+    html+="<div class='libgroup'><h4>Graphics & Titles</h4>";
+    html+="<div class='effect'>Main Title <button data-library='Main Title'>Use</button></div>";
+    html+="<div class='effect'>FBI Gold Lower Third <button data-library='FBI Gold Lower Third'>Use</button></div>";
+    html+="<div class='effect'>FBI Logo <button data-library='FBI Logo'>Use</button></div>";
+    html+="<div class='effect'>Callout <button data-library='Callout'>Use</button></div></div>";
   }else{
-    box.innerHTML='<div class="libgroup"><h4>Templates</h4><div class="effect">Wedding Lower Third <button data-library="FBI Gold Lower Third">Use</button></div><div class="effect">Gold Title <button data-library="Main Title">Use</button></div><div class="effect">Cinematic Opener <button data-library="Main Tfunction applyPreset(name){
+    html+="<div class='libgroup'><h4>Templates</h4>";
+    html+="<div class='effect'>Wedding Lower Third <button data-library='FBI Gold Lower Third'>Use</button></div>";
+    html+="<div class='effect'>Gold Title <button data-library='Main Title'>Use</button></div>";
+    html+="<div class='effect'>Cinematic Opener <button data-library='Main Title'>Use</button></div></div>";
+    html+="<div class='libgroup'><h4>Presets</h4>";
+    html+="<div class='effect'>FBI Brand Gold <button data-library='FBI Gold'>Apply</button></div>";
+    html+="<div class='effect'>Cinematic Teal <button data-library='Cinematic Teal'>Apply</button></div></div>";
+  }
+  box.innerHTML=html;
+  box.querySelectorAll("[data-library]").forEach(function(b){b.onclick=function(){applyPreset(b.dataset.library)}});
+}
+function applyPreset(name){
   const c=selectedClip();
   if(['Main Title','FBI Gold Lower Third','FBI Logo','Callout'].includes(name)){
     S.graphics=name==='FBI Gold Lower Third'?'FILM BEYOND IMAGINATION':name==='FBI Logo'?'FBI':name==='Callout'?'CALL OUT':'YOUR TITLE';S.graphicsStyle=S.graphicsStyle||{size:28,opacity:100};showGraphics();setWorkspace('graphics');setStatus(name+' applied.');return;
