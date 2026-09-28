@@ -39,7 +39,8 @@
   <div class="menubar">
     <button class="home">⌂</button>
     <button>File</button><button>Edit</button><button>Clip</button><button>Sequence</button><button>Markers</button><button>Graphics</button><button>Window</button><button>Help</button>
-    <span style="margin-left:8px;color:#808187">FBI Client File Studio</span>
+    <img id="logo" alt="FBI" style="width:44px;height:24px;object-fit:contain;margin-left:8px">
+    <span style="color:#808187">FBI Client File Studio</span>
     <div class="topright" style="display:flex;align-items:center;gap:6px">
       <select id="project" style="width:210px;background:#1c1d1f;border:1px solid #44454a;color:#ddd;border-radius:3px;padding:5px 7px;font-size:8px"><option value="">Select Project</option></select>
       <input id="sequence" value="Untitled Sequence" title="Sequence name" style="width:150px;background:#1c1d1f;border:1px solid #44454a;color:#ddd;border-radius:3px;padding:5px 7px;font-size:8px">
@@ -106,7 +107,7 @@ const fmt=n=>{n=Number(n||0);const u=['B','KB','MB','GB','TB'];let i=0;while(n>=
 const S={project:'',sequence:'Untitled Sequence',files:[],selectedFile:null,clips:[],selectedClip:null,playhead:0,playing:false,workspace:'assembly',effect:{blur:0,brightness:100,contrast:100,saturate:100,grayscale:0,sepia:0},graphics:'',caption:''};
 let projects=[],localFiles=[];
 const logo='data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="500" height="150"><text x="250" y="105" text-anchor="middle" font-family="Arial" font-size="92" font-weight="900" fill="#f4d56d">FBI</text></svg>');
-document.getElementById('logo').src=logo;
+const logoEl=document.getElementById('logo');if(logoEl)logoEl.src=logo;
 
 function fileUrl(f){return f.localUrl||('/api/admin/file/'+f.id)}
 function fileDuration(f){return imageFile(f)?5:Number(f.duration||5)}
