@@ -428,6 +428,38 @@ app.get("/api/portal/me",portalUser,async(req,res)=>{
  }catch(e){res.status(500).json({error:"Could not load account."})}
 });
 
+app.get("/api/portal/projects",portalUser,async(req,res)=>{
+ try{
+  const q=String(req.query.q||"").trim();
+  const sql=q ? "SELECT p.*,COALESCE((SELECT count(*) FROM files f WHERE f.project_id=p.id),0)::int file_count,COALESCE((SELECT sum(size_bytes) FROM files f WHERE f.project_id=p.id),0) total_bytes FROM projects p WHERE p.owner_id=$1 AND (p.name ILIKE $2 OR p.client_name ILIKE $2) ORDER BY p.updated_at DESC" : "SELECT p.*,COALESCE((SELECT count(*) FROM files f WHERE f.project_id=p.id),0)::int file_count,COALESCE((SELECT sum(size_bytes) FROM files f WHERE f.project_id=p.id),0) total_bytes FROM projects p WHERE p.owner_id=$1 ORDER BY p.updated_at DESC";
+  const vals=q?[req.portalUser.id,"%"+q+"%"]:[req.portalUser.id];
+  const r=await pool.query(sql,vals);res.json({projects:r.rows});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load your projects."})}
+});
+app.post("/api/portal/projects",portalUser,async(req,res)=>{
+ try{
+  const name=String(req.body.name||"").trim();if(!name)return res.status(400).json({error:"Project name is required."});
+  const id=uid(),shareToken=token(),settings=await loadSettings(),defaultNote=String(req.body.note||"").trim()||settings.default_client_note||"",days=settingInt(settings.default_expiry_days,30),expires=days?new Date(Date.now()+days*86400000):null;
+  const r=await pool.query("INSERT INTO projects(id,owner_id,name,client_name,client_email,note,share_token,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",[id,req.portalUser.id,name,String(req.body.client_name||"").trim(),String(req.body.client_email||"").trim(),defaultNote,shareToken,expires]);
+  res.json({project:r.rows[0]});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not create project."})}
+});
+app.get("/api/portal/projects/:id",portalUser,async(req,res)=>{
+ try{const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const f=await pool.query("SELECT * FROM files WHERE project_id=$1 ORDER BY created_at DESC",[p.id]);res.json({project:p,files:f.rows});}
+ catch(e){console.error(e);res.status(500).json({error:"Could not load project."})}
+});
+app.patch("/api/portal/projects/:id",portalUser,async(req,res)=>{
+ try{const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const fields=[],values=[];let n=1;for(const k of ["name","client_name","client_email","note","expires_at","shared","archived"])if(Object.prototype.hasOwnProperty.call(req.body,k)){fields.push(k+"=$"+n++);values.push(k==="shared"||k==="archived"?Boolean(req.body[k]):req.body[k]===null?null:String(req.body[k]).trim())}if(!fields.length)return res.status(400).json({error:"Nothing to update."});fields.push("updated_at=now()");values.push(p.id,req.portalUser.id);const r=await pool.query("UPDATE projects SET "+fields.join(",")+" WHERE id=$"+n+" AND owner_id=$"+(n+1)+" RETURNING *",values);if(!r.rowCount)return res.status(404).json({error:"Project not found."});res.json({project:r.rows[0]});}
+ catch(e){console.error(e);res.status(500).json({error:"Could not update project."})}
+});
+app.post("/api/portal/projects/:id/share",portalUser,async(req,res)=>{
+ try{const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const r=await pool.query("UPDATE projects SET share_token=$1,shared=true,updated_at=now() WHERE id=$2 AND owner_id=$3 RETURNING *",[token(),p.id,req.portalUser.id]);res.json({project:r.rows[0],share_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/share/"+r.rows[0].share_token});}
+ catch(e){console.error(e);res.status(500).json({error:"Could not create client share link."})}
+});
+app.get("/api/portal/file/:id",portalUser,async(req,res)=>{
+ try{const r=await pool.query("SELECT * FROM files WHERE id=$1 AND project_id IN (SELECT id FROM projects WHERE owner_id=$2)",[req.params.id,req.portalUser.id]);if(!r.rowCount)return res.status(404).send("File not found.");const f=r.rows[0];const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:900});res.redirect(url);}
+ catch(e){console.error(e);res.status(500).send("Unable to serve file.")}
+});
 app.get("/api/projects",admin,async(req,res)=>{
  try{
   const q=String(req.query.q||"").trim();
