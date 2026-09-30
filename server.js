@@ -5,6 +5,8 @@ const crypto=require("crypto");
 const fs=require("fs");
 const fsp=fs.promises;
 const path=require("path");
+const {spawn}=require("child_process");
+let ffmpegPath="";try{ffmpegPath=require("ffmpeg-static")||""}catch(e){console.warn("ffmpeg-static is unavailable; video thumbnails will use fallback cards.")}
 const {S3Client,PutObjectCommand,GetObjectCommand,DeleteObjectCommand,DeleteObjectsCommand,HeadObjectCommand,CreateMultipartUploadCommand,UploadPartCommand,CompleteMultipartUploadCommand,AbortMultipartUploadCommand,ListPartsCommand,PutBucketCorsCommand}=require("@aws-sdk/client-s3");
 const {Upload}=require("@aws-sdk/lib-storage");
 const {getSignedUrl}=require("@aws-sdk/s3-request-presigner");
@@ -20,9 +22,104 @@ function getThumbCache(key){
   return v;
 }
 function setThumbCache(key,buffer){
+  // cache helper remains unchanged; media-aware thumbnail helpers follow below.
+
   thumbnailCache.set(key,{buffer,expires:Date.now()+THUMB_CACHE_TTL});
   while(thumbnailCache.size>THUMB_CACHE_MAX)thumbnailCache.delete(thumbnailCache.keys().next().value);
   return buffer;
+}
+
+
+function thumbKind(file){
+  const mime=String(file?.mime_type||"").toLowerCase();
+  if(/^image\//.test(mime))return"image";
+  if(/^video\//.test(mime))return"video";
+  if(/^audio\//.test(mime))return"audio";
+  return"document";
+}
+function thumbExt(name){
+  return String(name||"").split(".").pop().toLowerCase().replace(/[^a-z0-9+#-]/g,"").slice(0,8).toUpperCase()||"FILE";
+}
+function thumbDocFamily(name,mime){
+  const ext=thumbExt(name);
+  const m=String(mime||"").toLowerCase();
+  if(ext==="PDF"||m==="application/pdf")return"PDF";
+  if(["DOC","DOCX","ODT","RTF","TXT"].includes(ext))return ext;
+  if(["XLS","XLSX","ODS","CSV"].includes(ext))return ext;
+  if(["PPT","PPTX","ODP"].includes(ext))return ext;
+  if(["ZIP","RAR","7Z"].includes(ext)||/zip|rar|7z/.test(m))return ext;
+  return ext||"FILE";
+}
+function thumbXml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
+function documentThumbSvg(file,width){
+  const ext=thumbDocFamily(file?.original_name,file?.mime_type);
+  const rawName=String(file?.original_name||"Document");
+  const base=rawName.split("/").pop()||rawName;
+  const label=base.length>26?base.slice(0,23)+"…":base;
+  const family=ext==="PDF"?"PDF":(["DOC","DOCX","ODT","RTF","TXT"].includes(ext)?"DOCUMENT":(["XLS","XLSX","ODS","CSV"].includes(ext)?"SPREADSHEET":(["PPT","PPTX","ODP"].includes(ext)?"PRESENTATION":(["ZIP","RAR","7Z"].includes(ext)?"ARCHIVE":"FILE")));
+  const w=Math.max(240,Math.min(900,Number(width)||360)),h=Math.round(w*1.25);
+  const line1=label.length>18?label.slice(0,18)+"…":label;
+  return Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'">'+
+    '<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#171719"/><stop offset="1" stop-color="#0b0b0d"/></linearGradient></defs>'+
+    '<rect width="100%" height="100%" rx="24" fill="url(#bg)"/>'+
+    '<rect x="18" y="18" width="'+(w-36)+'" height="'+(h-36)+'" rx="18" fill="#f3f1eb"/>'+
+    '<path d="M '+(w-112)+' 18 V 112 H '+(w-18)+'" fill="#e8e5de"/>'+
+    '<path d="M '+(w-112)+' 18 L '+(w-18)+' 112 H '+(w-112)+' Z" fill="#d4d0c6"/>'+
+    '<rect x="42" y="56" width="'+Math.min(72,w-84)+'" height="8" rx="4" fill="#c7a53d"/>'+
+    '<rect x="42" y="78" width="'+Math.min(150,w-84)+'" height="6" rx="3" fill="#b3b0aa"/>'+
+    '<rect x="42" y="108" width="'+Math.min(132,w-84)+'" height="6" rx="3" fill="#c6c3bd"/>'+
+    '<rect x="42" y="150" width="'+Math.min(190,w-84)+'" height="10" rx="5" fill="#242428"/>'+
+    '<rect x="42" y="172" width="'+Math.min(220,w-84)+'" height="7" rx="3.5" fill="#cac8c3"/>'+
+    '<rect x="42" y="188" width="'+Math.min(198,w-84)+'" height="7" rx="3.5" fill="#d4d1cb"/>'+
+    '<rect x="42" y="'+(h-132)+'" width="'+Math.min(138,w-84)+'" height="48" rx="12" fill="#171719"/>'+
+    '<text x="62" y="'+(h-101)+'" font-family="Arial,Helvetica,sans-serif" font-size="18" font-weight="800" fill="#e7c75d">'+thumbXml(ext)+'</text>'+
+    '<text x="42" y="'+(h-58)+'" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="700" fill="#55545a">'+thumbXml(family)+'</text>'+
+    '<text x="'+(w-42)+'" y="'+(h-58)+'" text-anchor="end" font-family="Arial,Helvetica,sans-serif" font-size="11" font-weight="700" fill="#8b8984">'+thumbXml(line1)+'</text>'+
+  '</svg>');
+}
+function audioThumbSvg(file,width){
+  const ext=thumbExt(file?.original_name);
+  const w=Math.max(240,Math.min(900,Number(width)||360)),h=Math.round(w*0.56);
+  return Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'">'+
+    '<rect width="100%" height="100%" rx="24" fill="#101012"/><circle cx="'+(w/2)+'" cy="'+(h/2-6)+'" r="'+Math.min(58,h*.25)+'" fill="#c7a53d"/>'+
+    '<path d="M '+(w/2-16)+' '+(h/2-28)+' L '+(w/2+18)+' '+(h/2-8)+' L '+(w/2-16)+' '+(h/2+12)+' Z" fill="#101012"/>'+
+    '<text x="'+(w/2)+'" y="'+(h-20)+'" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="800" fill="#efefef">'+thumbXml(ext)+'</text></svg>');
+}
+function runFfmpegPoster(url,seekSeconds){
+  return new Promise((resolve,reject)=>{
+    if(!ffmpegPath)return reject(new Error("FFmpeg is not available"));
+    const args=["-hide_banner","-loglevel","error","-ss",String(seekSeconds),"-i",url,"-frames:v","1","-vf","scale=1280:-2:flags=lanczos","-q:v","5","-f","image2pipe","-vcodec","mjpeg","pipe:1"];
+    const child=spawn(ffmpegPath,args,{stdio:["ignore","pipe","pipe"]});
+    const chunks=[];let errText="";let settled=false;
+    const finish=(err,val)=>{if(settled)return;settled=true;clearTimeout(timer);err?reject(err):resolve(val)};
+    const timer=setTimeout(()=>{try{child.kill("SIGKILL")}catch{}finish(new Error("Video thumbnail generation timed out"))},45000);
+    child.stdout.on("data",c=>chunks.push(c));
+    child.stderr.on("data",c=>{errText+=String(c||"")});
+    child.on("error",e=>finish(e));
+    child.on("close",(code,signal)=>{
+      if(code===0&&chunks.length)return finish(null,Buffer.concat(chunks));
+      finish(new Error(errText.trim()||("FFmpeg exited with code "+String(code||signal||"unknown"))));
+    });
+  });
+}
+async function generateThumbnail(file,width,height){
+  const kind=thumbKind(file);
+  if(kind==="document")return sharp(documentThumbSvg(file,width)).webp({quality:86,method:4}).toBuffer();
+  if(kind==="audio")return sharp(audioThumbSvg(file,width)).webp({quality:84,method:4}).toBuffer();
+  if(kind==="video"){
+    try{
+      const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:file.storage_path}),{expiresIn:300});
+      let frame;
+      try{frame=await runFfmpegPoster(url,1)}catch(_e){frame=await runFfmpegPoster(url,0)}
+      return sharp(frame).rotate().resize({width:width,height:height,fit:"inside",withoutEnlargement:true}).webp({quality:76,method:4}).toBuffer();
+    }catch(e){
+      console.warn("Video thumbnail fallback:",file?.original_name,e?.message||e);
+      return sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+Math.round(width*9/16)+'"><rect width="100%" height="100%" fill="#101012"/><circle cx="'+(width/2)+'" cy="'+(Math.round(width*9/16)/2)+'" r="'+Math.min(60,width*.15)+'" fill="#c7a53d"/><path d="M '+(width/2-16)+' '+(Math.round(width*9/16)/2-24)+' L '+(width/2+22)+' '+(Math.round(width*9/16)/2)+' L '+(width/2-16)+' '+(Math.round(width*9/16)/2+24)+' Z" fill="#101012"/></svg>')).webp({quality:84,method:4}).toBuffer();
+    }
+  }
+  const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:file.storage_path}));
+  const input=obj.Body?.transformToByteArray?Buffer.from(await obj.Body.transformToByteArray()):Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject)}));
+  return sharp(input).rotate().resize({width:width,height:height,fit:"inside",withoutEnlargement:true}).webp({quality:68,method:4}).toBuffer();
 }
 
 const app=express();
@@ -460,11 +557,12 @@ app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
  try{
   const q=await pool.query("SELECT * FROM files WHERE id=$1 AND project_id IN (SELECT id FROM projects WHERE owner_id=$2)",[req.params.id,req.portalUser.id]);
   if(!q.rowCount)return res.status(404).send("File not found.");
-  const f=q.rows[0];if(!/^image\//i.test(f.mime_type||""))return res.status(415).send("Thumbnail generation is available for images only.");
-  const width=Math.max(160,Math.min(640,Number(req.query.w||360))),height=Math.max(160,Math.min(640,Number(req.query.h||360)));
-  const cacheKey="portal:"+f.id+":"+width+"x"+height, cached=getThumbCache(cacheKey);
+  const f=q.rows[0];
+  const width=Math.max(160,Math.min(640,Number(req.query.w||360))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
+  const kind=thumbKind(f);
+  const cacheKey="portal:"+f.id+":"+kind+":"+width+"x"+height, cached=getThumbCache(cacheKey);
   if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").send(cached.buffer);
-  const key="__portal-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+width+"|"+height).digest("hex")+".webp";
+  const key="__portal-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+kind+"|"+width+"|"+height).digest("hex")+".webp";
   try{
    const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:key}));
    if(head.ContentLength){
@@ -473,11 +571,9 @@ app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
     setThumbCache(cacheKey,bytes);return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").send(bytes);
    }
   }catch(_e){}
-  const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}));
-  const input=obj.Body?.transformToByteArray?Buffer.from(await obj.Body.transformToByteArray()):Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject)}));
-  const webp=await sharp(input).rotate().resize({width:width,height:height,fit:"inside",withoutEnlargement:true}).webp({quality:68,method:4}).toBuffer();
+  const webp=await generateThumbnail(f,width,height);
   setThumbCache(cacheKey,webp);
-  await s3.send(new PutObjectCommand({Bucket:bucket(),Key:key,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(f.id),generated_by:"fbi-client-file-studio-portal"}})).catch(function(){});
+  await s3.send(new PutObjectCommand({Bucket:bucket(),Key:key,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(f.id),generated_by:"fbi-client-file-studio-portal-media-aware"}})).catch(function(){});
   res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").send(webp);
  }catch(e){console.error(e);res.status(500).send("Unable to generate thumbnail.")}
 });
@@ -1287,51 +1383,31 @@ app.get("/api/admin/file/:id",admin,async(req,res)=>{
 
 app.get("/api/admin/thumb/:id",admin,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT id,storage_path,mime_type FROM files WHERE id=$1",[req.params.id]);
+  const q=await pool.query("SELECT id,original_name,storage_path,mime_type FROM files WHERE id=$1",[req.params.id]);
   if(!q.rowCount)return res.status(404).send("File not found");
   const f=q.rows[0];
-  if(!/^image\//i.test(f.mime_type||""))return res.status(415).send("Thumbnail generation is available for images only.");
-  const width=Math.max(160,Math.min(640,Number(req.query.w||360)));
-  const height=Math.max(160,Math.min(640,Number(req.query.h||360)));
-  const cacheKey="admin:"+f.id+":"+width+"x"+height;
-  const cached=getThumbCache(cacheKey);
-  if(cached){
-    return res.status(200).type("image/webp")
-      .set("Cache-Control","private, max-age=31536000, immutable")
-      .set("X-Content-Type-Options","nosniff").send(cached.buffer);
-  }
-  const thumbKey="__admin-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+width+"|"+height).digest("hex")+".webp";
+  const width=Math.max(160,Math.min(640,Number(req.query.w||360))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
+  const kind=thumbKind(f);
+  const cacheKey="admin:"+f.id+":"+kind+":"+width+"x"+height,cached=getThumbCache(cacheKey);
+  if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(cached.buffer);
+  const thumbKey="__admin-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+kind+"|"+width+"|"+height).digest("hex")+".webp";
   try{
     const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:thumbKey}));
     if(head.ContentLength){
       const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:thumbKey}));
-      const bytes=got.Body?.transformToByteArray ? Buffer.from(await got.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
-        const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject);
-      }));
+      const bytes=got.Body?.transformToByteArray?Buffer.from(await got.Body.transformToByteArray()):Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject)}));
       setThumbCache(cacheKey,bytes);
-      return res.status(200).type("image/webp")
-        .set("Cache-Control","private, max-age=31536000, immutable")
-        .set("X-Content-Type-Options","nosniff").send(bytes);
+      return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(bytes);
     }
   }catch(_e){}
-  const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}));
-  const input=obj.Body?.transformToByteArray ? Buffer.from(await obj.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
-    const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject);
-  }));
-  const webp=await sharp(input).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:68,method:4}).toBuffer();
+  const webp=await generateThumbnail(f,width,height);
   setThumbCache(cacheKey,webp);
   try{
-    await s3.send(new PutObjectCommand({Bucket:bucket(),Key:thumbKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(f.id),generated_by:"fbi-client-file-studio-admin"}}));
+    await s3.send(new PutObjectCommand({Bucket:bucket(),Key:thumbKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(f.id),generated_by:"fbi-client-file-studio-admin-media-aware"}}));
   }catch(err){console.warn("Could not persist admin thumbnail",err?.message||err)}
-  res.status(200).type("image/webp")
-    .set("Cache-Control","private, max-age=31536000, immutable")
-    .set("X-Content-Type-Options","nosniff").send(webp);
- }catch(e){
-  console.error("Admin thumbnail generation failed",e?.stack||e);
-  res.status(500).send("Unable to generate thumbnail");
- }
+  res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(webp);
+ }catch(e){console.error("Admin thumbnail generation failed",e?.stack||e);res.status(500).send("Unable to generate thumbnail");}
 });
-
 app.get("/api/public/share/:token",async(req,res)=>{
  try{
   const q=await pool.query("SELECT id,name,client_name,note,expires_at FROM projects WHERE share_token=$1 AND shared=true",[req.params.token]);
@@ -1349,56 +1425,29 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
  try{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));
   if(!out)return res.status(404).send("Invalid or expired delivery link.");
-  if(!/^image\//i.test(out.f.mime_type||""))return res.status(415).send("Thumbnail generation is available for images only.");
-  const width=Math.max(240,Math.min(720,Number(req.query.w||420)));
-  const height=Math.max(160,Math.min(720,Number(req.query.h||420)));
-  const cacheKey=out.f.id+":"+width+"x"+height+":natural";
+  const width=Math.max(240,Math.min(720,Number(req.query.w||420))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
+  const kind=thumbKind(out.f);
+  const cacheKey=out.f.id+":"+kind+":"+width+"x"+height+":natural";
   const cached=getThumbCache(cacheKey);
-  if(cached){
-    return res.status(200).type("image/webp")
-      .set("Cache-Control","private, max-age=31536000, immutable")
-      .set("X-Content-Type-Options","nosniff").send(cached.buffer);
-  }
-  const thumbKey="__thumbnails/"+crypto.createHash("sha1").update(String(out.f.id)+"|"+width+"|"+height+"|natural").digest("hex")+".webp";
+  if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(cached.buffer);
+  const thumbKey="__thumbnails/"+crypto.createHash("sha1").update(String(out.f.id)+"|"+kind+"|"+width+"|"+height+"|natural").digest("hex")+".webp";
   try{
     const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:thumbKey}));
     if(head.ContentLength){
       const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:thumbKey}));
-      const bytes=got.Body?.transformToByteArray ? Buffer.from(await got.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
-        const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject);
-      }));
+      const bytes=got.Body?.transformToByteArray?Buffer.from(await got.Body.transformToByteArray()):Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject)}));
       setThumbCache(cacheKey,bytes);
-      return res.status(200).type("image/webp")
-        .set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400")
-        .set("X-Content-Type-Options","nosniff").send(bytes);
+      return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(bytes);
     }
   }catch(_e){}
-  const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}));
-  const input=obj.Body?.transformToByteArray ? Buffer.from(await obj.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
-    const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject);
-  }));
-  const webp=await sharp(input)
-    .rotate()
-    .resize({width,height,fit:"inside",withoutEnlargement:true})
-    .webp({quality:68,method:4})
-    .toBuffer();
+  const webp=await generateThumbnail(out.f,width,height);
   setThumbCache(cacheKey,webp);
   try{
-    await s3.send(new PutObjectCommand({
-      Bucket:bucket(),Key:thumbKey,Body:webp,ContentType:"image/webp",
-      CacheControl:"private, max-age=31536000, immutable",
-      Metadata:{source_file_id:String(out.f.id),generated_by:"fbi-client-file-studio"}
-    }));
-  }catch(err){console.warn("Could not persist thumbnail",err?.message||err)}
-  res.status(200).type("image/webp")
-    .set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400")
-    .set("X-Content-Type-Options","nosniff").send(webp);
- }catch(e){
-  console.error("Thumbnail generation failed",e?.stack||e);
-  res.status(500).send("Unable to generate thumbnail");
- }
+    await s3.send(new PutObjectCommand({Bucket:bucket(),Key:thumbKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(out.f.id),generated_by:"fbi-client-file-studio-media-aware"}}));
+  }catch(err){console.warn("Could not persist public thumbnail",err?.message||err)}
+  res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(webp);
+ }catch(e){console.error("Thumbnail generation failed",e?.stack||e);res.status(500).send("Unable to generate thumbnail");}
 });
-
 app.get("/api/public/preview/:id",async(req,res)=>{
  try{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));
