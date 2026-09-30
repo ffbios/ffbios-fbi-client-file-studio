@@ -8,6 +8,7 @@ const path=require("path");
 const {S3Client,PutObjectCommand,GetObjectCommand,DeleteObjectCommand,HeadObjectCommand,CreateMultipartUploadCommand,UploadPartCommand,CompleteMultipartUploadCommand,AbortMultipartUploadCommand,ListPartsCommand,PutBucketCorsCommand}=require("@aws-sdk/client-s3");
 const {Upload}=require("@aws-sdk/lib-storage");
 const {getSignedUrl}=require("@aws-sdk/s3-request-presigner");
+const sharp=require("sharp");
 
 const app=express();
 const PORT=Number(process.env.PORT||3000);
@@ -1001,6 +1002,31 @@ app.get("/api/public/share/:token",async(req,res)=>{
   const settings=await loadSettings();
   res.json({project:p,settings:{portal_title:settings.portal_title,allow_client_preview:settingBool(settings.allow_client_preview),show_file_size:settingBool(settings.show_file_size)},files:f.rows.map(x=>({...x,download_url:`${base}/api/public/file/${x.id}?token=${encodeURIComponent(req.params.token)}`}))});
  }catch(e){console.error(e);res.status(500).json({error:"Could not load delivery"})}
+});
+
+app.get("/api/public/thumb/:id",async(req,res)=>{
+ try{
+  const out=await signedFileUrl(req.params.id,String(req.query.token||""));
+  if(!out)return res.status(404).send("Invalid or expired delivery link.");
+  if(!/^image\//i.test(out.f.mime_type||""))return res.status(415).send("Thumbnail generation is available for images only.");
+  const width=Math.max(160,Math.min(800,Number(req.query.w||480)));
+  const height=Math.max(100,Math.min(800,Number(req.query.h||360)));
+  const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}));
+  const stream=obj.Body;
+  const jpeg=await sharp(stream)
+    .rotate()
+    .resize({width,height,fit:"cover",withoutEnlargement:true})
+    .jpeg({quality:78,mozjpeg:true})
+    .toBuffer();
+  res.status(200)
+    .type("image/jpeg")
+    .set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400")
+    .set("X-Content-Type-Options","nosniff")
+    .send(jpeg);
+ }catch(e){
+  console.error("Thumbnail generation failed",e);
+  res.status(500).send("Unable to generate thumbnail");
+ }
 });
 
 app.get("/api/public/file/:id",async(req,res)=>{
