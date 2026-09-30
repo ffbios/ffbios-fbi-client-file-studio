@@ -10,8 +10,8 @@ const {Upload}=require("@aws-sdk/lib-storage");
 const {getSignedUrl}=require("@aws-sdk/s3-request-presigner");
 const sharp=require("sharp");
 const thumbnailCache=new Map();
-const THUMB_CACHE_MAX=120;
-const THUMB_CACHE_TTL=10*60*1000;
+const THUMB_CACHE_MAX=300;
+const THUMB_CACHE_TTL=30*60*1000;
 function getThumbCache(key){
   const v=thumbnailCache.get(key);
   if(!v)return null;
@@ -1031,7 +1031,7 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
   const cached=getThumbCache(cacheKey);
   if(cached){
     return res.status(200).type("image/webp")
-      .set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400")
+      .set("Cache-Control","private, max-age=31536000, immutable")
       .set("X-Content-Type-Options","nosniff").send(cached.buffer);
   }
   const thumbKey="__thumbnails/"+crypto.createHash("sha1").update(String(out.f.id)+"|"+width+"|"+height+"|natural").digest("hex")+".webp";
@@ -1055,7 +1055,7 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
   const webp=await sharp(input)
     .rotate()
     .resize({width,height,fit:"inside",withoutEnlargement:true})
-    .webp({quality:76,method:4})
+    .webp({quality:68,method:4})
     .toBuffer();
   setThumbCache(cacheKey,webp);
   try{
