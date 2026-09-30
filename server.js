@@ -1081,6 +1081,44 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
  }
 });
 
+app.get("/api/public/preview/:id",async(req,res)=>{
+ try{
+  const out=await signedFileUrl(req.params.id,String(req.query.token||""));
+  if(!out)return res.status(404).send("Invalid or expired delivery link.");
+  if(!/^image\//i.test(out.f.mime_type||""))return res.status(415).send("Image preview only.");
+  const width=Math.max(600,Math.min(1800,Number(req.query.w||1400)));
+  const height=Math.max(400,Math.min(1200,Number(req.query.h||1000)));
+  const cacheKey=out.f.id+":preview:"+width+"x"+height;
+  const cached=getThumbCache(cacheKey);
+  if(cached){
+    return res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(cached.buffer);
+  }
+  const previewKey="__previews/"+crypto.createHash("sha1").update(String(out.f.id)+"|"+width+"|"+height).digest("hex")+".webp";
+  try{
+    const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:previewKey}));
+    if(head.ContentLength){
+      const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:previewKey}));
+      const bytes=got.Body?.transformToByteArray ? Buffer.from(await got.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
+        const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject);
+      }));
+      setThumbCache(cacheKey,bytes);
+      return res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(bytes);
+    }
+  }catch(_e){}
+  const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}));
+  const input=obj.Body?.transformToByteArray ? Buffer.from(await obj.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
+    const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject);
+  }));
+  const webp=await sharp(input).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:82,method:4}).toBuffer();
+  setThumbCache(cacheKey,webp);
+  try{await s3.send(new PutObjectCommand({Bucket:bucket(),Key:previewKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(out.f.id),generated_by:"fbi-client-file-studio"}}))}catch(err){console.warn("Could not persist preview",err?.message||err)}
+  res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(webp);
+ }catch(e){
+  console.error("Image preview generation failed",e?.stack||e);
+  res.status(500).send("Unable to generate preview");
+ }
+});
+
 app.get("/api/public/file/:id",async(req,res)=>{
  try{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));if(!out)return res.status(404).send("Invalid or expired delivery link.");
