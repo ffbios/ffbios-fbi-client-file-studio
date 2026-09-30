@@ -59,6 +59,23 @@
 @media(max-width:1000px){.media-manager{grid-template-columns:190px 1fr}.media-search{width:170px}.project-editor-layout{grid-template-columns:1fr}}
 @media(max-width:760px){.media-manager{grid-template-columns:1fr}.media-sidebar{display:none}.media-topbar{flex-wrap:wrap}.media-search{width:100%}}
 
+/* Client delivery media library */
+.delivery-app{min-height:100vh;background:#0a0a0b;color:var(--text);display:grid;grid-template-columns:238px minmax(0,1fr)}
+.delivery-side{background:#0d0d0f;border-right:1px solid var(--border);padding:16px 11px;display:flex;flex-direction:column;gap:14px}
+.delivery-brand{padding:2px 8px 13px;border-bottom:1px solid var(--border);text-align:center}.delivery-brand img{width:108px;height:42px;object-fit:contain}.delivery-brand b{display:block;font-size:9px;color:#ddd;margin-top:3px}.delivery-brand small{display:block;color:var(--muted);font-size:8px;margin-top:2px}
+.delivery-nav{display:grid;gap:4px}.delivery-nav button{width:100%;border:0;background:transparent;color:#aaa;text-align:left;padding:9px 10px;border-radius:8px;font-size:9px}.delivery-nav button:hover,.delivery-nav button.active{background:#1a1a1d;color:#fff}.delivery-nav button.active{box-shadow:inset 3px 0 var(--gold)}
+.delivery-section-title{font-size:8px;color:#6f7076;text-transform:uppercase;letter-spacing:.1em;margin:4px 8px}.delivery-project{padding:8px 10px;border-radius:8px;background:#151518;border:1px solid var(--border);font-size:9px}.delivery-project b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.delivery-project span{display:block;color:var(--muted);font-size:8px;margin-top:2px}
+.delivery-sidefoot{margin-top:auto;color:#777;font-size:8px;line-height:1.55;padding:8px}
+.delivery-main{min-width:0;display:flex;flex-direction:column}.delivery-header{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);background:#121215;position:sticky;top:0;z-index:4}.delivery-heading{min-width:0}.delivery-heading h1{margin:0;font-size:17px}.delivery-heading p{margin:3px 0 0;color:var(--muted);font-size:9px}.delivery-grow{flex:1}.delivery-search{width:230px;background:#0d0d0f;border:1px solid var(--border);border-radius:8px;color:#eee;padding:8px 10px;font-size:9px}.delivery-btn{border:1px solid var(--border);background:#18181b;color:#eee;padding:8px 10px;border-radius:8px;font-size:9px}.delivery-btn.primary{background:linear-gradient(135deg,var(--gold2),var(--gold));color:#111;border-color:#d1ac3a;font-weight:800}
+.delivery-toolbar{display:flex;align-items:center;gap:6px;padding:9px 18px;border-bottom:1px solid var(--border);background:#0f0f11}.delivery-seg{border:1px solid var(--border);background:#121214;color:#9e9ea5;border-radius:7px;padding:6px 8px;font-size:8px}.delivery-seg.active{background:#292a2d;color:#fff;border-color:#4a4a4f}.delivery-sort{margin-left:auto;background:#121214;color:#ccc;border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:8px}
+.delivery-body{padding:14px 18px 24px}.delivery-info{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}.delivery-info .title{font-size:13px;font-weight:800}.delivery-info .meta{font-size:8px;color:var(--muted);margin-top:3px}.delivery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:11px}.delivery-card{background:#171719;border:1px solid var(--border);border-radius:9px;overflow:hidden;cursor:pointer;position:relative}.delivery-card:hover{border-color:rgba(212,175,55,.65);transform:translateY(-1px);box-shadow:0 12px 28px rgba(0,0,0,.22)}.delivery-card.selected{border-color:var(--gold2);box-shadow:0 0 0 1px rgba(244,213,109,.28)}.delivery-thumb{height:130px;background:#0a0a0c;display:grid;place-items:center;overflow:hidden;position:relative}.delivery-thumb img,.delivery-thumb video{width:100%;height:100%;object-fit:cover}.delivery-thumb .typebadge{position:absolute;top:7px;left:7px;padding:3px 5px;border-radius:999px;background:rgba(0,0,0,.68);color:#fff;font-size:7px}.delivery-check{position:absolute;top:7px;right:7px;width:20px;height:20px;border:1px solid rgba(255,255,255,.35);border-radius:5px;background:rgba(0,0,0,.55);display:grid;place-items:center;font-size:10px;color:var(--gold2);z-index:2}
+.delivery-card-body{padding:8px}.delivery-name{font-size:9px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.delivery-card-meta{font-size:8px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.delivery-card-actions{display:flex;gap:5px;padding:7px 8px;border-top:1px solid #242427}.delivery-card-actions button,.delivery-card-actions a{flex:1;border:1px solid var(--border);background:#1d1d20;color:#ddd;border-radius:6px;padding:6px;font-size:8px;text-align:center;text-decoration:none}.delivery-card-actions button:hover,.delivery-card-actions a:hover{background:#2a2a2d;color:#fff}.delivery-card-actions .download{background:linear-gradient(135deg,var(--gold2),var(--gold));color:#111;border-color:#d1ac3a;font-weight:800}
+.delivery-empty{padding:55px 15px;text-align:center;color:var(--muted);font-size:10px;border:1px dashed #3f3f44;border-radius:12px}.delivery-notice{margin-bottom:12px;padding:9px 11px;border:1px solid rgba(212,175,55,.18);background:rgba(212,175,55,.045);border-radius:9px;font-size:8px;color:#c9c4b5}
+.delivery-bulk{display:none;position:sticky;bottom:12px;margin:0 18px 12px;padding:10px 12px;background:#19191c;border:1px solid #45464b;border-radius:10px;box-shadow:0 12px 35px rgba(0,0,0,.35);align-items:center;gap:8px;z-index:5}.delivery-bulk.show{display:flex}.delivery-bulk span{font-size:9px;color:#ddd}.delivery-bulk .spacer{flex:1}
+.delivery-footer{text-align:center;padding:12px;color:#626269;font-size:8px}
+@media(max-width:900px){.delivery-app{grid-template-columns:190px 1fr}.delivery-search{width:170px}.delivery-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}
+@media(max-width:700px){.delivery-app{display:block}.delivery-side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--border);padding:10px}.delivery-brand{display:flex;align-items:center;justify-content:space-between;border-bottom:0;padding-bottom:8px}.delivery-brand b,.delivery-brand small,.delivery-section-title,.delivery-project,.delivery-sidefoot{display:none}.delivery-nav{grid-template-columns:repeat(4,1fr)}.delivery-nav button{text-align:center;padding:8px 5px;font-size:8px}.delivery-header{flex-wrap:wrap}.delivery-search{width:100%;order:3}.delivery-body{padding:12px}.delivery-toolbar{overflow:auto;padding:8px 12px}.delivery-sort{margin-left:0}.delivery-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.delivery-thumb{height:105px}}
+
 </style>
 </head>
 <body>
@@ -916,10 +933,110 @@ async function clientView(token){
   const d=await api('/api/public/share/'+encodeURIComponent(token));
   const manifestLink=document.querySelector('link[rel="manifest"]');
   if(manifestLink)manifestLink.href='/share/'+encodeURIComponent(token)+'/manifest.webmanifest';
+  const files=d.files||[];
   document.title=(d.settings?.portal_title||'FBI Client File Delivery')+' • '+(d.project?.name||'Client Delivery');
-  document.body.innerHTML=`<div class="client"><div class="clientwrap"><div class="ctop"><img src="${LOGO}"><h1>${esc(d.settings?.portal_title||'FBI Client File Delivery')}</h1><p>Secure client download area</p><button class="btn" id="installApp" style="margin-top:12px">Install App</button>${d.__offline?'<div class="notice">You are offline. This is the last saved version of this delivery. Download links may require an internet connection.</div>':''}</div><div class="ccard"><div class="chead"><h2>${esc(d.project.name)}</h2><p>${esc(d.project.client_name||'')} ${d.project.note?'• '+esc(d.project.note):''}</p></div><div class="cfiles">${d.files.length?d.files.map(f=>`<div class="cfile"><div class="ico">${icon(f.original_name)}</div><div><div class="name">${esc(f.original_name)}</div><div class="meta">${f.relative_path&&f.relative_path!==f.original_name?esc(f.relative_path)+" • ":""}${d.settings?.show_file_size?fmt(f.size_bytes)+" • ":""}${esc(f.mime_type)}</div></div><div>${d.settings?.allow_client_preview?'<button class="btn" data-prev="'+f.id+'">Preview</button> ':''}<a class="btn primary" href="${f.download_url}&download=1">Download</a></div></div>`).join(''):'<div class="empty">No files have been uploaded yet.</div>'}</div></div><div class="clientfoot">FILM BEYOND IMAGINATION • FBI Client File Studio</div></div><div id="v" class="viewer"></div></div>`;
-  document.querySelectorAll('[data-prev]').forEach(b=>b.onclick=()=>clientPreview(d.files.find(f=>f.id===b.dataset.prev)));
- }catch(e){document.body.innerHTML=`<div class="client"><div class="clientwrap"><div class="ctop"><img src="${LOGO}"><h1>Delivery unavailable</h1><p>${esc(e.message)}</p></div></div></div>`}
+  document.body.innerHTML=
+    '<div class="delivery-app">'+
+      '<aside class="delivery-side">'+
+        '<div class="delivery-brand"><img src="'+LOGO+'" alt="FBI"><div><b>CLIENT FILE DELIVERY</b><small>Secure media library</small></div></div>'+
+        '<div class="delivery-section-title">Navigation</div>'+
+        '<nav class="delivery-nav"><button id="navAll" class="active">▦ All Files</button><button id="navPhotos">▧ Photos</button><button id="navVideos">▶ Videos</button><button id="navAudio">♪ Audio</button><button id="navDocs">▤ Documents</button><button id="installApp">＋ Install App</button></nav>'+
+        '<div class="delivery-section-title">Project</div>'+
+        '<div class="delivery-project"><b title="'+esc(d.project.name)+'">'+esc(d.project.name)+'</b><span>'+esc(d.project.client_name||'')+'</span><span>'+files.length+' files</span></div>'+
+        '<div class="delivery-sidefoot">Original files are delivered without media quality reduction.<br>Downloads are recorded by FBI Client File Studio.</div>'+
+      '</aside>'+
+      '<main class="delivery-main">'+
+        '<header class="delivery-header"><div class="delivery-heading"><h1>'+esc(d.project.name)+'</h1><p>'+esc(d.settings?.portal_title||'FBI Client File Delivery')+' • Secure client download area</p></div><div class="delivery-grow"></div><input id="deliverySearch" class="delivery-search" placeholder="Search files..."><button class="delivery-btn" id="selectAll">Select All</button><button class="delivery-btn primary" id="downloadSelectedTop">Download Selected</button></header>'+
+        '<div class="delivery-toolbar"><button class="delivery-seg active" data-filter="all">All</button><button class="delivery-seg" data-filter="image">Photos</button><button class="delivery-seg" data-filter="video">Videos</button><button class="delivery-seg" data-filter="audio">Audio</button><button class="delivery-seg" data-filter="document">Documents</button><span style="flex:1"></span><select id="deliverySort" class="delivery-sort"><option value="name">Sort by Name</option><option value="newest">Newest</option><option value="size">Largest</option><option value="type">Type</option></select></div>'+
+        '<section class="delivery-body">'+
+          (d.__offline?'<div class="delivery-notice">You are offline. This is the last saved version of this delivery. Downloads may require an internet connection.</div>':'')+
+          (d.project.note?'<div class="delivery-notice">'+esc(d.project.note)+'</div>':'')+
+          '<div class="delivery-info"><div><div class="title">Shared Files</div><div class="meta">'+files.length+' files ready for download • '+fmt(files.reduce((a,f)=>a+Number(f.size_bytes||0),0))+'</div></div><div id="visibleCount" class="meta"></div></div>'+
+          '<div id="deliveryGrid" class="delivery-grid"></div>'+
+          '<div id="deliveryEmpty" class="delivery-empty" style="display:none">No files match your search or filter.</div>'+
+        '</section>'+
+        '<div id="bulkBar" class="delivery-bulk"><span id="bulkCount">0 selected</span><span class="spacer"></span><button class="delivery-btn" id="clearSelection">Clear</button><button class="delivery-btn primary" id="downloadSelected">Download Selected</button></div>'+
+        '<div class="delivery-footer">FILM BEYOND IMAGINATION • FBI Client File Studio</div>'+
+      '</main>'+
+    '</div>'+
+    '<div id="v" class="viewer"></div>';
+
+  const selected=new Set(), filteredState={filter:'all',sort:'name',q:''};
+  function typeOf(f){const m=f.mime_type||'';if(/^image\//.test(m))return'image';if(/^video\//.test(m))return'video';if(/^audio\//.test(m))return'audio';return'document'}
+  function matches(f){
+    const t=typeOf(f);
+    if(filteredState.filter!=='all'&&t!==filteredState.filter)return false;
+    const q=filteredState.q;if(!q)return true;
+    return (String(f.original_name)+' '+String(f.relative_path||'')).toLowerCase().includes(q);
+  }
+  function getList(){
+    let list=files.filter(matches);
+    if(filteredState.sort==='name')list.sort((a,b)=>String(a.original_name).localeCompare(String(b.original_name)));
+    else if(filteredState.sort==='newest')list.sort((a,b)=>new Date(b.created_at||0)-new Date(a.created_at||0));
+    else if(filteredState.sort==='size')list.sort((a,b)=>Number(b.size_bytes||0)-Number(a.size_bytes||0));
+    else if(filteredState.sort==='type')list.sort((a,b)=>typeOf(a).localeCompare(typeOf(b))||String(a.original_name).localeCompare(String(b.original_name)));
+    return list;
+  }
+  function cardThumb(f){
+    const u=f.download_url||'';
+    if(/^image\//.test(f.mime_type||''))return '<img src="'+esc(u)+'" alt="" loading="lazy">';
+    if(/^video\//.test(f.mime_type||''))return '<video src="'+esc(u)+'" muted preload="metadata" playsinline></video>';
+    return '<div style="font-size:32px;color:#777">'+esc(icon(f.original_name))+'</div>';
+  }
+  function renderGrid(){
+    const list=getList(),g=document.querySelector('#deliveryGrid'),empty=document.querySelector('#deliveryEmpty');
+    document.querySelector('#visibleCount').textContent=list.length+' shown';
+    if(!list.length){g.innerHTML='';empty.style.display='block';return}
+    empty.style.display='none';
+    g.innerHTML=list.map(f=>{
+      const type=typeOf(f),isSel=selected.has(f.id),u=esc(f.download_url||'');
+      return '<article class="delivery-card '+(isSel?'selected':'')+'" data-card="'+esc(f.id)+'">'+
+        '<div class="delivery-thumb">'+cardThumb(f)+'<span class="typebadge">'+type.toUpperCase()+'</span><span class="delivery-check">'+(isSel?'✓':'')+'</span></div>'+
+        '<div class="delivery-card-body"><div class="delivery-name" title="'+esc(f.original_name)+'">'+esc(f.original_name)+'</div><div class="delivery-card-meta">'+(d.settings?.show_file_size?fmt(f.size_bytes)+' • ':'')+esc(f.mime_type||'')+(f.relative_path&&f.relative_path!==f.original_name?' • '+esc(f.relative_path):'')+'</div></div>'+
+        '<div class="delivery-card-actions">'+
+          (d.settings?.allow_client_preview?'<button data-prev="'+esc(f.id)+'">Preview</button>':'')+
+          '<a class="download" href="'+u+'&download=1">Download</a>'+
+        '</div></article>';
+    }).join('');
+    g.querySelectorAll('[data-card]').forEach(card=>card.onclick=function(e){
+      if(e.target.closest('button,a'))return;
+      const id=card.dataset.card;if(selected.has(id))selected.delete(id);else selected.add(id);renderGrid();updateBulk();
+    });
+    g.querySelectorAll('[data-prev]').forEach(b=>b.onclick=function(e){e.stopPropagation();clientPreview(files.find(x=>x.id===b.dataset.prev))});
+  }
+  function updateBulk(){
+    document.querySelector('#bulkCount').textContent=selected.size+' selected';
+    document.querySelector('#bulkBar').classList.toggle('show',selected.size>0);
+  }
+  function setFilter(v){
+    filteredState.filter=v;
+    document.querySelectorAll('.delivery-seg').forEach(b=>b.classList.toggle('active',b.dataset.filter===v));
+    renderGrid();
+  }
+  function downloadSelected(){
+    const list=files.filter(f=>selected.has(f.id));
+    if(!list.length)return;
+    list.forEach(function(f){const a=document.createElement('a');a.href=f.download_url+'&download=1';a.target='_blank';a.rel='noreferrer';document.body.appendChild(a);a.click();a.remove()});
+    setStatusMsg(list.length+' download link'+(list.length===1?'':'s')+' opened.');
+  }
+  function setStatusMsg(msg){const h=document.querySelector('.delivery-heading p');if(h)h.textContent=msg;setTimeout(()=>{if(h)h.textContent=(d.settings?.portal_title||'FBI Client File Delivery')+' • Secure client download area'},2500)}
+  document.querySelector('#deliverySearch').oninput=e=>{filteredState.q=e.target.value.toLowerCase();renderGrid()};
+  document.querySelector('#deliverySort').onchange=e=>{filteredState.sort=e.target.value;renderGrid()};
+  document.querySelectorAll('.delivery-seg').forEach(b=>b.onclick=()=>setFilter(b.dataset.filter));
+  document.querySelector('#navAll').onclick=()=>setFilter('all');
+  document.querySelector('#navPhotos').onclick=()=>setFilter('image');
+  document.querySelector('#navVideos').onclick=()=>setFilter('video');
+  document.querySelector('#navAudio').onclick=()=>setFilter('audio');
+  document.querySelector('#navDocs').onclick=()=>setFilter('document');
+  document.querySelector('#selectAll').onclick=()=>{getList().forEach(f=>selected.add(f.id));renderGrid();updateBulk()};
+  document.querySelector('#clearSelection').onclick=()=>{selected.clear();renderGrid();updateBulk()};
+  document.querySelector('#downloadSelected').onclick=downloadSelected;
+  document.querySelector('#downloadSelectedTop').onclick=downloadSelected;
+  document.querySelector('#installApp').onclick=installFbiApp;
+  renderGrid();updateBulk();
+ }catch(e){
+  document.body.innerHTML='<div class="client"><div class="clientwrap"><div class="ctop"><img src="'+LOGO+'"><h1>Delivery unavailable</h1><p>'+esc(e.message)+'</p></div></div></div>';
+ }
 }
 function clientPreview(f){
  const m=document.querySelector('#v');const u=f.download_url;
