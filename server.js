@@ -110,7 +110,7 @@ async function generateThumbnail(file,width,height){
     try{
       const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:file.storage_path}),{expiresIn:300});
       let frame;
-      try{frame=await runFfmpegPoster(url,1)}catch(_e){frame=await runFfmpegPoster(url,0)}
+      try{frame=await runFfmpegPoster(url,5)}catch(_e1){try{frame=await runFfmpegPoster(url,1)}catch(_e2){frame=await runFfmpegPoster(url,0)}}
       return sharp(frame).rotate().resize({width:width,height:height,fit:"inside",withoutEnlargement:true}).webp({quality:76,method:4}).toBuffer();
     }catch(e){
       console.warn("Video thumbnail fallback:",file?.original_name,e?.message||e);
@@ -562,7 +562,7 @@ app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
   const kind=thumbKind(f);
   const cacheKey="portal:"+f.id+":"+kind+":"+width+"x"+height, cached=getThumbCache(cacheKey);
   if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").send(cached.buffer);
-  const key="__portal-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+kind+"|"+width+"|"+height).digest("hex")+".webp";
+  const key="__portal-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+cacheKind+"|"+width+"|"+height).digest("hex")+".webp";
   try{
    const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:key}));
    if(head.ContentLength){
@@ -1390,7 +1390,7 @@ app.get("/api/admin/thumb/:id",admin,async(req,res)=>{
   const kind=thumbKind(f);
   const cacheKey="admin:"+f.id+":"+kind+":"+width+"x"+height,cached=getThumbCache(cacheKey);
   if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(cached.buffer);
-  const thumbKey="__admin-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+kind+"|"+width+"|"+height).digest("hex")+".webp";
+  const thumbKey="__admin-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+cacheKind+"|"+width+"|"+height).digest("hex")+".webp";
   try{
     const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:thumbKey}));
     if(head.ContentLength){
@@ -1430,7 +1430,7 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
   const cacheKey=out.f.id+":"+kind+":"+width+"x"+height+":natural";
   const cached=getThumbCache(cacheKey);
   if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(cached.buffer);
-  const thumbKey="__thumbnails/"+crypto.createHash("sha1").update(String(out.f.id)+"|"+kind+"|"+width+"|"+height+"|natural").digest("hex")+".webp";
+  const thumbKey="__thumbnails/"+crypto.createHash("sha1").update(String(out.f.id)+"|"+cacheKind+"|"+width+"|"+height+"|natural").digest("hex")+".webp";
   try{
     const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:thumbKey}));
     if(head.ContentLength){
