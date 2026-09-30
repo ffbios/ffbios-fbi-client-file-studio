@@ -65,6 +65,46 @@ function validSession(req){
   }catch{return false}
 }
 function admin(req,res,next){if(!validSession(req))return res.status(401).json({error:"Unauthorised"});next()}
+function userSession(user){
+  const exp=Date.now()+30*86400000;
+  const payload=Buffer.from(JSON.stringify({uid:user.id,email:user.email,exp:exp})).toString("base64url");
+  const sig=crypto.createHmac("sha256",SESSION_SECRET).update(payload).digest("base64url");
+  return payload+"."+sig;
+}
+function validUserSession(req){
+  const s=cookies(req).fbi_user_session;if(!s)return null;
+  const parts=s.split("."),payload=parts[0],sig=parts[1];if(!payload||!sig)return null;
+  try{
+    const expected=crypto.createHmac("sha256",SESSION_SECRET).update(payload).digest("base64url");
+    if(!crypto.timingSafeEqual(Buffer.from(sig),Buffer.from(expected)))return null;
+    const data=JSON.parse(Buffer.from(payload,"base64url").toString("utf8"));
+    if(!data.uid||!data.email||Number(data.exp)<=Date.now())return null;
+    return {id:String(data.uid),email:String(data.email).toLowerCase()};
+  }catch{return null}
+}
+function portalUser(req,res,next){
+  const u=validUserSession(req);
+  if(!u)return res.status(401).json({error:"Please log in to your account."});
+  req.portalUser=u;next();
+}
+async function hashUserPassword(password){
+  const N=32768,r=8,p=1,salt=crypto.randomBytes(16);
+  const derived=await new Promise((resolve,reject)=>crypto.scrypt(password,salt,64,{N:N,r:r,p:p,maxmem:256*1024*1024},(e,d)=>e?reject(e):resolve(d)));
+  return "scrypt$"+N+"$"+r+"$"+p+"$"+salt.toString("base64")+"$"+Buffer.from(derived).toString("base64");
+}
+async function userPasswordMatches(password,stored){
+  try{
+    const parts=String(stored||"").split("$"),prefix=parts[0],N=parts[1],r=parts[2],p=parts[3],salt=parts[4],hash=parts[5];
+    if(prefix!=="scrypt"||!N||!r||!p||!salt||!hash)return false;
+    const derived=await new Promise((resolve,reject)=>crypto.scrypt(password,Buffer.from(salt,"base64"),64,{N:Number(N),r:Number(r),p:Number(p),maxmem:256*1024*1024},(e,d)=>e?reject(e):resolve(d)));
+    const actual=Buffer.from(hash,"base64");
+    return actual.length===derived.length&&crypto.timingSafeEqual(actual,derived);
+  }catch{return false}
+}
+async function portalProjectOwned(userId,projectId){
+  const r=await pool.query("SELECT * FROM projects WHERE id=$1 AND owner_id=$2",[projectId,userId]);
+  return r.rows[0]||null;
+}
 function clientIp(req){return String(req.headers["x-forwarded-for"]||req.socket.remoteAddress||"").split(",")[0].trim().slice(0,120)}
 function s3Ready(){return Boolean(process.env.S3_BUCKET&&process.env.S3_ENDPOINT&&process.env.S3_ACCESS_KEY_ID&&process.env.S3_SECRET_ACCESS_KEY&&process.env.S3_REGION)}
 const s3=s3Ready()?new S3Client({
@@ -111,8 +151,19 @@ async function initDb(){
   if(!process.env.DATABASE_URL)throw new Error("DATABASE_URL is missing");
   if(!s3Ready())console.warn("Railway bucket variables are not ready yet.");
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS users(
+      id uuid PRIMARY KEY,
+      email text UNIQUE NOT NULL,
+      full_name text NOT NULL DEFAULT '',
+      password_hash text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
     CREATE TABLE IF NOT EXISTS projects(
       id uuid PRIMARY KEY,
+      owner_id uuid REFERENCES users(id) ON DELETE SET NULL,
       name text NOT NULL,
       client_name text DEFAULT '',
       client_email text DEFAULT '',
@@ -161,6 +212,8 @@ async function initDb(){
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     );
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_id uuid REFERENCES users(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_id);
     ALTER TABLE files ADD COLUMN IF NOT EXISTS relative_path text NOT NULL DEFAULT '';
     ALTER TABLE files ADD COLUMN IF NOT EXISTS content_fingerprint text;
     ALTER TABLE files ADD COLUMN IF NOT EXISTS sha256 text;
