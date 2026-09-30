@@ -1532,6 +1532,9 @@ app.get("/share/:token/manifest.webmanifest",async(req,res)=>{
 app.get("/manifest.webmanifest",(req,res)=>{
   res.type("application/manifest+json").sendFile(path.join(ROOT,"manifest.webmanifest"));
 });
+app.get("/official-logo.png",(req,res)=>{
+  res.type("image/png").set("Cache-Control","public, max-age=31536000, immutable").sendFile(path.join(ROOT,"official-logo.png"));
+});
 app.get("/official-logo.svg",(req,res)=>{
   res.type("image/svg+xml").set("Cache-Control","public, max-age=31536000, immutable").sendFile(path.join(ROOT,"official-logo.svg"));
 });
