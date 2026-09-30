@@ -390,6 +390,43 @@ app.post("/api/auth/logout",(req,res)=>{
   res.json({ok:true});
 });
 app.get("/api/auth/me",(req,res)=>res.json(validSession(req)?{authenticated:true,email:ADMIN_EMAIL}:{authenticated:false}));
+app.post("/api/portal/register",async(req,res)=>{
+ try{
+  const fullName=String(req.body.full_name||"").trim().slice(0,120);
+  const email=String(req.body.email||"").trim().toLowerCase();
+  const password=String(req.body.password||"");
+  if(!fullName)return res.status(400).json({error:"Full name is required."});
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({error:"Enter a valid email address."});
+  if(password.length<10)return res.status(400).json({error:"Password must be at least 10 characters."});
+  const existing=await pool.query("SELECT id FROM users WHERE email=$1",[email]);
+  if(existing.rowCount)return res.status(409).json({error:"An account with that email already exists."});
+  const id=uid(),hash=await hashUserPassword(password);
+  const r=await pool.query("INSERT INTO users(id,email,full_name,password_hash) VALUES($1,$2,$3,$4) RETURNING id,email,full_name,created_at",[id,email,fullName,hash]);
+  res.setHeader("Set-Cookie","fbi_user_session="+encodeURIComponent(userSession(r.rows[0]))+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000");
+  res.json({ok:true,user:r.rows[0]});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not create your account."})}
+});
+app.post("/api/portal/login",async(req,res)=>{
+ try{
+  const email=String(req.body.email||"").trim().toLowerCase(),password=String(req.body.password||"");
+  const r=await pool.query("SELECT id,email,full_name,password_hash FROM users WHERE email=$1",[email]);
+  if(!r.rowCount||!(await userPasswordMatches(password,r.rows[0].password_hash)))return res.status(401).json({error:"Invalid email or password."});
+  const u={id:r.rows[0].id,email:r.rows[0].email,full_name:r.rows[0].full_name};
+  res.setHeader("Set-Cookie","fbi_user_session="+encodeURIComponent(userSession(u))+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000");
+  res.json({ok:true,user:u});
+ }catch(e){console.error(e);res.status(500).json({error:"Login service error."})}
+});
+app.post("/api/portal/logout",(req,res)=>{
+  res.setHeader("Set-Cookie","fbi_user_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0");
+  res.json({ok:true});
+});
+app.get("/api/portal/me",portalUser,async(req,res)=>{
+ try{
+  const r=await pool.query("SELECT id,email,full_name,created_at FROM users WHERE id=$1",[req.portalUser.id]);
+  if(!r.rowCount)return res.status(401).json({error:"Account not found."});
+  res.json({authenticated:true,user:r.rows[0]});
+ }catch(e){res.status(500).json({error:"Could not load account."})}
+});
 
 app.get("/api/projects",admin,async(req,res)=>{
  try{
