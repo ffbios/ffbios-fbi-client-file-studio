@@ -1083,8 +1083,10 @@ async function clientView(token){
   function cardThumb(f,index){
     const encoded=encodeURIComponent(token),id=encodeURIComponent(f.id),u=f.download_url||'';
     if(/^image\//.test(f.mime_type||'')){
-      const priority=(Number(index||0)<8)?'high':'low';
-      return '<img src="/api/public/thumb/'+id+'?token='+encoded+'&w=360&h=540" alt="" loading="lazy" decoding="async" fetchpriority="'+priority+'">';
+      const first=Number(index||0)<8;
+      const priority=first?'high':'low';
+      const loading=first?'eager':'lazy';
+      return '<img src="/api/public/thumb/'+id+'?token='+encoded+'&w=360&h=540" alt="" loading="'+loading+'" decoding="async" fetchpriority="'+priority+'">';
     }
     if(/^video\//.test(f.mime_type||''))return '<div class="fileicon">▶</div><span class="playbadge">▶</span>';
     if(/^audio\//.test(f.mime_type||''))return '<div class="fileicon">♪</div>';
