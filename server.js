@@ -1416,7 +1416,9 @@ app.get("/api/public/share/:token",async(req,res)=>{
   const f=await pool.query("SELECT id,original_name,relative_path,mime_type,size_bytes,created_at FROM files WHERE project_id=$1 ORDER BY relative_path ASC,created_at DESC",[p.id]);
   const base=PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`;
   const settings=await loadSettings();
-  res.set("Cache-Control","private, max-age=20, stale-while-revalidate=60");
+  res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma","no-cache");
+  res.set("Expires","0");
   res.json({project:p,settings:{portal_title:settings.portal_title,allow_client_preview:settingBool(settings.allow_client_preview),show_file_size:settingBool(settings.show_file_size)},files:f.rows.map(x=>({...x,download_url:`${base}/api/public/file/${x.id}?token=${encodeURIComponent(req.params.token)}`}))});
  }catch(e){console.error(e);res.status(500).json({error:"Could not load delivery"})}
 });
