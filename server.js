@@ -1487,6 +1487,31 @@ app.get("/pwa-icon.svg",(req,res)=>{
 app.get("/sw.js",(req,res)=>{
   res.type("application/javascript").set("Cache-Control","no-cache").sendFile(path.join(ROOT,"sw.js"));
 });
+app.post("/portal",async(req,res)=>{
+ try{
+  const mode=String(req.body.auth_mode||"signup");
+  const email=String(req.body.email||"").trim().toLowerCase();
+  const password=String(req.body.password||"");
+  const page=(title,message,href,text)=>res.status(400).type("html").send("<!doctype html><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>"+title+"</title><body style=\"font-family:system-ui;padding:40px;background:#09090a;color:#fff\"><h2>"+title+"</h2><p>"+message+"</p><p><a href=\""+href+"\" style=\"color:#f4d56d\">"+text+"</a></p></body>");
+  if(mode==="login"){
+   const r=await pool.query("SELECT id,email,full_name,password_hash FROM users WHERE email=$1",[email]);
+   if(!r.rowCount||!(await userPasswordMatches(password,r.rows[0].password_hash)))return page("Sign in failed","Invalid email or password.","/portal?mode=login","Back to sign in");
+   const u={id:r.rows[0].id,email:r.rows[0].email,full_name:r.rows[0].full_name};
+   res.setHeader("Set-Cookie","fbi_user_session="+encodeURIComponent(userSession(u))+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000");
+   return res.redirect(303,"/portal");
+  }
+  const fullName=String(req.body.full_name||"").trim().slice(0,120);
+  if(!fullName)return page("Account creation failed","Full name is required.","/portal","Back to account creation");
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return page("Account creation failed","Enter a valid email address.","/portal","Back to account creation");
+  if(password.length<10)return page("Account creation failed","Password must be at least 10 characters.","/portal","Back to account creation");
+  const existing=await pool.query("SELECT id FROM users WHERE email=$1",[email]);
+  if(existing.rowCount)return page("Account already exists","Use the sign-in option for this email.","/portal?mode=login","Sign in");
+  const id=uid(),hash=await hashUserPassword(password);
+  const r=await pool.query("INSERT INTO users(id,email,full_name,password_hash) VALUES($1,$2,$3,$4) RETURNING id,email,full_name",[id,email,fullName,hash]);
+  res.setHeader("Set-Cookie","fbi_user_session="+encodeURIComponent(userSession(r.rows[0]))+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000");
+  return res.redirect(303,"/portal");
+ }catch(e){console.error("Portal form fallback failed:",e);return res.status(500).type("html").send("<!doctype html><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>Portal error</title><body style=\"font-family:system-ui;padding:40px;background:#09090a;color:#fff\"><h2>Portal error</h2><p>Please try again.</p><p><a href=\"/portal\" style=\"color:#f4d56d\">Back to portal</a></p></body>")}
+});
 app.get("/portal.html",(req,res)=>{res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.type("html").sendFile(path.join(ROOT,"portal.html"))});
 app.get("/portal",(req,res)=>{res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.type("html").sendFile(path.join(ROOT,"portal.html"))});
 app.get("/editor.html",(req,res)=>{
