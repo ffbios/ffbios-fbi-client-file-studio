@@ -100,6 +100,20 @@
 @media(prefers-reduced-motion:reduce){.delivery-card,.delivery-btn,.delivery-seg,.delivery-sort{transition:none!important}}
 
 .fast-preview{position:relative;display:grid;place-items:center;min-height:320px;background:#060607;border-radius:10px;overflow:hidden}.fast-preview img{max-width:100%;max-height:80vh;object-fit:contain;display:block}.fast-preview video{max-width:100%;max-height:80vh;width:100%;background:#000}.fast-preview audio{width:min(720px,100%)}.previewloading{position:absolute;left:12px;bottom:12px;z-index:2;padding:6px 9px;border-radius:999px;background:rgba(0,0,0,.72);color:#ddd;font-size:9px;border:1px solid rgba(255,255,255,.12);pointer-events:none}
+/* Orientation-aware masonry delivery gallery */
+.delivery-grid{display:block;column-width:220px;column-count:auto;column-gap:13px}
+.delivery-card{display:inline-block;width:100%;margin:0 0 13px;break-inside:avoid;vertical-align:top}
+.delivery-thumb{height:auto;min-height:90px;background:#0b0b0d}
+.delivery-thumb img{width:100%;height:auto;aspect-ratio:auto;object-fit:contain;display:block}
+.delivery-card-body{background:#171719}
+.previewnav{position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:space-between;padding:0 14px;z-index:4}
+.previewnav button{pointer-events:auto;width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.58);backdrop-filter:blur(7px);color:#fff;font-size:21px;display:grid;place-items:center;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.previewnav button:hover{background:rgba(0,0,0,.78);transform:scale(1.05)}
+.previewcount{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:5;padding:5px 9px;border-radius:999px;background:rgba(0,0,0,.6);color:#ddd;font-size:8px;border:1px solid rgba(255,255,255,.12)}
+.fast-preview{touch-action:pan-y}
+@media(max-width:1200px){.delivery-grid{column-width:190px}}
+@media(max-width:800px){.delivery-grid{column-width:160px}.previewnav{padding:0 7px}.previewnav button{width:38px;height:38px;font-size:18px}}
+
 </style>
 </head>
 <body>
@@ -1030,7 +1044,7 @@ async function clientView(token){
       card.addEventListener('pointerleave',function(){card.style.transform=''});
       card.addEventListener('pointerdown',function(e){if(e.pointerType==='touch')card.style.transform='scale(.985)'});
       card.addEventListener('pointerup',function(e){if(e.pointerType==='touch')card.style.transform=''});
-      card.addEventListener('dblclick',function(){if(f&&(typeOf(f)==='image'||typeOf(f)==='video'||typeOf(f)==='audio'))clientPreview(f)});
+      card.addEventListener('dblclick',function(){if(f&&(typeOf(f)==='image'||typeOf(f)==='video'||typeOf(f)==='audio')){window.__fbiPreviewFiles=getList();openClientPreviewIndex(window.__fbiPreviewFiles.findIndex(x=>x.id===f.id));}});
     });
   }
   function updateBulk(){document.querySelector('#bulkCount').textContent=selected.size+' selected';document.querySelector('#bulkBar').classList.toggle('show',selected.size>0)}
@@ -1046,36 +1060,58 @@ async function clientView(token){
  }catch(e){document.body.innerHTML='<div class="client"><div class="clientwrap"><div class="ctop"><img src="'+LOGO+'"><h1>Delivery unavailable</h1><p>'+esc(e.message)+'</p></div></div></div>';}
 }
 function isPdfFile(f){return /^application\/pdf$/i.test(f?.mime_type||'') || /\.pdf$/i.test(f?.original_name||'')}
+window.__fbiPreviewFiles=window.__fbiPreviewFiles||[];
+window.__fbiPreviewIndex=0;
+function openClientPreviewIndex(index){
+ const list=window.__fbiPreviewFiles||[];
+ if(!list.length)return;
+ window.__fbiPreviewIndex=(index+list.length)%list.length;
+ clientPreview(list[window.__fbiPreviewIndex]);
+}
 function clientPreview(f){
  const m=document.querySelector('#v');if(!m||!f)return;
+ const list=window.__fbiPreviewFiles||[],index=Math.max(0,list.findIndex(x=>x.id===f.id));
+ window.__fbiPreviewIndex=index<0?0:index;
  const u=f.download_url||'',type=(f.mime_type||'').toLowerCase(),isImg=/^image\//.test(type),isVid=/^video\//.test(type),isAud=/^audio\//.test(type),isPdf=isPdfFile(f);
  const tokenValue=location.pathname.split('/')[2]||'';
- const thumb=isImg?'/api/public/thumb/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(tokenValue)+'&w=760&h=520':'';
+ const thumb=isImg?'/api/public/thumb/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(tokenValue)+'&w=760&h=760':'';
  const previewHtml=isImg
-   ?'<div class="fast-preview"><img id="previewFast" src="'+thumb+'" decoding="async" fetchpriority="high" alt=""><div class="previewloading" id="previewLoading">Loading original preview…</div></div>'
+   ?'<div class="fast-preview"><img id="previewFast" src="'+thumb+'" decoding="async" fetchpriority="high" alt=""><div class="previewloading" id="previewLoading">Loading preview…</div></div>'
    :isVid
      ?'<div class="fast-preview"><div class="previewloading" id="previewLoading">Loading video…</div><video id="previewVideo" controls autoplay playsinline preload="metadata" src="'+esc(u)+'"></video></div>'
      :isAud
        ?'<div class="fast-preview"><div class="previewloading" id="previewLoading">Loading audio…</div><audio id="previewAudio" controls autoplay preload="metadata" src="'+esc(u)+'"></audio></div>'
        :isPdf
          ?'<iframe src="'+esc(u)+'"></iframe>'
-         :'<div class="empty">Preview is not available for this file type in the browser. <a href="'+esc(u)+'&download=1" style="color:var(--gold2)">Download file</a></div>';
- m.innerHTML='<div class="viewerbox"><div class="vh"><b>'+esc(f.original_name)+'</b><div style="display:flex;gap:6px;align-items:center"><a class="btn primary" href="'+esc(u)+'&download=1" target="_blank" rel="noreferrer">Download</a><button class="close">×</button></div></div><div class="vc">'+previewHtml+'</div></div>';
+         :'<div class="empty">Preview is not available for this file type in the browser.</div>';
+ m.innerHTML='<div class="viewerbox"><div class="vh"><b>'+esc(f.original_name)+'</b><div style="display:flex;gap:6px;align-items:center"><span class="previewcount">'+(window.__fbiPreviewIndex+1)+' / '+list.length+'</span><a class="btn primary" href="'+esc(u)+'&download=1" target="_blank" rel="noreferrer">Download</a><button class="close">×</button></div></div><div class="vc" id="previewViewport">'+previewHtml+'<div class="previewnav"><button id="prevFile" aria-label="Previous file">‹</button><button id="nextFile" aria-label="Next file">›</button></div></div></div>';
  m.classList.add('show');
- m.querySelector('.close').onclick=()=>m.classList.remove('show');
+ const close=()=>m.classList.remove('show');
+ m.querySelector('.close').onclick=close;
+ const prev=()=>openClientPreviewIndex(window.__fbiPreviewIndex-1),next=()=>openClientPreviewIndex(window.__fbiPreviewIndex+1);
+ m.querySelector('#prevFile').onclick=prev;m.querySelector('#nextFile').onclick=next;
+ let x0=0,y0=0;
+ const vp=m.querySelector('#previewViewport');
+ vp.addEventListener('pointerdown',e=>{x0=e.clientX;y0=e.clientY});
+ vp.addEventListener('pointerup',e=>{const dx=e.clientX-x0,dy=e.clientY-y0;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)){if(dx<0)next();else prev()}});
  if(isImg){
    const img=m.querySelector('#previewFast'),loading=m.querySelector('#previewLoading');
-   const full=new Image();
-   full.decoding='async';
-   full.onload=()=>{img.src=full.src;if(loading)loading.textContent='High-resolution preview ready';setTimeout(()=>loading&&loading.remove(),700)};
-   full.onerror=()=>{if(loading)loading.textContent='Preview thumbnail shown. High-resolution preview is still unavailable.'};
-   full.src='/api/public/preview/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(tokenValue)+'&w=1400&h=1000';
+   const full=new Image();full.decoding='async';
+   full.onload=()=>{img.src=full.src;if(loading)loading.textContent='Preview ready';setTimeout(()=>loading&&loading.remove(),500)};
+   full.onerror=()=>{if(loading)loading.textContent='Preview thumbnail shown.'};
+   full.src='/api/public/preview/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(tokenValue)+'&w=1400&h=1400';
  }else{
    const media=m.querySelector('video,audio'),loading=m.querySelector('#previewLoading');
-   if(media)media.addEventListener('loadeddata',()=>{if(loading)loading.remove()},{once:true});
-   if(media)media.addEventListener('error',()=>{if(loading)loading.textContent='Preview could not be loaded. Check your connection.'},{once:true});
+   if(media)media.addEventListener('loadeddata',()=>loading&&loading.remove(),{once:true});
+   if(media)media.addEventListener('error',()=>loading&&(loading.textContent='Preview could not be loaded.'),{once:true});
  }
 }
+document.addEventListener('keydown',e=>{
+ const v=document.querySelector('#v');if(!v||!v.classList.contains('show'))return;
+ if(e.key==='ArrowRight'){e.preventDefault();openClientPreviewIndex(window.__fbiPreviewIndex+1)}
+ if(e.key==='ArrowLeft'){e.preventDefault();openClientPreviewIndex(window.__fbiPreviewIndex-1)}
+ if(e.key==='Escape')v.classList.remove('show');
+});
 function toast(msg){const t=document.querySelector('#toast');if(!t)return;t.textContent=msg;t.style.display='block';clearTimeout(window.__tt);window.__tt=setTimeout(()=>t.style.display='none',2200)}
 let deferredInstallPrompt=null;
 window.addEventListener('beforeinstallprompt',event=>{
