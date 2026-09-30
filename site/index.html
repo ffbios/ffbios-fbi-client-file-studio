@@ -1120,10 +1120,11 @@ async function clientView(token){
     }).join('');
     g.querySelectorAll('[data-card]').forEach(card=>{
       const id=card.dataset.card,f=files.find(x=>x.id===id);
-      const img=card.querySelector('.delivery-thumb img');
-      if(img){
+      const media=card.querySelector('.delivery-thumb img,.delivery-thumb video');
+      if(media){
         const setOrientation=()=>{
-          const w=img.naturalWidth,h=img.naturalHeight;
+          const w=Number(media.naturalWidth||media.videoWidth||0);
+          const h=Number(media.naturalHeight||media.videoHeight||0);
           if(!w||!h)return;
           const ratio=w/h;
           const orientation=ratio<0.92?'portrait':ratio>1.08?'landscape':'square';
@@ -1131,9 +1132,9 @@ async function clientView(token){
           const thumb=card.querySelector('.delivery-thumb');
           if(thumb){
             /*
-             * Do not rely on CSS aspect-ratio alone. Set the real thumbnail pixel height
-             * from the loaded image dimensions so portrait images are physically taller
-             * than landscape images in every browser.
+             * Use the real media dimensions for BOTH images and videos.
+             * This makes a portrait video card physically taller and a
+             * landscape video card physically wider/shorter, just like photos.
              */
             const width=thumb.getBoundingClientRect().width||card.getBoundingClientRect().width;
             const height=Math.max(1,Math.round(width*h/w));
@@ -1141,15 +1142,21 @@ async function clientView(token){
             thumb.style.minHeight='0';
             thumb.style.aspectRatio='auto';
           }
-          img.style.display='block';
-          img.style.width='100%';
-          img.style.height='100%';
-          img.style.maxWidth='100%';
-          img.style.objectFit='contain';
-          img.style.objectPosition='center';
+          media.style.display='block';
+          media.style.width='100%';
+          media.style.height='100%';
+          media.style.maxWidth='100%';
+          media.style.objectFit='contain';
+          media.style.objectPosition='center';
+          media.style.background='#0a0a0c';
         };
-        if(img.complete)setOrientation();
-        else img.addEventListener('load',setOrientation,{once:true});
+        if(media.tagName==='VIDEO'){
+          if(media.readyState>=1)setOrientation();
+          else media.addEventListener('loadedmetadata',setOrientation,{once:true});
+        }else{
+          if(media.complete)setOrientation();
+          else media.addEventListener('load',setOrientation,{once:true});
+        }
       }
       card.onclick=function(){if(selected.has(id))selected.delete(id);else selected.add(id);renderGrid();updateBulk()};
       card.addEventListener('pointermove',function(e){
