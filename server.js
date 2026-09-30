@@ -1532,6 +1532,9 @@ app.get("/share/:token/manifest.webmanifest",async(req,res)=>{
 app.get("/manifest.webmanifest",(req,res)=>{
   res.type("application/manifest+json").sendFile(path.join(ROOT,"manifest.webmanifest"));
 });
+app.get("/official-logo.svg",(req,res)=>{
+  res.type("image/svg+xml").set("Cache-Control","public, max-age=31536000, immutable").sendFile(path.join(ROOT,"official-logo.svg"));
+});
 app.get("/pwa-icon.svg",(req,res)=>{
   res.type("image/svg+xml").sendFile(path.join(ROOT,"pwa-icon.svg"));
 });
