@@ -481,6 +481,26 @@ app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
   res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").send(webp);
  }catch(e){console.error(e);res.status(500).send("Unable to generate thumbnail.")}
 });
+app.delete("/api/portal/projects/:id",portalUser,async(req,res)=>{
+ try{
+  if(!s3Ready())return res.status(503).json({error:"Cloud file storage is not ready."});
+  const p=await portalProjectOwned(req.portalUser.id,req.params.id);
+  if(!p)return res.status(404).json({error:"Project not found."});
+  const files=await pool.query("SELECT storage_path FROM files WHERE project_id=$1",[p.id]);
+  const sessions=await pool.query("SELECT storage_key,multipart_upload_id,mode FROM upload_sessions WHERE project_id=$1 AND status='active'",[p.id]);
+  for(const u of sessions.rows){
+   if(u.mode==="multipart"&&u.multipart_upload_id)await s3.send(new AbortMultipartUploadCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id})).catch(()=>{});
+   else if(u.storage_key)await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:u.storage_key})).catch(()=>{});
+  }
+  const keys=files.rows.map(f=>f.storage_path).filter(Boolean);
+  for(let i=0;i<keys.length;i+=1000){
+   const out=await s3.send(new DeleteObjectsCommand({Bucket:bucket(),Delete:{Objects:keys.slice(i,i+1000).map(function(Key){return {Key:Key}}),Quiet:true}}));
+   if(out.Errors&&out.Errors.length)throw new Error("One or more cloud files could not be deleted.");
+  }
+  await pool.query("DELETE FROM projects WHERE id=$1 AND owner_id=$2",[p.id,req.portalUser.id]);
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not completely delete the project."})}
+});
 app.get("/api/portal/file/:id",portalUser,async(req,res)=>{
  try{const r=await pool.query("SELECT * FROM files WHERE id=$1 AND project_id IN (SELECT id FROM projects WHERE owner_id=$2)",[req.params.id,req.portalUser.id]);if(!r.rowCount)return res.status(404).send("File not found.");const f=r.rows[0];const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:900});res.redirect(url);}
  catch(e){console.error(e);res.status(500).send("Unable to serve file.")}
