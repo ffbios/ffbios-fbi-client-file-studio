@@ -5,7 +5,7 @@ const crypto=require("crypto");
 const fs=require("fs");
 const fsp=fs.promises;
 const path=require("path");
-const {S3Client,PutObjectCommand,GetObjectCommand,DeleteObjectCommand,HeadObjectCommand,CreateMultipartUploadCommand,UploadPartCommand,CompleteMultipartUploadCommand,AbortMultipartUploadCommand,ListPartsCommand,PutBucketCorsCommand}=require("@aws-sdk/client-s3");
+const {S3Client,PutObjectCommand,GetObjectCommand,DeleteObjectCommand,DeleteObjectsCommand,HeadObjectCommand,CreateMultipartUploadCommand,UploadPartCommand,CompleteMultipartUploadCommand,AbortMultipartUploadCommand,ListPartsCommand,PutBucketCorsCommand}=require("@aws-sdk/client-s3");
 const {Upload}=require("@aws-sdk/lib-storage");
 const {getSignedUrl}=require("@aws-sdk/s3-request-presigner");
 const sharp=require("sharp");
@@ -383,6 +383,34 @@ app.patch("/api/projects/:id",admin,async(req,res)=>{
   res.json({project:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not update project"})}
 });
+app.delete("/api/projects/:id",admin,async(req,res)=>{
+ try{
+  if(!s3Ready())return res.status(503).json({error:"Cloud file storage is not ready."});
+  const project=await pool.query("SELECT id,name FROM projects WHERE id=$1",[req.params.id]);
+  if(!project.rowCount)return res.status(404).json({error:"Project not found"});
+  const files=await pool.query("SELECT id,storage_path FROM files WHERE project_id=$1",[req.params.id]);
+  const sessions=await pool.query("SELECT id,storage_key,multipart_upload_id,mode FROM upload_sessions WHERE project_id=$1 AND status='active'",[req.params.id]);
+  for(const u of sessions.rows){
+    if(u.mode==="multipart"&&u.multipart_upload_id){
+      await s3.send(new AbortMultipartUploadCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id})).catch(function(){});
+    }else if(u.storage_key){
+      await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:u.storage_key})).catch(function(){});
+    }
+  }
+  const keys=files.rows.map(f=>f.storage_path).filter(Boolean);
+  for(let i=0;i<keys.length;i+=1000){
+    const batch=keys.slice(i,i+1000);
+    const out=await s3.send(new DeleteObjectsCommand({Bucket:bucket(),Delete:{Objects:batch.map(function(Key){return {Key:Key}}),Quiet:true}}));
+    if(out.Errors&&out.Errors.length)throw new Error("Cloud storage could not delete one or more project files.");
+  }
+  await pool.query("DELETE FROM projects WHERE id=$1",[req.params.id]);
+  res.json({ok:true,deleted_project_id:req.params.id,deleted_file_count:files.rowCount,project_name:project.rows[0].name});
+ }catch(e){
+  console.error("Project deletion failed:",e?.stack||e);
+  res.status(500).json({error:"Could not completely delete the project. No database records were removed."});
+ }
+});
+
 app.post("/api/projects/:id/regenerate-link",admin,async(req,res)=>{
  try{
   const r=await pool.query("UPDATE projects SET share_token=$1,shared=true,updated_at=now() WHERE id=$2 RETURNING *",[token(),req.params.id]);if(!r.rowCount)return res.status(404).json({error:"Project not found"});
