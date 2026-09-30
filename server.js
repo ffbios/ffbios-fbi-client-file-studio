@@ -456,6 +456,31 @@ app.post("/api/portal/projects/:id/share",portalUser,async(req,res)=>{
  try{const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const r=await pool.query("UPDATE projects SET share_token=$1,shared=true,updated_at=now() WHERE id=$2 AND owner_id=$3 RETURNING *",[token(),p.id,req.portalUser.id]);res.json({project:r.rows[0],share_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/share/"+r.rows[0].share_token});}
  catch(e){console.error(e);res.status(500).json({error:"Could not create client share link."})}
 });
+app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
+ try{
+  const q=await pool.query("SELECT * FROM files WHERE id=$1 AND project_id IN (SELECT id FROM projects WHERE owner_id=$2)",[req.params.id,req.portalUser.id]);
+  if(!q.rowCount)return res.status(404).send("File not found.");
+  const f=q.rows[0];if(!/^image\//i.test(f.mime_type||""))return res.status(415).send("Thumbnail generation is available for images only.");
+  const width=Math.max(160,Math.min(640,Number(req.query.w||360))),height=Math.max(160,Math.min(640,Number(req.query.h||360)));
+  const cacheKey="portal:"+f.id+":"+width+"x"+height, cached=getThumbCache(cacheKey);
+  if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").send(cached.buffer);
+  const key="__portal-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+width+"|"+height).digest("hex")+".webp";
+  try{
+   const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:key}));
+   if(head.ContentLength){
+    const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:key}));
+    const bytes=got.Body?.transformToByteArray?Buffer.from(await got.Body.transformToByteArray()):Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject)}));
+    setThumbCache(cacheKey,bytes);return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").send(bytes);
+   }
+  }catch(_e){}
+  const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}));
+  const input=obj.Body?.transformToByteArray?Buffer.from(await obj.Body.transformToByteArray()):Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject)}));
+  const webp=await sharp(input).rotate().resize({width:width,height:height,fit:"inside",withoutEnlargement:true}).webp({quality:68,method:4}).toBuffer();
+  setThumbCache(cacheKey,webp);
+  await s3.send(new PutObjectCommand({Bucket:bucket(),Key:key,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(f.id),generated_by:"fbi-client-file-studio-portal"}})).catch(function(){});
+  res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").send(webp);
+ }catch(e){console.error(e);res.status(500).send("Unable to generate thumbnail.")}
+});
 app.get("/api/portal/file/:id",portalUser,async(req,res)=>{
  try{const r=await pool.query("SELECT * FROM files WHERE id=$1 AND project_id IN (SELECT id FROM projects WHERE owner_id=$2)",[req.params.id,req.portalUser.id]);if(!r.rowCount)return res.status(404).send("File not found.");const f=r.rows[0];const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:900});res.redirect(url);}
  catch(e){console.error(e);res.status(500).send("Unable to serve file.")}
