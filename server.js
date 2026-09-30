@@ -1027,24 +1027,60 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
   if(!/^image\//i.test(out.f.mime_type||""))return res.status(415).send("Thumbnail generation is available for images only.");
   const width=Math.max(240,Math.min(720,Number(req.query.w||420)));
   const height=Math.max(160,Math.min(540,Number(req.query.h||300)));
-  const key=out.f.id+":"+width+"x"+height;
-  const cached=getThumbCache(key);
+  const cacheKey=out.f.id+":"+width+"x"+height;
+  const cached=getThumbCache(cacheKey);
   if(cached){
-    return res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").set("X-Content-Type-Options","nosniff").send(cached.buffer);
+    return res.status(200).type("image/webp")
+      .set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400")
+      .set("X-Content-Type-Options","nosniff").send(cached.buffer);
   }
+
+  const thumbKey="__thumbnails/"+crypto.createHash("sha1").update(String(out.f.id)+"|"+width+"|"+height).digest("hex")+".webp";
+
+  // Persistent object-storage thumbnail cache. This avoids re-reading the 15–20 MB
+  // original camera image every time the gallery is opened.
+  try{
+    const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:thumbKey}));
+    if(head.ContentLength){
+      const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:thumbKey}));
+      const bytes=got.Body?.transformToByteArray ? Buffer.from(await got.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
+        const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject);
+      }));
+      setThumbCache(cacheKey,bytes);
+      return res.status(200).type("image/webp")
+        .set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400")
+        .set("X-Content-Type-Options","nosniff").send(bytes);
+    }
+  }catch(_e){ /* thumbnail does not exist yet */ }
+
   const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}));
-  const webp=await sharp(obj.Body)
+  const input=obj.Body?.transformToByteArray ? Buffer.from(await obj.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
+    const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject);
+  }));
+  const webp=await sharp(input)
     .rotate()
     .resize({width,height,fit:"cover",withoutEnlargement:true})
     .webp({quality:72,method:4})
     .toBuffer();
-  setThumbCache(key,webp);
-  res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").set("X-Content-Type-Options","nosniff").send(webp);
+
+  setThumbCache(cacheKey,webp);
+  try{
+    await s3.send(new PutObjectCommand({
+      Bucket:bucket(),Key:thumbKey,Body:webp,ContentType:"image/webp",
+      CacheControl:"private, max-age=31536000, immutable",
+      Metadata:{source_file_id:String(out.f.id),generated_by:"fbi-client-file-studio"}
+    }));
+  }catch(err){console.warn("Could not persist thumbnail",err?.message||err)}
+
+  res.status(200).type("image/webp")
+    .set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400")
+    .set("X-Content-Type-Options","nosniff").send(webp);
  }catch(e){
-  console.error("Thumbnail generation failed",e);
+  console.error("Thumbnail generation failed",e?.stack||e);
   res.status(500).send("Unable to generate thumbnail");
  }
 });
+
 app.get("/api/public/file/:id",async(req,res)=>{
  try{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));if(!out)return res.status(404).send("Invalid or expired delivery link.");
