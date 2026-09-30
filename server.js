@@ -1012,7 +1012,7 @@ app.get("/api/admin/thumb/:id",admin,async(req,res)=>{
   const q=await pool.query("SELECT id,storage_path,mime_type FROM files WHERE id=$1",[req.params.id]);
   if(!q.rowCount)return res.status(404).send("File not found");
   const f=q.rows[0];
-  if(!/^image\\//i.test(f.mime_type||""))return res.status(415).send("Thumbnail generation is available for images only.");
+  if(!/^image\//i.test(f.mime_type||""))return res.status(415).send("Thumbnail generation is available for images only.");
   const width=Math.max(160,Math.min(640,Number(req.query.w||360)));
   const height=Math.max(160,Math.min(640,Number(req.query.h||360)));
   const cacheKey="admin:"+f.id+":"+width+"x"+height;
