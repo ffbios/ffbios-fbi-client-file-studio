@@ -559,8 +559,8 @@ app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
   if(!q.rowCount)return res.status(404).send("File not found.");
   const f=q.rows[0];
   const width=Math.max(160,Math.min(640,Number(req.query.w||360))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
-  const kind=thumbKind(f);
-  const cacheKey="portal:"+f.id+":"+kind+":"+width+"x"+height, cached=getThumbCache(cacheKey);
+  const kind=thumbKind(f),cacheKind=kind==="video"?"video-v2":kind;
+  const cacheKey="portal:"+f.id+":"+cacheKind+":"+width+"x"+height, cached=getThumbCache(cacheKey);
   if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").send(cached.buffer);
   const key="__portal-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+cacheKind+"|"+width+"|"+height).digest("hex")+".webp";
   try{
@@ -1387,8 +1387,8 @@ app.get("/api/admin/thumb/:id",admin,async(req,res)=>{
   if(!q.rowCount)return res.status(404).send("File not found");
   const f=q.rows[0];
   const width=Math.max(160,Math.min(640,Number(req.query.w||360))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
-  const kind=thumbKind(f);
-  const cacheKey="admin:"+f.id+":"+kind+":"+width+"x"+height,cached=getThumbCache(cacheKey);
+  const kind=thumbKind(f),cacheKind=kind==="video"?"video-v2":kind;
+  const cacheKey="admin:"+f.id+":"+cacheKind+":"+width+"x"+height,cached=getThumbCache(cacheKey);
   if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(cached.buffer);
   const thumbKey="__admin-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+cacheKind+"|"+width+"|"+height).digest("hex")+".webp";
   try{
@@ -1426,8 +1426,8 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));
   if(!out)return res.status(404).send("Invalid or expired delivery link.");
   const width=Math.max(240,Math.min(720,Number(req.query.w||420))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
-  const kind=thumbKind(out.f);
-  const cacheKey=out.f.id+":"+kind+":"+width+"x"+height+":natural";
+  const kind=thumbKind(out.f),cacheKind=kind==="video"?"video-v2":kind;
+  const cacheKey=out.f.id+":"+cacheKind+":"+width+"x"+height+":natural";
   const cached=getThumbCache(cacheKey);
   if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(cached.buffer);
   const thumbKey="__thumbnails/"+crypto.createHash("sha1").update(String(out.f.id)+"|"+cacheKind+"|"+width+"|"+height+"|natural").digest("hex")+".webp";
