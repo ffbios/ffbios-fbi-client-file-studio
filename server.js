@@ -9,6 +9,21 @@ const {S3Client,PutObjectCommand,GetObjectCommand,DeleteObjectCommand,HeadObject
 const {Upload}=require("@aws-sdk/lib-storage");
 const {getSignedUrl}=require("@aws-sdk/s3-request-presigner");
 const sharp=require("sharp");
+const thumbnailCache=new Map();
+const THUMB_CACHE_MAX=120;
+const THUMB_CACHE_TTL=10*60*1000;
+function getThumbCache(key){
+  const v=thumbnailCache.get(key);
+  if(!v)return null;
+  if(v.expires<Date.now()){thumbnailCache.delete(key);return null;}
+  thumbnailCache.delete(key);thumbnailCache.set(key,v);
+  return v;
+}
+function setThumbCache(key,buffer){
+  thumbnailCache.set(key,{buffer,expires:Date.now()+THUMB_CACHE_TTL});
+  while(thumbnailCache.size>THUMB_CACHE_MAX)thumbnailCache.delete(thumbnailCache.keys().next().value);
+  return buffer;
+}
 
 const app=express();
 const PORT=Number(process.env.PORT||3000);
@@ -1000,6 +1015,7 @@ app.get("/api/public/share/:token",async(req,res)=>{
   const f=await pool.query("SELECT id,original_name,relative_path,mime_type,size_bytes,created_at FROM files WHERE project_id=$1 ORDER BY relative_path ASC,created_at DESC",[p.id]);
   const base=PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`;
   const settings=await loadSettings();
+  res.set("Cache-Control","private, max-age=20, stale-while-revalidate=60");
   res.json({project:p,settings:{portal_title:settings.portal_title,allow_client_preview:settingBool(settings.allow_client_preview),show_file_size:settingBool(settings.show_file_size)},files:f.rows.map(x=>({...x,download_url:`${base}/api/public/file/${x.id}?token=${encodeURIComponent(req.params.token)}`}))});
  }catch(e){console.error(e);res.status(500).json({error:"Could not load delivery"})}
 });
@@ -1009,26 +1025,26 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));
   if(!out)return res.status(404).send("Invalid or expired delivery link.");
   if(!/^image\//i.test(out.f.mime_type||""))return res.status(415).send("Thumbnail generation is available for images only.");
-  const width=Math.max(160,Math.min(800,Number(req.query.w||480)));
-  const height=Math.max(100,Math.min(800,Number(req.query.h||360)));
+  const width=Math.max(240,Math.min(720,Number(req.query.w||420)));
+  const height=Math.max(160,Math.min(540,Number(req.query.h||300)));
+  const key=out.f.id+":"+width+"x"+height;
+  const cached=getThumbCache(key);
+  if(cached){
+    return res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").set("X-Content-Type-Options","nosniff").send(cached.buffer);
+  }
   const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}));
-  const stream=obj.Body;
-  const jpeg=await sharp(stream)
+  const webp=await sharp(obj.Body)
     .rotate()
     .resize({width,height,fit:"cover",withoutEnlargement:true})
-    .jpeg({quality:78,mozjpeg:true})
+    .webp({quality:72,method:4})
     .toBuffer();
-  res.status(200)
-    .type("image/jpeg")
-    .set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400")
-    .set("X-Content-Type-Options","nosniff")
-    .send(jpeg);
+  setThumbCache(key,webp);
+  res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").set("X-Content-Type-Options","nosniff").send(webp);
  }catch(e){
   console.error("Thumbnail generation failed",e);
   res.status(500).send("Unable to generate thumbnail");
  }
 });
-
 app.get("/api/public/file/:id",async(req,res)=>{
  try{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));if(!out)return res.status(404).send("Invalid or expired delivery link.");
