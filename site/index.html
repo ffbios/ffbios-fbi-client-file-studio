@@ -1089,13 +1089,20 @@ async function clientView(token){
   }
   function renderGrid(){
     const list=getList(),g=document.querySelector('#deliveryGrid'),empty=document.querySelector('#deliveryEmpty');
+    /* Force the client gallery itself to be masonry at runtime so cached/older CSS cannot flatten portrait images. */
+    if(g){
+      g.style.display='block';
+      g.style.columnWidth=(window.innerWidth<=700?'160px':window.innerWidth<=1200?'190px':'220px');
+      g.style.columnGap='13px';
+      g.style.columnFill='balance';
+    }
     document.querySelector('#visibleCount').textContent=list.length+' shown';
     if(!list.length){g.innerHTML='';empty.style.display='block';return}
     empty.style.display='none';
     g.innerHTML=list.map(f=>{
       const type=typeOf(f),isSel=selected.has(f.id);
-      return '<article class="delivery-card '+(isSel?'selected':'')+'" data-card="'+esc(f.id)+'">'+
-        '<div class="delivery-thumb">'+cardThumb(f)+'<span class="typebadge">'+type.toUpperCase()+'</span><span class="delivery-check">'+(isSel?'✓':'')+'</span></div>'+
+      return '<article class="delivery-card '+(isSel?'selected':'')+'" data-card="'+esc(f.id)+'" style="display:inline-block;width:100%;margin:0 0 13px;break-inside:avoid;-webkit-column-break-inside:avoid;vertical-align:top;">'+
+        '<div class="delivery-thumb" style="height:auto;min-height:0;aspect-ratio:auto;display:block;overflow:hidden;">'+cardThumb(f)+'<span class="typebadge">'+type.toUpperCase()+'</span><span class="delivery-check">'+(isSel?'✓':'')+'</span></div>'+
         '<div class="delivery-card-body"><div class="delivery-name" title="'+esc(f.original_name)+'">'+esc(f.original_name)+'</div><div class="delivery-card-meta">'+(d.settings?.show_file_size?fmt(f.size_bytes)+' • ':'')+esc(f.mime_type||'')+(f.relative_path&&f.relative_path!==f.original_name?' • '+esc(f.relative_path):'')+'</div></div>'+
       '</article>';
     }).join('');
@@ -1107,9 +1114,20 @@ async function clientView(token){
           const w=img.naturalWidth,h=img.naturalHeight;
           if(!w||!h)return;
           const ratio=w/h;
-          card.dataset.orientation=ratio<0.92?'portrait':ratio>1.08?'landscape':'square';
+          const orientation=ratio<0.92?'portrait':ratio>1.08?'landscape':'square';
+          card.dataset.orientation=orientation;
           const thumb=card.querySelector('.delivery-thumb');
-          if(thumb)thumb.style.aspectRatio=w+'/'+h;
+          if(thumb){
+            /* Inline dimensions are intentional: they guarantee the visible frame follows the photo. */
+            thumb.style.height='auto';
+            thumb.style.minHeight='0';
+            thumb.style.aspectRatio=w+'/'+h;
+          }
+          img.style.display='block';
+          img.style.width='100%';
+          img.style.height='auto';
+          img.style.maxWidth='100%';
+          img.style.objectFit='contain';
         };
         if(img.complete)setOrientation();
         else img.addEventListener('load',setOrientation,{once:true});
