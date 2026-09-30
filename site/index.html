@@ -116,9 +116,9 @@
   vertical-align:top;
 }
 .delivery-thumb{
-  height:auto!important;
+  height:155px;
   min-height:0;
-  aspect-ratio:auto!important;
+  aspect-ratio:auto;
   display:block;
   overflow:hidden;
   background:#0a0a0c;
@@ -126,7 +126,7 @@
 .delivery-thumb img{
   display:block!important;
   width:100%!important;
-  height:auto!important;
+  height:100%!important;
   max-width:100%;
   aspect-ratio:auto!important;
   object-fit:contain!important;
@@ -1118,16 +1118,23 @@ async function clientView(token){
           card.dataset.orientation=orientation;
           const thumb=card.querySelector('.delivery-thumb');
           if(thumb){
-            /* Inline dimensions are intentional: they guarantee the visible frame follows the photo. */
-            thumb.style.height='auto';
+            /*
+             * Do not rely on CSS aspect-ratio alone. Set the real thumbnail pixel height
+             * from the loaded image dimensions so portrait images are physically taller
+             * than landscape images in every browser.
+             */
+            const width=thumb.getBoundingClientRect().width||card.getBoundingClientRect().width;
+            const height=Math.max(1,Math.round(width*h/w));
+            thumb.style.height=height+'px';
             thumb.style.minHeight='0';
-            thumb.style.aspectRatio=w+'/'+h;
+            thumb.style.aspectRatio='auto';
           }
           img.style.display='block';
           img.style.width='100%';
-          img.style.height='auto';
+          img.style.height='100%';
           img.style.maxWidth='100%';
           img.style.objectFit='contain';
+          img.style.objectPosition='center';
         };
         if(img.complete)setOrientation();
         else img.addEventListener('load',setOrientation,{once:true});
