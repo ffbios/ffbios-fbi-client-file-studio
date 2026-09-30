@@ -76,6 +76,29 @@
 @media(max-width:900px){.delivery-app{grid-template-columns:190px 1fr}.delivery-search{width:170px}.delivery-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}
 @media(max-width:700px){.delivery-app{display:block}.delivery-side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--border);padding:10px}.delivery-brand{display:flex;align-items:center;justify-content:space-between;border-bottom:0;padding-bottom:8px}.delivery-brand b,.delivery-brand small,.delivery-section-title,.delivery-project,.delivery-sidefoot{display:none}.delivery-nav{grid-template-columns:repeat(4,1fr)}.delivery-nav button{text-align:center;padding:8px 5px;font-size:8px}.delivery-header{flex-wrap:wrap}.delivery-search{width:100%;order:3}.delivery-body{padding:12px}.delivery-toolbar{overflow:auto;padding:8px 12px}.delivery-sort{margin-left:0}.delivery-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.delivery-thumb{height:105px}}
 
+/* Faster, cleaner FBI client media gallery */
+.delivery-main{min-height:100vh;background:#0a0a0b}
+.delivery-body{content-visibility:auto;contain:layout paint}
+.delivery-grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:13px;align-items:start}
+.delivery-card{transform:perspective(900px) translateZ(0) rotateX(0deg) rotateY(0deg) scale(1);transition:transform .16s cubic-bezier(.22,.61,.36,1),box-shadow .16s ease,border-color .16s ease;will-change:transform;contain:layout paint;content-visibility:auto;contain-intrinsic-size:250px 210px}
+.delivery-card:hover{transform:perspective(900px) translateY(-5px) scale(1.018);box-shadow:0 18px 40px rgba(0,0,0,.34);border-color:rgba(244,213,109,.7)}
+.delivery-card:active{transform:perspective(900px) translateY(-1px) scale(.985)}
+.delivery-thumb{height:155px}
+.delivery-thumb img{display:block;width:100%;height:100%;object-fit:cover;image-rendering:auto}
+.delivery-thumb .fileicon{font-size:42px;opacity:.75}
+.delivery-thumb .playbadge{position:absolute;inset:auto 9px 9px auto;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.68);display:grid;place-items:center;color:#fff;font-size:11px;border:1px solid rgba(255,255,255,.18)}
+.delivery-card-body{min-height:54px;padding:9px 10px}
+.delivery-card-actions{display:none!important}
+.delivery-card .delivery-check{opacity:.0;transition:opacity .14s ease}
+.delivery-card:hover .delivery-check,.delivery-card.selected .delivery-check{opacity:1}
+.delivery-heading h1{font-size:18px}
+.delivery-search{transition:border-color .15s ease,box-shadow .15s ease}
+.delivery-search:focus{border-color:rgba(212,175,55,.6);box-shadow:0 0 0 3px rgba(212,175,55,.08);outline:none}
+.delivery-seg,.delivery-sort,.delivery-btn{transition:transform .12s ease,background .15s ease,border-color .15s ease}
+.delivery-seg:hover,.delivery-sort:hover,.delivery-btn:hover{transform:translateY(-1px)}
+@media(hover:none){.delivery-card:hover{transform:none;box-shadow:none}.delivery-card:active{transform:scale(.985)}.delivery-card .delivery-check{opacity:1}}
+@media(prefers-reduced-motion:reduce){.delivery-card,.delivery-btn,.delivery-seg,.delivery-sort{transition:none!important}}
+
 </style>
 </head>
 <body>
@@ -964,8 +987,7 @@ async function clientView(token){
   const selected=new Set(), filteredState={filter:'all',sort:'name',q:''};
   function typeOf(f){const m=f.mime_type||'';if(/^image\//.test(m))return'image';if(/^video\//.test(m))return'video';if(/^audio\//.test(m))return'audio';return'document'}
   function matches(f){
-    const t=typeOf(f);
-    if(filteredState.filter!=='all'&&t!==filteredState.filter)return false;
+    const t=typeOf(f);if(filteredState.filter!=='all'&&t!==filteredState.filter)return false;
     const q=filteredState.q;if(!q)return true;
     return (String(f.original_name)+' '+String(f.relative_path||'')).toLowerCase().includes(q);
   }
@@ -974,14 +996,15 @@ async function clientView(token){
     if(filteredState.sort==='name')list.sort((a,b)=>String(a.original_name).localeCompare(String(b.original_name)));
     else if(filteredState.sort==='newest')list.sort((a,b)=>new Date(b.created_at||0)-new Date(a.created_at||0));
     else if(filteredState.sort==='size')list.sort((a,b)=>Number(b.size_bytes||0)-Number(a.size_bytes||0));
-    else if(filteredState.sort==='type')list.sort((a,b)=>typeOf(a).localeCompare(typeOf(b))||String(a.original_name).localeCompare(String(b.original_name)));
+    else list.sort((a,b)=>typeOf(a).localeCompare(typeOf(b))||String(a.original_name).localeCompare(String(b.original_name)));
     return list;
   }
   function cardThumb(f){
-    const u=f.download_url||'';
-    if(/^image\//.test(f.mime_type||''))return '<img src="'+esc(u)+'" alt="" loading="lazy">';
-    if(/^video\//.test(f.mime_type||''))return '<video src="'+esc(u)+'" muted preload="metadata" playsinline></video>';
-    return '<div style="font-size:32px;color:#777">'+esc(icon(f.original_name))+'</div>';
+    const encoded=encodeURIComponent(token),id=encodeURIComponent(f.id),u=f.download_url||'';
+    if(/^image\//.test(f.mime_type||''))return '<img src="/api/public/thumb/'+id+'?token='+encoded+'&w=600&h=420" alt="" loading="lazy" decoding="async" fetchpriority="low">';
+    if(/^video\//.test(f.mime_type||''))return '<div class="fileicon">▶</div><span class="playbadge">▶</span>';
+    if(/^audio\//.test(f.mime_type||''))return '<div class="fileicon">♪</div>';
+    return '<div class="fileicon">'+esc(icon(f.original_name))+'</div>';
   }
   function renderGrid(){
     const list=getList(),g=document.querySelector('#deliveryGrid'),empty=document.querySelector('#deliveryEmpty');
@@ -989,58 +1012,44 @@ async function clientView(token){
     if(!list.length){g.innerHTML='';empty.style.display='block';return}
     empty.style.display='none';
     g.innerHTML=list.map(f=>{
-      const type=typeOf(f),isSel=selected.has(f.id),u=esc(f.download_url||'');
+      const type=typeOf(f),isSel=selected.has(f.id);
       return '<article class="delivery-card '+(isSel?'selected':'')+'" data-card="'+esc(f.id)+'">'+
         '<div class="delivery-thumb">'+cardThumb(f)+'<span class="typebadge">'+type.toUpperCase()+'</span><span class="delivery-check">'+(isSel?'✓':'')+'</span></div>'+
         '<div class="delivery-card-body"><div class="delivery-name" title="'+esc(f.original_name)+'">'+esc(f.original_name)+'</div><div class="delivery-card-meta">'+(d.settings?.show_file_size?fmt(f.size_bytes)+' • ':'')+esc(f.mime_type||'')+(f.relative_path&&f.relative_path!==f.original_name?' • '+esc(f.relative_path):'')+'</div></div>'+
-        '<div class="delivery-card-actions">'+
-          (d.settings?.allow_client_preview?'<button data-prev="'+esc(f.id)+'">Preview</button>':'')+
-          '<a class="download" href="'+u+'&download=1">Download</a>'+
-        '</div></article>';
+      '</article>';
     }).join('');
-    g.querySelectorAll('[data-card]').forEach(card=>card.onclick=function(e){
-      if(e.target.closest('button,a'))return;
-      const id=card.dataset.card;if(selected.has(id))selected.delete(id);else selected.add(id);renderGrid();updateBulk();
+    g.querySelectorAll('[data-card]').forEach(card=>{
+      const id=card.dataset.card,f=files.find(x=>x.id===id);
+      card.onclick=function(){if(selected.has(id))selected.delete(id);else selected.add(id);renderGrid();updateBulk()};
+      card.addEventListener('pointermove',function(e){
+        if(e.pointerType==='touch')return;
+        const r=card.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;
+        card.style.transform='perspective(900px) translateY(-4px) rotateX('+(-y*5)+'deg) rotateY('+(x*6)+'deg) scale(1.018)';
+      });
+      card.addEventListener('pointerleave',function(){card.style.transform=''});
+      card.addEventListener('pointerdown',function(e){if(e.pointerType==='touch')card.style.transform='scale(.985)'});
+      card.addEventListener('pointerup',function(e){if(e.pointerType==='touch')card.style.transform=''});
+      card.addEventListener('dblclick',function(){if(f&&(typeOf(f)==='image'||typeOf(f)==='video'||typeOf(f)==='audio'))clientPreview(f)});
     });
-    g.querySelectorAll('[data-prev]').forEach(b=>b.onclick=function(e){e.stopPropagation();clientPreview(files.find(x=>x.id===b.dataset.prev))});
   }
-  function updateBulk(){
-    document.querySelector('#bulkCount').textContent=selected.size+' selected';
-    document.querySelector('#bulkBar').classList.toggle('show',selected.size>0);
-  }
-  function setFilter(v){
-    filteredState.filter=v;
-    document.querySelectorAll('.delivery-seg').forEach(b=>b.classList.toggle('active',b.dataset.filter===v));
-    renderGrid();
-  }
-  function downloadSelected(){
-    const list=files.filter(f=>selected.has(f.id));
-    if(!list.length)return;
-    list.forEach(function(f){const a=document.createElement('a');a.href=f.download_url+'&download=1';a.target='_blank';a.rel='noreferrer';document.body.appendChild(a);a.click();a.remove()});
-    setStatusMsg(list.length+' download link'+(list.length===1?'':'s')+' opened.');
-  }
+  function updateBulk(){document.querySelector('#bulkCount').textContent=selected.size+' selected';document.querySelector('#bulkBar').classList.toggle('show',selected.size>0)}
+  function setFilter(v){filteredState.filter=v;document.querySelectorAll('.delivery-seg').forEach(b=>b.classList.toggle('active',b.dataset.filter===v));renderGrid()}
+  function downloadSelected(){const list=files.filter(f=>selected.has(f.id));if(!list.length)return;list.forEach(f=>{const a=document.createElement('a');a.href=f.download_url+'&download=1';a.target='_blank';a.rel='noreferrer';document.body.appendChild(a);a.click();a.remove()});setStatusMsg(list.length+' download link'+(list.length===1?'':'s')+' opened.')}
   function setStatusMsg(msg){const h=document.querySelector('.delivery-heading p');if(h)h.textContent=msg;setTimeout(()=>{if(h)h.textContent=(d.settings?.portal_title||'FBI Client File Delivery')+' • Secure client download area'},2500)}
   document.querySelector('#deliverySearch').oninput=e=>{filteredState.q=e.target.value.toLowerCase();renderGrid()};
   document.querySelector('#deliverySort').onchange=e=>{filteredState.sort=e.target.value;renderGrid()};
   document.querySelectorAll('.delivery-seg').forEach(b=>b.onclick=()=>setFilter(b.dataset.filter));
-  document.querySelector('#navAll').onclick=()=>setFilter('all');
-  document.querySelector('#navPhotos').onclick=()=>setFilter('image');
-  document.querySelector('#navVideos').onclick=()=>setFilter('video');
-  document.querySelector('#navAudio').onclick=()=>setFilter('audio');
-  document.querySelector('#navDocs').onclick=()=>setFilter('document');
-  document.querySelector('#selectAll').onclick=()=>{getList().forEach(f=>selected.add(f.id));renderGrid();updateBulk()};
-  document.querySelector('#clearSelection').onclick=()=>{selected.clear();renderGrid();updateBulk()};
-  document.querySelector('#downloadSelected').onclick=downloadSelected;
-  document.querySelector('#downloadSelectedTop').onclick=downloadSelected;
-  document.querySelector('#installApp').onclick=installFbiApp;
+  document.querySelector('#navAll').onclick=()=>setFilter('all');document.querySelector('#navPhotos').onclick=()=>setFilter('image');document.querySelector('#navVideos').onclick=()=>setFilter('video');document.querySelector('#navAudio').onclick=()=>setFilter('audio');document.querySelector('#navDocs').onclick=()=>setFilter('document');
+  document.querySelector('#selectAll').onclick=()=>{getList().forEach(f=>selected.add(f.id));renderGrid();updateBulk()};document.querySelector('#clearSelection').onclick=()=>{selected.clear();renderGrid();updateBulk()};document.querySelector('#downloadSelected').onclick=downloadSelected;document.querySelector('#downloadSelectedTop').onclick=downloadSelected;document.querySelector('#installApp').onclick=installFbiApp;
   renderGrid();updateBulk();
- }catch(e){
-  document.body.innerHTML='<div class="client"><div class="clientwrap"><div class="ctop"><img src="'+LOGO+'"><h1>Delivery unavailable</h1><p>'+esc(e.message)+'</p></div></div></div>';
- }
+ }catch(e){document.body.innerHTML='<div class="client"><div class="clientwrap"><div class="ctop"><img src="'+LOGO+'"><h1>Delivery unavailable</h1><p>'+esc(e.message)+'</p></div></div></div>';}
 }
 function clientPreview(f){
- const m=document.querySelector('#v');const u=f.download_url;
- m.innerHTML=`<div class="viewerbox"><div class="vh"><b>${esc(f.original_name)}</b><button class="close">×</button></div><div class="vc">${isImage(f)?`<img src="${u}">`:isVideo(f)?`<video controls src="${u}"></video>`:isPdf(f)?`<iframe src="${u}"></iframe>`:`<div class="empty">No inline preview for this file type. <a href="${u}&download=1" style="color:var(--gold2)">Download file</a></div>`}</div></div>`;m.classList.add('show');m.querySelector('.close').onclick=()=>m.classList.remove('show');
+ const m=document.querySelector('#v');if(!m||!f)return;
+ const u=f.download_url;
+ const previewHtml=isImage(f)?'<img src="'+esc(u)+'" loading="eager" decoding="async">':isVideo(f)?'<video controls autoplay playsinline src="'+esc(u)+'"></video>':isPdf(f)?'<iframe src="'+esc(u)+'"></iframe>':'<div class="empty">No inline preview for this file type.</div>';
+ m.innerHTML='<div class="viewerbox"><div class="vh"><b>'+esc(f.original_name)+'</b><div style="display:flex;gap:6px;align-items:center"><a class="btn primary" href="'+esc(u)+'&download=1" target="_blank" rel="noreferrer">Download</a><button class="close">×</button></div></div><div class="vc">'+previewHtml+'</div></div>';
+ m.classList.add('show');m.querySelector('.close').onclick=()=>m.classList.remove('show');
 }
 function toast(msg){const t=document.querySelector('#toast');if(!t)return;t.textContent=msg;t.style.display='block';clearTimeout(window.__tt);window.__tt=setTimeout(()=>t.style.display='none',2200)}
 let deferredInstallPrompt=null;
