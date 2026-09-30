@@ -56,7 +56,7 @@ function documentThumbSvg(file,width){
   const rawName=String(file?.original_name||"Document");
   const base=rawName.split("/").pop()||rawName;
   const label=base.length>26?base.slice(0,23)+"…":base;
-  const family=ext==="PDF"?"PDF":(["DOC","DOCX","ODT","RTF","TXT"].includes(ext)?"DOCUMENT":(["XLS","XLSX","ODS","CSV"].includes(ext)?"SPREADSHEET":(["PPT","PPTX","ODP"].includes(ext)?"PRESENTATION":(["ZIP","RAR","7Z"].includes(ext)?"ARCHIVE":"FILE")));
+  const family=ext==="PDF"?"PDF":(["DOC","DOCX","ODT","RTF","TXT"].includes(ext)?"DOCUMENT":(["XLS","XLSX","ODS","CSV"].includes(ext)?"SPREADSHEET":(["PPT","PPTX","ODP"].includes(ext)?"PRESENTATION":(["ZIP","RAR","7Z"].includes(ext)?"ARCHIVE":"FILE"))));
   const w=Math.max(240,Math.min(900,Number(width)||360)),h=Math.round(w*1.25);
   const line1=label.length>18?label.slice(0,18)+"…":label;
   return Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'">'+
