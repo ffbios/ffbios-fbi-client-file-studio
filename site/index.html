@@ -1067,9 +1067,9 @@ function clientPreview(f){
    const img=m.querySelector('#previewFast'),loading=m.querySelector('#previewLoading');
    const full=new Image();
    full.decoding='async';
-   full.onload=()=>{img.src=full.src;if(loading)loading.textContent='Original preview ready';setTimeout(()=>loading&&loading.remove(),700)};
-   full.onerror=()=>{if(loading)loading.textContent='Preview thumbnail shown. Original preview could not be loaded.'};
-   full.src=u;
+   full.onload=()=>{img.src=full.src;if(loading)loading.textContent='High-resolution preview ready';setTimeout(()=>loading&&loading.remove(),700)};
+   full.onerror=()=>{if(loading)loading.textContent='Preview thumbnail shown. High-resolution preview is still unavailable.'};
+   full.src='/api/public/preview/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(tokenValue)+'&w=1400&h=1000';
  }else{
    const media=m.querySelector('video,audio'),loading=m.querySelector('#previewLoading');
    if(media)media.addEventListener('loadeddata',()=>{if(loading)loading.remove()},{once:true});
