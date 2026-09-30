@@ -332,8 +332,11 @@ function renderProjectMedia(files){
   box.innerHTML=list.map(function(f){
     const url='/api/admin/file/'+f.id;
     let thumb='<div class="thumbico">'+icon(f.original_name)+'</div>';
-    if(/^image\//.test(f.mime_type||''))thumb='<img src="'+url+'" loading="lazy" alt="">';
-    else if(/^video\//.test(f.mime_type||''))thumb='<video src="'+url+'" muted preload="metadata"></video>';
+    if(/^image\//.test(f.mime_type||'')){
+      thumb='<img src="/api/admin/thumb/'+f.id+'?w=360&h=360" loading="lazy" decoding="async" fetchpriority="low" alt="">';
+    }else if(/^video\//.test(f.mime_type||'')){
+      thumb='<video src="'+url+'" muted preload="none"></video>';
+    }
     return '<article class="media-card" data-file-card="'+f.id+'"><div class="media-thumb">'+thumb+'<span class="badge">'+(f.mime_type||'file').split('/')[0].toUpperCase()+'</span></div><div class="media-body"><div class="media-name" title="'+esc(f.original_name)+'">'+esc(f.original_name)+'</div><div class="media-meta">'+fmt(f.size_bytes||0)+' • '+esc(f.mime_type||'')+'</div></div><div class="media-foot"><button data-prev="'+f.id+'">Preview</button><a href="'+url+'?download=1" target="_blank" rel="noreferrer">Download</a><button data-del="'+f.id+'">Delete</button></div></article>';
   }).join('');
   box.querySelectorAll('[data-file-card]').forEach(function(card){card.ondblclick=function(){previewAdmin(files.find(x=>x.id===card.dataset.fileCard))}});
@@ -347,7 +350,7 @@ async function saveProject(){
 
 let uploadQueue=[];
 let uploadTicker=null;
-const PART_CONCURRENCY=4;
+const PART_CONCURRENCY=6;
 const FILE_CONCURRENCY=2;
 const MIN_PART_SIZE=64*1024*1024;
 const MAX_PARTS=10000;
@@ -382,7 +385,7 @@ async function prepareIntegrity(item){
     item.checksums.push(bytesToBase64(bytes));
     rawHashes.push(bytes);
     item.loadedBytes=Math.min(item.totalBytes,end);
-    renderUploadQueue();
+    scheduleUploadQueueRender();
   }
   var header=new TextEncoder().encode(String(item.file.size)+":"+String(partSize)+":");
   var combined=new Uint8Array(header.length+rawHashes.length*32),offset=0;
@@ -407,6 +410,15 @@ function uploadStats(item){
   var rate=item.loadedBytes/elapsed;
   var remain=Math.max(0,item.totalBytes-item.loadedBytes);
   return {rate:rate,eta:rate?remain/rate:Infinity,pct:item.totalBytes?Math.min(100,item.loadedBytes/item.totalBytes*100):0};
+}
+let uploadRenderFrame=0;
+function scheduleUploadQueueRender(){
+  if(uploadRenderFrame)return;
+  if(window.requestAnimationFrame){
+    uploadRenderFrame=requestAnimationFrame(function(){uploadRenderFrame=0;renderUploadQueue()});
+  }else{
+    uploadRenderFrame=setTimeout(function(){uploadRenderFrame=0;renderUploadQueue()},80);
+  }
 }
 function renderUploadQueue(){
   var box=document.querySelector("#uploadBox");if(!box)return;
@@ -448,15 +460,15 @@ async function uploadSingle(item,session){
   item.loadedBytes=0;renderUploadQueue();
   var headers={"Content-Type":item.file.type||"application/octet-stream"};
   if(item.fileChecksum)headers["x-amz-checksum-sha256"]=item.fileChecksum;
-  await retry(function(){return xhrPut(session.url,item.file,headers,item,function(n){item.loadedBytes=n;renderUploadQueue()})});
+  await retry(function(){return xhrPut(session.url,item.file,headers,item,function(n){item.loadedBytes=n;scheduleUploadQueueRender()})});
   if(item.paused)throw new Error("Upload paused");
   await api("/api/uploads/"+item.sessionId+"/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
   item.loadedBytes=item.totalBytes;
 }
-async function getPartUrl(sessionId,pn,checksum){
-  var body={parts:[{partNumber:pn,checksum:checksum||""}]};
+async function getPartUrls(sessionId,requests){
+  var body={parts:requests.map(function(x){return {partNumber:x.partNumber,checksum:x.checksum||""}})};
   var d=await api("/api/uploads/"+sessionId+"/parts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-  return d.parts[0];
+  return d.parts||[];
 }
 async function uploadMultipart(item,session){
   var partSize=Number(session.partSize);
@@ -473,15 +485,17 @@ async function uploadMultipart(item,session){
   while(missing.length){
     if(item.paused)throw new Error("Upload paused");
     var batch=missing.splice(0,PART_CONCURRENCY);
+    var requests=batch.map(function(partNumber){return {partNumber:partNumber,checksum:((item.checksums||[])[partNumber-1]||"")};});
+    var signedParts=await retry(function(){return getPartUrls(item.sessionId,requests)},3);
     await Promise.all(batch.map(async function(partNumber){
       var start=(partNumber-1)*partSize,end=Math.min(item.file.size,start+partSize),blob=item.file.slice(start,end),lastLoaded=0;
-      var checksum=(item.checksums||[])[partNumber-1]||"";
-      var out=await retry(async function(){
-        var signed=await getPartUrl(item.sessionId,partNumber,checksum);
+      var signed=signedParts.find(function(x){return Number(x.partNumber)===partNumber});
+      if(!signed||!signed.url)throw new Error("Could not prepare upload part "+partNumber);
+      var headers={};
+      if(signed.checksum)headers["x-amz-checksum-sha256"]=signed.checksum;
+      var out=await retry(function(){
         lastLoaded=0;
-        var headers={};
-        if(signed.checksum)headers["x-amz-checksum-sha256"]=signed.checksum;
-        return xhrPut(signed.url,blob,headers,item,function(n){item.loadedBytes+=(n-lastLoaded);lastLoaded=n;renderUploadQueue()});
+        return xhrPut(signed.url,blob,headers,item,function(n){item.loadedBytes+=(n-lastLoaded);lastLoaded=n;scheduleUploadQueueRender()});
       },3);
       var idx=parts.findIndex(function(p){return p.partNumber===partNumber});
       if(idx>=0)parts[idx]={partNumber:partNumber,etag:out.etag};else parts.push({partNumber:partNumber,etag:out.etag});
