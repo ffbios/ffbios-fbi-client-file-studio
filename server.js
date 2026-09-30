@@ -902,6 +902,89 @@ app.post("/api/settings/password",admin,async(req,res)=>{
   }catch(e){console.error(e);res.status(500).json({error:"Could not change password"})}
 });
 
+app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
+ try{
+  if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
+  const projectId=String(req.body.projectId||""),originalName=String(req.body.name||"").trim(),relativePath=safeRelativePath(req.body.relativePath,originalName),size=Number(req.body.size||0),mimeType=String(req.body.mimeType||"application/octet-stream"),fingerprint=String(req.body.fingerprint||"").trim().slice(0,128);
+  const project=await portalProjectOwned(req.portalUser.id,projectId);
+  if(!project)return res.status(404).json({error:"Project not found."});
+  if(!originalName||!Number.isFinite(size)||size<0||size>MAX_FILE_SIZE)return res.status(400).json({error:"Invalid file."});
+  if(fingerprint){
+   const dup=await pool.query("SELECT * FROM files WHERE project_id=$1 AND content_fingerprint=$2 AND size_bytes=$3 LIMIT 1",[projectId,fingerprint,size]);
+   if(dup.rowCount)return res.json({uploadId:null,deduplicated:true,mode:"deduplicated",size:size,file:dup.rows[0]});
+  }
+  const id=uid(),partSize=choosePartSize(size||1),mode=size>=MIN_PART_SIZE?"multipart":"single",storageKey="projects/"+projectId+"/"+id+"/"+relativePath;
+  let multipartUploadId=null,url=null;
+  if(mode==="multipart"){
+   const created=await s3.send(new CreateMultipartUploadCommand({Bucket:bucket(),Key:storageKey,ContentType:mimeType}));
+   multipartUploadId=created.UploadId;
+  }else{
+   url=await getSignedUrl(s3,new PutObjectCommand({Bucket:bucket(),Key:storageKey,ContentType:mimeType}),{expiresIn:3600});
+  }
+  await pool.query("INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11)",[id,projectId,originalName,relativePath,storageKey,mimeType,size,mode==="multipart"?partSize:size,multipartUploadId,mode,fingerprint||null]);
+  res.json({uploadId:id,mode:mode,partSize:mode==="multipart"?partSize:size,size:size,url:url,multipartUploadId:multipartUploadId});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not initialize cloud upload."})}
+});
+app.get("/api/portal/uploads/:id/state",portalUser,async(req,res)=>{
+ try{
+  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
+  const u=q.rows[0];
+  if(u.mode!=="multipart")return res.json({uploadId:u.id,mode:u.mode,status:u.status,parts:[]});
+  const parts=[];let marker=0;
+  while(true){
+   const r=await s3.send(new ListPartsCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,PartNumberMarker:marker||undefined,MaxParts:1000}));
+   for(const p of r.Parts||[])parts.push({partNumber:p.PartNumber,etag:p.ETag,size:p.Size});
+   if(!r.IsTruncated)break;marker=r.NextPartNumberMarker;
+  }
+  res.json({uploadId:u.id,mode:u.mode,status:u.status,partSize:Number(u.part_size),size:Number(u.size_bytes),parts:parts});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not read upload state."})}
+});
+app.post("/api/portal/uploads/:id/parts",portalUser,async(req,res)=>{
+ try{
+  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
+  const u=q.rows[0];
+  if(u.mode!=="multipart"||!u.multipart_upload_id)return res.status(400).json({error:"This upload does not use multipart storage."});
+  const requested=(Array.isArray(req.body.parts)?req.body.parts:[]).map(function(x){return {partNumber:Number(x.partNumber)}}).filter(function(x){return Number.isInteger(x.partNumber)&&x.partNumber>0&&x.partNumber<=MAX_PARTS});
+  if(!requested.length||requested.length>25)return res.status(400).json({error:"Provide 1 to 25 part numbers."});
+  const parts=await Promise.all(requested.map(async function(x){
+   const partUrl=await getSignedUrl(s3,new UploadPartCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,PartNumber:x.partNumber}),{expiresIn:PRESIGN_SECONDS});
+   return {partNumber:x.partNumber,url:partUrl,checksum:null};
+  }));
+  res.json({parts:parts,expiresIn:PRESIGN_SECONDS});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not create upload URLs."})}
+});
+app.post("/api/portal/uploads/:id/complete",portalUser,async(req,res)=>{
+ try{
+  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
+  const u=q.rows[0];
+  if(u.mode==="multipart"){
+   const parts=(Array.isArray(req.body.parts)?req.body.parts:[]).map(function(p){return {ETag:String(p.etag||p.ETag||"").replace(/^"+|"+$/g,""),PartNumber:Number(p.partNumber||p.PartNumber)}}).filter(function(p){return p.ETag&&Number.isInteger(p.PartNumber)}).sort(function(a,b){return a.PartNumber-b.PartNumber});
+   if(!parts.length)return res.status(400).json({error:"Multipart upload has no completed parts."});
+   await s3.send(new CompleteMultipartUploadCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,MultipartUpload:{Parts:parts}}));
+  }else await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:u.storage_key}));
+  const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:u.storage_key})),actualSize=Number(head.ContentLength||0);
+  if(actualSize!==Number(u.size_bytes))return res.status(400).json({error:"Uploaded size mismatch."});
+  const fileId=uid();
+  const ins=await pool.query("INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *",[fileId,u.project_id,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,actualSize,u.relative_path,u.content_fingerprint||null]);
+  await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
+  await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[u.project_id]);
+  res.json({ok:true,file:ins.rows[0]});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not complete upload. The upload can be resumed."})}
+});
+app.post("/api/portal/uploads/:id/abort",portalUser,async(req,res)=>{
+ try{
+  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
+  const u=q.rows[0];
+  if(u.mode==="multipart"&&u.multipart_upload_id)await s3.send(new AbortMultipartUploadCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id})).catch(function(){});
+  else await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:u.storage_key})).catch(function(){});
+  await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not cancel upload."})}
+});
 app.post("/api/uploads/init",admin,async(req,res)=>{
   try{
     if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
