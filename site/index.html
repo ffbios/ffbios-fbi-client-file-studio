@@ -1080,9 +1080,12 @@ async function clientView(token){
     else list.sort((a,b)=>typeOf(a).localeCompare(typeOf(b))||String(a.original_name).localeCompare(String(b.original_name)));
     return list;
   }
-  function cardThumb(f){
+  function cardThumb(f,index){
     const encoded=encodeURIComponent(token),id=encodeURIComponent(f.id),u=f.download_url||'';
-    if(/^image\//.test(f.mime_type||''))return '<img src="/api/public/thumb/'+id+'?token='+encoded+'&w=600&h=420" alt="" loading="lazy" decoding="async" fetchpriority="low">';
+    if(/^image\//.test(f.mime_type||'')){
+      const priority=(Number(index||0)<8)?'high':'low';
+      return '<img src="/api/public/thumb/'+id+'?token='+encoded+'&w=360&h=540" alt="" loading="lazy" decoding="async" fetchpriority="'+priority+'">';
+    }
     if(/^video\//.test(f.mime_type||''))return '<div class="fileicon">▶</div><span class="playbadge">▶</span>';
     if(/^audio\//.test(f.mime_type||''))return '<div class="fileicon">♪</div>';
     return '<div class="fileicon">'+esc(icon(f.original_name))+'</div>';
@@ -1099,7 +1102,7 @@ async function clientView(token){
     document.querySelector('#visibleCount').textContent=list.length+' shown';
     if(!list.length){g.innerHTML='';empty.style.display='block';return}
     empty.style.display='none';
-    g.innerHTML=list.map(f=>{
+    g.innerHTML=list.map((f,i)=>{
       const type=typeOf(f),isSel=selected.has(f.id);
       return '<article class="delivery-card '+(isSel?'selected':'')+'" data-card="'+esc(f.id)+'" style="display:inline-block;width:100%;margin:0 0 13px;break-inside:avoid;-webkit-column-break-inside:avoid;vertical-align:top;">'+
         '<div class="delivery-thumb" style="height:auto;min-height:0;aspect-ratio:auto;display:block;overflow:hidden;">'+cardThumb(f)+'<span class="typebadge">'+type.toUpperCase()+'</span><span class="delivery-check">'+(isSel?'✓':'')+'</span></div>'+
