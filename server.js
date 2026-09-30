@@ -1007,6 +1007,53 @@ app.get("/api/admin/file/:id",admin,async(req,res)=>{
  }catch(e){console.error(e);res.status(500).send("Unable to serve file")}
 });
 
+app.get("/api/admin/thumb/:id",admin,async(req,res)=>{
+ try{
+  const q=await pool.query("SELECT id,storage_path,mime_type FROM files WHERE id=$1",[req.params.id]);
+  if(!q.rowCount)return res.status(404).send("File not found");
+  const f=q.rows[0];
+  if(!/^image\\//i.test(f.mime_type||""))return res.status(415).send("Thumbnail generation is available for images only.");
+  const width=Math.max(160,Math.min(640,Number(req.query.w||360)));
+  const height=Math.max(160,Math.min(640,Number(req.query.h||360)));
+  const cacheKey="admin:"+f.id+":"+width+"x"+height;
+  const cached=getThumbCache(cacheKey);
+  if(cached){
+    return res.status(200).type("image/webp")
+      .set("Cache-Control","private, max-age=31536000, immutable")
+      .set("X-Content-Type-Options","nosniff").send(cached.buffer);
+  }
+  const thumbKey="__admin-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+width+"|"+height).digest("hex")+".webp";
+  try{
+    const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:thumbKey}));
+    if(head.ContentLength){
+      const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:thumbKey}));
+      const bytes=got.Body?.transformToByteArray ? Buffer.from(await got.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
+        const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject);
+      }));
+      setThumbCache(cacheKey,bytes);
+      return res.status(200).type("image/webp")
+        .set("Cache-Control","private, max-age=31536000, immutable")
+        .set("X-Content-Type-Options","nosniff").send(bytes);
+    }
+  }catch(_e){}
+  const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}));
+  const input=obj.Body?.transformToByteArray ? Buffer.from(await obj.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
+    const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject);
+  }));
+  const webp=await sharp(input).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:68,method:4}).toBuffer();
+  setThumbCache(cacheKey,webp);
+  try{
+    await s3.send(new PutObjectCommand({Bucket:bucket(),Key:thumbKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(f.id),generated_by:"fbi-client-file-studio-admin"}}));
+  }catch(err){console.warn("Could not persist admin thumbnail",err?.message||err)}
+  res.status(200).type("image/webp")
+    .set("Cache-Control","private, max-age=31536000, immutable")
+    .set("X-Content-Type-Options","nosniff").send(webp);
+ }catch(e){
+  console.error("Admin thumbnail generation failed",e?.stack||e);
+  res.status(500).send("Unable to generate thumbnail");
+ }
+});
+
 app.get("/api/public/share/:token",async(req,res)=>{
  try{
   const q=await pool.query("SELECT id,name,client_name,note,expires_at FROM projects WHERE share_token=$1 AND shared=true",[req.params.token]);
