@@ -99,6 +99,7 @@
 @media(hover:none){.delivery-card:hover{transform:none;box-shadow:none}.delivery-card:active{transform:scale(.985)}.delivery-card .delivery-check{opacity:1}}
 @media(prefers-reduced-motion:reduce){.delivery-card,.delivery-btn,.delivery-seg,.delivery-sort{transition:none!important}}
 
+.fast-preview{position:relative;display:grid;place-items:center;min-height:320px;background:#060607;border-radius:10px;overflow:hidden}.fast-preview img{max-width:100%;max-height:80vh;object-fit:contain;display:block}.fast-preview video{max-width:100%;max-height:80vh;width:100%;background:#000}.fast-preview audio{width:min(720px,100%)}.previewloading{position:absolute;left:12px;bottom:12px;z-index:2;padding:6px 9px;border-radius:999px;background:rgba(0,0,0,.72);color:#ddd;font-size:9px;border:1px solid rgba(255,255,255,.12);pointer-events:none}
 </style>
 </head>
 <body>
@@ -1044,12 +1045,36 @@ async function clientView(token){
   renderGrid();updateBulk();
  }catch(e){document.body.innerHTML='<div class="client"><div class="clientwrap"><div class="ctop"><img src="'+LOGO+'"><h1>Delivery unavailable</h1><p>'+esc(e.message)+'</p></div></div></div>';}
 }
+function isPdfFile(f){return /^application\/pdf$/i.test(f?.mime_type||'') || /\.pdf$/i.test(f?.original_name||'')}
 function clientPreview(f){
  const m=document.querySelector('#v');if(!m||!f)return;
- const u=f.download_url;
- const previewHtml=isImage(f)?'<img src="'+esc(u)+'" loading="eager" decoding="async">':isVideo(f)?'<video controls autoplay playsinline src="'+esc(u)+'"></video>':isPdf(f)?'<iframe src="'+esc(u)+'"></iframe>':'<div class="empty">No inline preview for this file type.</div>';
+ const u=f.download_url||'',type=(f.mime_type||'').toLowerCase(),isImg=/^image\//.test(type),isVid=/^video\//.test(type),isAud=/^audio\//.test(type),isPdf=isPdfFile(f);
+ const tokenValue=location.pathname.split('/')[2]||'';
+ const thumb=isImg?'/api/public/thumb/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(tokenValue)+'&w=760&h=520':'';
+ const previewHtml=isImg
+   ?'<div class="fast-preview"><img id="previewFast" src="'+thumb+'" decoding="async" fetchpriority="high" alt=""><div class="previewloading" id="previewLoading">Loading original preview…</div></div>'
+   :isVid
+     ?'<div class="fast-preview"><div class="previewloading" id="previewLoading">Loading video…</div><video id="previewVideo" controls autoplay playsinline preload="metadata" src="'+esc(u)+'"></video></div>'
+     :isAud
+       ?'<div class="fast-preview"><div class="previewloading" id="previewLoading">Loading audio…</div><audio id="previewAudio" controls autoplay preload="metadata" src="'+esc(u)+'"></audio></div>'
+       :isPdf
+         ?'<iframe src="'+esc(u)+'"></iframe>'
+         :'<div class="empty">Preview is not available for this file type in the browser. <a href="'+esc(u)+'&download=1" style="color:var(--gold2)">Download file</a></div>';
  m.innerHTML='<div class="viewerbox"><div class="vh"><b>'+esc(f.original_name)+'</b><div style="display:flex;gap:6px;align-items:center"><a class="btn primary" href="'+esc(u)+'&download=1" target="_blank" rel="noreferrer">Download</a><button class="close">×</button></div></div><div class="vc">'+previewHtml+'</div></div>';
- m.classList.add('show');m.querySelector('.close').onclick=()=>m.classList.remove('show');
+ m.classList.add('show');
+ m.querySelector('.close').onclick=()=>m.classList.remove('show');
+ if(isImg){
+   const img=m.querySelector('#previewFast'),loading=m.querySelector('#previewLoading');
+   const full=new Image();
+   full.decoding='async';
+   full.onload=()=>{img.src=full.src;if(loading)loading.textContent='Original preview ready';setTimeout(()=>loading&&loading.remove(),700)};
+   full.onerror=()=>{if(loading)loading.textContent='Preview thumbnail shown. Original preview could not be loaded.'};
+   full.src=u;
+ }else{
+   const media=m.querySelector('video,audio'),loading=m.querySelector('#previewLoading');
+   if(media)media.addEventListener('loadeddata',()=>{if(loading)loading.remove()},{once:true});
+   if(media)media.addEventListener('error',()=>{if(loading)loading.textContent='Preview could not be loaded. Check your connection.'},{once:true});
+ }
 }
 function toast(msg){const t=document.querySelector('#toast');if(!t)return;t.textContent=msg;t.style.display='block';clearTimeout(window.__tt);window.__tt=setTimeout(()=>t.style.display='none',2200)}
 let deferredInstallPrompt=null;
