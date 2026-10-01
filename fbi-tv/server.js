@@ -307,7 +307,7 @@ app.patch("/api/streams/:id",admin,async(req,res)=>{
     }
     if(!fields.length)return res.status(400).json({error:"Nothing to update"});
     vals.push(req.params.id);
-    const q=await pool.query(\`UPDATE tv_streams SET \${fields.join(",")},updated_at=now() WHERE id=$\${vals.length} RETURNING *\`,vals);
+    const q=await pool.query("UPDATE tv_streams SET "+fields.join(",")+",updated_at=now() WHERE id=$"+vals.length+" RETURNING *",vals);
     if(!q.rowCount)return res.status(404).json({error:"Stream not found"});
     const cfg=await mcrConfig();
     const row=await refreshStreamStatusRow(q.rows[0]);
