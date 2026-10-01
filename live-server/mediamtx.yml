@@ -1,6 +1,19 @@
 logLevel: info
 logDestinations: [stdout]
 
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+        path:
+      - action: read
+        path:
+      - action: playback
+        path:
+
 rtmp: true
 rtmpAddress: :1935
 
