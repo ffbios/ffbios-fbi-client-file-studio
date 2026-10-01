@@ -252,7 +252,7 @@ function loginView(){
 async function boot(){
   const path=location.pathname;
   if(path.startsWith('/share/')) return clientView(path.split('/')[2]||'');
-  const me=await api('/api/auth/me'); if(!me.authenticated)return loginView(); studioView();
+  const me=await api('/api/auth/me'); if(!me.authenticated)return loginView(); const params=new URLSearchParams(location.search); studioView(params.get('view')||'dashboard',params.get('stream')||'');
 }
 async function loadProjects(){
   const q=document.querySelector('#search')?.value||'';
@@ -1076,7 +1076,7 @@ function renderStreamsPage(){
   },5000);
 }
 
-function studioView(){
+function studioView(initialView,initialStream){
   document.body.innerHTML=`
     <div class="app">
       <aside class="side">
@@ -1123,7 +1123,8 @@ function studioView(){
       document.querySelector('#modal').classList.remove('show');document.querySelector('#newName').value='';document.querySelector('#newClient').value='';document.querySelector('#newEmail').value='';document.querySelector('#newNote').value='';current=null;await showView('projects');await openProject(d.project.id);toast('Project created');
     }catch(e){toast(e.message)}
   };
-  showView('dashboard');
+  if(initialStream) selectedStreamId=initialStream;
+  showView(initialView||'dashboard');
 }
 
 function previewAdmin(f){
