@@ -451,10 +451,9 @@ function escHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<"
 function streamPathForKey(key){return "live/"+key;}
 function streamPlaybackPathForRow(row){return "encoded/"+String(row?.stream_key||"");}
 function streamHlsUrl(row){
-  // Serve HLS through the Client File Studio same-origin proxy so the browser
-  // never has to negotiate MediaMTX's cross-origin HLS session cookies.
-  const base=PUBLIC_BASE_URL||"";
-  return base+"/api/streams/"+encodeURIComponent(String(row.id))+"/hls/index.m3u8";
+  // Always use the current page origin. This prevents the HLS proxy request
+  // from crossing domains and losing the authenticated admin session cookie.
+  return "/api/streams/"+encodeURIComponent(String(row.id))+"/hls/index.m3u8";
 }
 function streamInputHlsUrl(row){
   const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
@@ -880,10 +879,10 @@ async function proxyHlsStream(req,res){
     if(!q.rowCount)return res.status(404).end();
     const row=q.rows[0];
     const internalBase=(process.env.STREAM_HLS_INTERNAL||"http://fbi-live-ingest:8888").replace(/\/+$/,"");
-        let sub=String(req.path||"/").replace(/^\/+/, "");
+    let sub=String(req.path||"/").replace(/^\/+/, "");
     // Normalize requests from older cached player builds that appended
     // index.m3u8 twice.
-    sub=sub.replace(/\/index\.m3u8\/index\.m3u8$/i,"/index.m3u8");
+    if(/^index\.m3u8\/index\.m3u8$/i.test(sub))sub="index.m3u8";
     const upstreamPath="encoded/"+String(row.stream_key||"");
     const upstream=new URL(internalBase+"/"+upstreamPath+(sub?"/"+sub:""));
     for(const [k,v] of Object.entries(req.query||{}))upstream.searchParams.append(k,String(v));
