@@ -661,4 +661,13 @@ refresh();setInterval(refresh,8000);
 const index=path.join(__dirname,"public/index.html");
 app.use(express.static(path.join(__dirname,"public")));
 app.get("/",(req,res)=>res.sendFile(index));
-init().then(()=>app.listen(PORT,()=>console.log("FBI TV Control listening on port "+PORT))).catch(e=>{console.error(e);process.exit(1)});
+async function primeLiveBridges(){
+  try{
+    const q=await pool.query("SELECT s.* FROM tv_streams s WHERE s.enabled=true AND (s.status='live' OR s.id IN (SELECT program_stream_id FROM tv_mcr_config WHERE id=1 AND program_stream_id IS NOT NULL) OR s.id IN (SELECT preview_stream_id FROM tv_mcr_config WHERE id=1 AND preview_stream_id IS NOT NULL))");
+    for(const row of q.rows)await kickBridge(row.stream_key);
+  }catch(e){console.error("Bridge priming failed:",e?.message||e)}
+}
+init().then(async()=>{
+  await primeLiveBridges();
+  app.listen(PORT,()=>console.log("FBI TV Control listening on port "+PORT));
+}).catch(e=>{console.error(e);process.exit(1)});
