@@ -451,10 +451,10 @@ function escHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<"
 function streamPathForKey(key){return "live/"+key;}
 function streamPlaybackPathForRow(row){return "encoded/"+String(row?.stream_key||"");}
 function streamHlsUrl(row){
-  // Play the browser-safe H.264/AAC stream produced by the MediaMTX FFmpeg relay.
-  // The relay is started automatically when the incoming live stream becomes available.
+  // Prime MediaMTX's HLS session with cookieCheck=1 so it uses a query
+  // session ID in child playlists instead of relying on cross-origin cookies.
   const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
-  return base+"/"+streamPlaybackPathForRow(row);
+  return base+"/"+streamPlaybackPathForRow(row)+"?cookieCheck=1";
 }
 function streamInputHlsUrl(row){
   const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
