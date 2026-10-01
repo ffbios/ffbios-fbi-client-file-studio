@@ -267,21 +267,29 @@ async function fetchPlayback(base,key,sub){
     return null;
   }
 }
+async function checkRawInputLive(key){
+  try{
+    const base=MEDIA_BASE||"http://fbi-tv-media:8888";
+    const r=await fetch(base+"/live/"+String(key||"")+"/index.m3u8",{cache:"no-store"});
+    if(!r.ok)return false;
+    return /#EXTM3U/.test(await r.text());
+  }catch{return false}
+}
 async function checkBackendLive(base,key){
   try{
     const r=await fetch(base+"/encoded/"+String(key||"")+"/index.m3u8",{cache:"no-store"});
     if(r.ok)return /#EXTM3U/.test(await r.text());
-    if((r.status===404||r.status===403)&&base==="http://fbi-tv-live-ingest:8888"){
-      await kickBridge(key);
-      const retry=await fetch(base+"/encoded/"+String(key||"")+"/index.m3u8",{cache:"no-store"});
-      if(!retry.ok)return false;
-      return /#EXTM3U/.test(await retry.text());
-    }
   }catch{}
   return false;
 }
 async function refreshStreamStatusRow(row){
-  const live=await checkBackendLive("http://fbi-tv-live-ingest:8888",row.stream_key);
+  const ingest="http://fbi-tv-live-ingest:8888";
+  let live=await checkBackendLive(ingest,row.stream_key);
+  if(!live && await checkRawInputLive(row.stream_key)){
+    await kickBridge(row.stream_key);
+    await new Promise(r=>setTimeout(r,650));
+    live=await checkBackendLive(ingest,row.stream_key);
+  }
   if(live!==String(row.status||"offline")==="live"){
     await pool.query("UPDATE tv_streams SET status=$1,updated_at=now() WHERE id=$2",[live?"live":"offline",row.id]);
   }
