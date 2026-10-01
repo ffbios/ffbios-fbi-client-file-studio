@@ -238,13 +238,13 @@ function hlsBackends(){
   ];
   const out=[];
   for(const v of raw){
-    const x=String(v||"").replace(/\\/+$/,"");
+    const x=String(v||"").replace(/\/+$/,"");
     if(x&&!out.includes(x))out.push(x);
   }
   return out;
 }
 async function fetchPlayback(base,key,sub){
-  const clean=String(sub||"index.m3u8").replace(/^\\/+?/,"");
+  const clean=String(sub||"index.m3u8").replace(/^\/+?/,"");
   const paths=["encoded/"+String(key||""), "live/"+String(key||"")];
   let last=null;
   for(const sourcePath of paths){
@@ -428,7 +428,7 @@ app.post("/api/mcr/program",admin,async(req,res)=>{
 app.post("/api/mediamtx/auth",async(req,res)=>{
   try{
     const action=String(req.body.action||"");
-    const pathValue=String(req.body.path||"").replace(/^\\/+|\\/+$/g,"");
+    const pathValue=String(req.body.path||"").replace(/^\/+|\/+$/g,"");
     const parts=pathValue.split("/").filter(Boolean);
     const key=(parts[0]==="live"||parts[0]==="encoded")?String(parts[1]||""):"";
     if(!key)return res.status(401).end();
@@ -482,9 +482,9 @@ async function proxyTvHlsStream(req,res,opts){
       if(!row)return res.status(404).end();
     }
 
-    let sub=String(req.path||"/").replace(/^\\/+?/,"");
-    if(/^index\\.m3u8\\/index\\.m3u8$/i.test(sub))sub="index.m3u8";
-    else if(/^index\\.m3u8\\//i.test(sub))sub=sub.slice("index.m3u8/".length);
+    let sub=String(req.path||"/").replace(/^\/+?/,"");
+    if(/^index\.m3u8\/index\.m3u8$/i.test(sub))sub="index.m3u8";
+    else if(/^index\.m3u8\//i.test(sub))sub=sub.slice("index.m3u8/".length);
 
     const cookieName=opts.cookieName;
     const proxyBase=opts.proxyBase;
@@ -519,9 +519,9 @@ async function proxyTvHlsStream(req,res,opts){
       let session="";
       const setCookies=typeof response.headers.getSetCookie==="function"
         ? response.headers.getSetCookie()
-        : String(response.headers.get("set-cookie")||"").split(/,(?=\\s*\\w+=)/);
+        : String(response.headers.get("set-cookie")||"").split(/,(?=\s*\w+=)/);
       for(const sc of setCookies){
-        const m=String(sc).match(/(?:^|;\\s*)hlsSession=([^;]+)/i);
+        const m=String(sc).match(/(?:^|;\s*)hlsSession=([^;]+)/i);
         if(m){session=m[1];break;}
       }
       session=session||upstream.searchParams.get("session")||"";
@@ -530,22 +530,22 @@ async function proxyTvHlsStream(req,res,opts){
         const value=String(raw||"").trim();
         if(!value)return value;
         try{
-          const absolute=/^https?:\\/\\//i.test(value)?new URL(value):null;
+          const absolute=/^https?:\/\//i.test(value)?new URL(value):null;
           let pathname=absolute?absolute.pathname:value.split("?")[0];
           let query=absolute?absolute.search:(value.includes("?")?"?"+value.split("?").slice(1).join("?"):"");
           const marker="/"+sourcePath+"/";
           const markerIndex=pathname.indexOf(marker);
           if(markerIndex>=0)pathname=pathname.slice(markerIndex+marker.length);
-          pathname=pathname.replace(/^\\/+?/,"");
+          pathname=pathname.replace(/^\/+?/,"");
           const url=proxyBase+pathname;
-          const sp=new URLSearchParams(query.replace(/^\\?/,""));
+          const sp=new URLSearchParams(query.replace(/^\?/,""));
           if(session&&!sp.has("session"))sp.set("session",session);
           const suffix=sp.toString();
           return url+(suffix?"?"+suffix:"");
         }catch{return value}
       };
 
-      textBody=textBody.split(/\\r?\\n/).map(line=>{
+      textBody=textBody.split(/\r?\n/).map(line=>{
         const trimmed=line.trim();
         if(!trimmed)return line;
         if(/^#EXT-X-(?:MEDIA|I-FRAME-STREAM-INF|MAP):/i.test(trimmed)){
@@ -556,7 +556,7 @@ async function proxyTvHlsStream(req,res,opts){
       }).join("\\n");
       body=Buffer.from(textBody,"utf8");
       if(session){
-        res.setHeader("Set-Cookie",cookieName+"="+encodeURIComponent(session)+"; Path="+proxyBase.replace(/index\\.m3u8$/,"")+"; HttpOnly; Secure; SameSite=Lax; Max-Age=1800");
+        res.setHeader("Set-Cookie",cookieName+"="+encodeURIComponent(session)+"; Path="+proxyBase.replace(/index\.m3u8$/,"")+"; HttpOnly; Secure; SameSite=Lax; Max-Age=1800");
       }
     }
 
