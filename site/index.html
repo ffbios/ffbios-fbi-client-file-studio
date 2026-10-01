@@ -437,11 +437,12 @@ function renderUploadQueue(){
     html+="<div class='upload-item'><div class='utop'><div class='uname'>"+esc(item.relativePath)+"</div><div>"+p.pct.toFixed(0)+"%</div></div>";
     html+="<div class='ustatus'>"+(item.completionRemark?esc(item.completionRemark):esc(item.status))+(item.mode&& !item.completionRemark?" • "+esc(item.mode):"")+" • "+fmt(Math.min(item.loadedBytes,item.totalBytes))+" / "+fmt(item.totalBytes)+(item.completionRemark?"":" • "+(p.rate?fmtRate(p.rate):"--")+" • ETA "+etaText(p.eta))+(item.error?"<br><span style='color:#fca5a5'>"+esc(item.error)+"</span>":"")+"</div>";
     html+="<div class='ubar'><i style='width:"+p.pct+"%'></i></div>";
-    html+="<div class='ufoot'><span>"+(item.resumed?"Resumed session":item.status==="deduplicated"?"Already stored":"Lossless direct cloud upload")+"</span><span>"+action+" <button class='mini' data-upcancel='"+item.id+"'>Cancel</button></span></div></div>";
+    html+="<div class='ufoot'><span>"+(item.resumed?"Resumed session":item.status==="deduplicated"?"Already stored":"Lossless direct cloud upload")+"</span><span>"+action+" <button class='mini' data-upfresh='"+item.id+"'>Start Fresh</button> <button class='mini' data-upcancel='"+item.id+"'>Cancel</button></span></div></div>";
   });
   box.innerHTML=html;
   box.querySelectorAll("[data-uppause]").forEach(function(b){b.onclick=function(){pauseUpload(b.dataset.uppause)}});
   box.querySelectorAll("[data-upresume]").forEach(function(b){b.onclick=function(){resumeUpload(b.dataset.upresume)}});
+  box.querySelectorAll("[data-upfresh]").forEach(function(b){b.onclick=function(){startFreshUpload(b.dataset.upfresh)}});
   box.querySelectorAll("[data-upcancel]").forEach(function(b){b.onclick=function(){cancelUpload(b.dataset.upcancel)}});
 }
 function xhrPut(url,blob,headers,item,onProgress){
@@ -585,6 +586,16 @@ async function cancelUpload(id){
   item.paused=true;Array.from(item.xhrs||[]).forEach(function(x){try{x.abort()}catch{}});
   if(item.sessionId)await api("/api/uploads/"+item.sessionId+"/abort",{method:"POST"}).catch(function(){});
   item.status="cancelled";renderUploadQueue();toast("Upload cancelled");
+}
+async function startFreshUpload(id){
+  var item=uploadQueue.find(function(x){return x.id===id});if(!item)return;
+  if(!confirm("Delete the partially uploaded cloud data for \""+item.file.name+"\" and start this file again from 0%?"))return;
+  item.paused=true;
+  Array.from(item.xhrs||[]).forEach(function(x){try{x.abort()}catch{}});
+  if(item.sessionId)await api("/api/uploads/"+item.sessionId+"/abort",{method:"POST"}).catch(function(){});
+  item.sessionId=null;item.mode=null;item.resumed=false;item.loadedBytes=0;item.partLoaded=new Map();item.checksums=[];item.fingerprint="";item.fileChecksum=null;item.error="";item.completionRemark="";
+  item.paused=false;item.status="queued";item.startedAt=Date.now();
+  renderUploadQueue();toast("Partial upload deleted. Starting fresh…");pumpUploads();
 }
 
 let studioSettings={studio_name:"FBI Client File Studio",portal_title:"FBI Client File Delivery",default_client_note:"Your files are ready for download.",default_expiry_days:30,log_downloads:true,allow_client_preview:true,show_file_size:true};
