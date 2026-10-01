@@ -61,8 +61,13 @@ function render(){
     '</div>';
 
   bind();
-  if(preview?.status==="live")attach(document.getElementById("mcrPreviewVideo"),preview.hls_url);
-  if(program?.status==="live")attach(document.getElementById("mcrProgramVideo"),program.hls_url);
+  state.sources.forEach((s,i)=>{
+    if(s.status!=="live")return;
+    const v=document.querySelector('[data-source="'+CSS.escape(String(s.id))+'"] .mcr-source-video');
+    if(v)attach(v,s.public_hls_url||s.hls_url);
+  });
+  if(preview?.status==="live")attach(document.getElementById("mcrPreviewVideo"),preview.public_hls_url||preview.hls_url);
+  if(program?.status==="live")attach(document.getElementById("mcrProgramVideo"),program.public_hls_url||program.hls_url);
   document.getElementById("mcrClock").textContent=fmtTime();
 }
 function bind(){
