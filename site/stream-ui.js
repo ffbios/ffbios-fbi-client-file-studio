@@ -183,9 +183,7 @@
                 "<div class='credrow'><label>Server</label><input readonly value='"+esc(rtmp)+"'><button class='mini' id='copyRtmp2'>Copy</button></div>"+
                 "<div class='credrow'><label>Key</label><input id='streamKey' type='password' readonly value='"+esc(key)+"'><div><button class='mini' id='toggleKey'>Show</button> <button class='mini' id='copyKey'>Copy</button></div></div>"+
               "</div>"+
-              "<div class='streamcode' style='margin-top:10px'>Service: Custom RTMP
-Server: "+esc(rtmp)+"
-Stream Key: "+esc(key)+"</div>"+
+              "<div class='streamcode' style='margin-top:10px'>Service: Custom RTMP\nServer: "+esc(rtmp)+"\nStream Key: "+esc(key)+"</div>"+
               "<div class='streamStatusLine'><span id='streamPlayerStatus' class='streamstatus-pill'>"+(s.status==="live"?"Live playback active":"Waiting for the live signal")+"</span><span class='streamstatus-pill'>H.264 / AAC</span></div>"+
             "</div>"+
             "<div class='streamglass'>"+
