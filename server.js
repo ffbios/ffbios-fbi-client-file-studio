@@ -449,9 +449,66 @@ async function hashAdminPassword(password){
 
 function escHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 function streamPathForKey(key){return "live/"+key;}
+function streamPlaybackPathForRow(row){return "encoded/"+String(row?.stream_key||"");}
 function streamHlsUrl(row){
   const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
-  return base+"/"+row.stream_path;
+  return base+"/"+streamPlaybackPathForRow(row);
+}
+function streamInputHlsUrl(row){
+  const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
+  return base+"/"+String(row?.stream_path||"");
+}
+function streamInputRtmpUrl(row){
+  const base=streamRtmpServer();
+  return base&&row?.stream_key?base+"/"+row.stream_key:"";
+}
+function streamEncodedRtmpUrl(row){
+  const base=streamRtmpServer();
+  return base&&row?.stream_key?base.replace(/\/live$/,"/encoded")+"/"+row.stream_key:"";
+}
+const activeStreamRecordings=new Map();
+async function startStreamRecording(row){
+  if(activeStreamRecordings.has(row.id)||!row.record_enabled||!ffmpegPath||!s3Ready())return;
+  const input=streamEncodedRtmpUrl(row)||streamInputRtmpUrl(row);
+  if(!input)return;
+  const id=uid();
+  const filename=safeName((row.name||"live-stream")+"-"+new Date().toISOString().replace(/[:.]/g,"-")+".mp4");
+  const storageKey="recordings/"+row.id+"/"+id+"/"+filename;
+  await pool.query("INSERT INTO stream_recordings(id,stream_id,filename,storage_key,status,started_at) VALUES($1,$2,$3,$4,'recording',now())",[id,row.id,filename,storageKey]);
+  const proc=spawn(ffmpegPath,["-hide_banner","-loglevel","warning","-fflags","nobuffer","-flags","low_delay","-i",input,"-map","0:v:0","-map","0:a:0?","-c:v","copy","-c:a","copy","-movflags","+frag_keyframe+empty_moov+default_base_moof","-f","mp4","pipe:1"],{stdio:["ignore","pipe","pipe"]});
+  const PassThrough=require("stream").PassThrough;
+  const pass=new PassThrough();
+  let bytes=0,stderr="";
+  proc.stdout.on("data",chunk=>{bytes+=chunk.length;pass.write(chunk)});
+  proc.stdout.on("end",()=>pass.end());
+  proc.stderr.on("data",chunk=>{stderr=(stderr+chunk.toString()).slice(-4000)});
+  const uploadDone=new Upload({client:s3,params:{Bucket:bucket(),Key:storageKey,Body:pass,ContentType:"video/mp4",CacheControl:"private, max-age=31536000"},queueSize:2,partSize:64*1024*1024,leavePartsOnError:false}).done();
+  const finish=new Promise(resolve=>{
+    proc.on("error",async err=>{
+      try{pass.destroy(err)}catch{}
+      await uploadDone.catch(()=>{});
+      await pool.query("UPDATE stream_recordings SET status='failed',ended_at=now(),size_bytes=$2,error=$3 WHERE id=$1",[id,bytes,String(err.message||err)]);
+      activeStreamRecordings.delete(row.id);resolve();
+    });
+    proc.on("close",async code=>{
+      try{if(!proc.stdout.readableEnded)pass.end()}catch{}
+      try{
+        await uploadDone;
+        const status=code===0||code===null?"completed":"failed";
+        await pool.query("UPDATE stream_recordings SET status=$2,ended_at=now(),size_bytes=$3,error=$4 WHERE id=$1",[id,status,bytes,status==="failed"?stderr:""]);
+      }catch(err){
+        await pool.query("UPDATE stream_recordings SET status='failed',ended_at=now(),size_bytes=$2,error=$3 WHERE id=$1",[id,bytes,String(err.message||err)]);
+      }
+      activeStreamRecordings.delete(row.id);resolve();
+    });
+  });
+  activeStreamRecordings.set(row.id,{id,proc,finish});
+}
+async function stopStreamRecording(streamId){
+  const active=activeStreamRecordings.get(streamId);
+  if(!active)return;
+  try{active.proc.kill("SIGINT")}catch{}
+  await Promise.race([active.finish,new Promise(r=>setTimeout(r,20000))]);
 }
 function randomStreamKey(){return crypto.randomBytes(24).toString("base64url");}
 function randomViewerToken(){return crypto.randomBytes(24).toString("base64url");}
