@@ -451,10 +451,11 @@ function escHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<"
 function streamPathForKey(key){return "live/"+key;}
 function streamPlaybackPathForRow(row){return "encoded/"+String(row?.stream_key||"");}
 function streamHlsUrl(row){
-  // Prime MediaMTX's HLS session with cookieCheck=1 so it uses a query
-  // session ID in child playlists instead of relying on cross-origin cookies.
+  // Return a complete HLS playlist URL. Priming cookieCheck=1 makes
+  // MediaMTX use query-based session IDs in child playlists, avoiding
+  // cross-origin cookie dependencies.
   const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
-  return base+"/"+streamPlaybackPathForRow(row)+"?cookieCheck=1";
+  return base+"/"+streamPlaybackPathForRow(row)+"/index.m3u8?cookieCheck=1";
 }
 function streamInputHlsUrl(row){
   const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
