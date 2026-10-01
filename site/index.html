@@ -825,68 +825,12 @@ function renderStreamsList(){
 }
 function selectedStream(){return (window.__streams||[]).find(function(s){return s.id===selectedStreamId})||null;}
 function renderSelectedStream(){
-  const pane=document.querySelector('#streamDetail');if(!pane)return;
-  const s=selectedStream();
-  if(!s){pane.innerHTML='<div class="empty">Select a stream or create a new live stream.</div>';return}
-  const watch=esc(s.viewer_url||''),rtmp=esc(s.rtmp_server||''),key=esc(s.stream_key||'');
-  const player=s.status==='live'&&s.viewer_url?'<iframe src="'+esc(s.viewer_url)+'" title="FBI Live Preview" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>':'<div class="offline"><div><b>OFFLINE</b><br><span>Start publishing from OBS, vMix, Streamlabs or a mobile RTMP app. The preview will appear here automatically.</span></div></div>';
-  pane.innerHTML=`
-    <div class="ph"><div><h2>${esc(s.name)}</h2><p>${esc(s.title||'')} • ${s.status==='live'?'<span style="color:var(--green)">Live now</span>':'Waiting for encoder'}</p></div><div class="pillline">${streamStatusBadge(s)} <span class="onoff" id="streamDetailViewers">${Number(s.current_viewers||0)} watching</span></div></div>
-    <div class="body">
-      <div class="streamplayer">${player}</div>
-      <div style="height:13px"></div>
-      <div class="panel" style="box-shadow:none"><div class="ph"><div><h2>Streaming Connection</h2><p>Use these values in your streaming software.</p></div><button class="btn primary" id="copyAllStream">Copy Setup</button></div>
-        <div class="body"><div class="cred">
-          <div class="credrow"><label>RTMP Server</label><input id="rtmpServer" readonly value="${rtmp}"><button class="mini" id="copyRtmp">Copy</button></div>
-          <div class="credrow"><label>Stream Key</label><input id="streamKey" type="password" readonly value="${key}"><div><button class="mini" id="toggleKey">Show</button> <button class="mini" id="copyKey">Copy</button></div></div>
-        </div>
-        <div style="height:11px"></div><div class="codebox">OBS / vMix / Streamlabs
-Service: Custom RTMP
-Server: ${rtmp}
-Stream Key: ${key}</div>
-        <div class="smallnote" style="margin-top:9px">Keep the stream key private. Regenerating the key immediately changes the publishing address.</div>
-      </div></div>
-      <div style="height:12px"></div>
-      <div class="panel" style="box-shadow:none"><div class="ph"><div><h2>Viewer Link</h2><p>Share this page with your audience.</p></div><button class="btn primary" id="openWatch">Open Watch Page</button></div>
-        <div class="body"><div class="shareline"><input id="watchLink" readonly value="${watch}"><button class="btn" id="copyWatch">Copy Link</button></div>
-        <div class="smallnote" style="margin-top:8px">${s.shared?'This stream is currently available to viewers.':'Viewer access is disabled.'}</div></div>
-      </div>
-      <div style="height:12px"></div>
-      <div class="panel" style="box-shadow:none"><div class="ph"><div><h2>Stream Settings</h2><p>Control the live channel without touching Railway.</p></div><button class="btn primary" id="saveStream">Save Changes</button></div>
-        <div class="body"><div class="settinggrid">
-          <div class="field"><label>Stream Name</label><input id="streamNameEdit" value="${esc(s.name)}"></div>
-          <div class="field"><label>On-screen Title</label><input id="streamTitleEdit" value="${esc(s.title||'')}"></div>
-        </div>
-        <div class="field"><label>Description</label><textarea id="streamDescEdit">${esc(s.description||'')}</textarea></div>
-        <label class="toggle"><input id="streamShareEdit" type="checkbox" ${s.shared?'checked':''}><span><b>Allow viewers to watch</b><br><small class="muted">Turn the public watch page on or off.</small></span></label>
-        </div>
-      </div>
-      <div style="height:12px"></div>
-      <div class="dangerzone"><h4>Stream Key Management</h4><div class="smallnote" style="margin-bottom:8px">Regenerating the key creates a new RTMP publishing path. Any encoder using the old key will stop being able to publish.</div><button class="btn" id="regenStreamKey">Regenerate Stream Key</button> <button class="btn danger" id="deleteStream">Delete Stream</button></div>
-    </div>`;
-  document.querySelector('#copyRtmp').onclick=function(){copyText(s.rtmp_server);};
-  document.querySelector('#copyKey').onclick=function(){copyText(s.stream_key);};
-  document.querySelector('#copyWatch').onclick=function(){copyText(s.viewer_url);};
-  document.querySelector('#copyAllStream').onclick=function(){copyText('Server: '+s.rtmp_server+'\nStream Key: '+s.stream_key)};
-  document.querySelector('#toggleKey').onclick=function(){const i=document.querySelector('#streamKey');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'Show':'Hide'};
-  document.querySelector('#openWatch').onclick=function(){window.open(s.viewer_url,'_blank','noopener')};
-  document.querySelector('#saveStream').onclick=async function(){
-    try{
-      const r=await api('/api/streams/'+s.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:document.querySelector('#streamNameEdit').value,title:document.querySelector('#streamTitleEdit').value,description:document.querySelector('#streamDescEdit').value,shared:document.querySelector('#streamShareEdit').checked})});
-      window.__streams=window.__streams.map(function(x){return x.id===s.id?{...x,...r.stream}:x});
-      renderStreamsList();renderSelectedStream();toast('Stream settings saved');
-    }catch(e){toast(e.message)}
-  };
-  document.querySelector('#regenStreamKey').onclick=async function(){
-    if(!confirm('Regenerate this stream key? The old publishing key will stop working.'))return;
-    const r=await api('/api/streams/'+s.id+'/regenerate-key',{method:'POST'});
-    await loadStreams();selectedStreamId=r.stream.id;toast('Stream key regenerated');
-  };
-  document.querySelector('#deleteStream').onclick=async function(){
-    if(!confirm('Delete this stream configuration?'))return;
-    await api('/api/streams/'+s.id,{method:'DELETE'});selectedStreamId=null;await loadStreams();toast('Stream deleted');
-  };
+  // Delegate the main portal to the redesigned streaming UI module.
+  if(window.renderSelectedStream && window.renderSelectedStream!==renderSelectedStream){
+    return window.renderSelectedStream();
+  }
 }
+
 function copyText(value){
   if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(value).then(function(){toast('Copied')}).catch(function(){toast('Copy failed')});
   else{const t=document.createElement('textarea');t.value=value;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();toast('Copied')}
@@ -1007,24 +951,10 @@ function renderNdiSources(sources){
   box.innerHTML=sources.map(function(x){const name=typeof x==='string'?x:x.name||'';return '<label class="ndisource"><input type="radio" name="ndiSource" value="'+esc(name)+'"><span>'+esc(name)+'</span></label>'}).join('');
 }
 function renderStreamsPage(){
-  document.querySelector('#content').innerHTML=`
-    <div class="cards">
-      <div class="card"><small>Streams</small><strong id="streamCount">0</strong><span>Configured live channels</span></div>
-      <div class="card"><small>Live Now</small><strong id="liveCount">0</strong><span>Currently receiving a signal</span></div>
-      <div class="card"><small>Viewers Now</small><strong id="viewerCount">0</strong><span>Watching through your links</span></div>
-      <div class="card"><small>Viewer Sessions</small><strong id="streamHistoryCount">0</strong><span>Total recorded sessions</span></div>
-    </div>
-    <div class="streamgrid">
-      <div class="panel"><div class="ph"><div><h2>Live Channels</h2><p>Each channel gets its own RTMP credentials.</p></div><button class="btn primary" id="newStream">＋ New Stream</button></div><div class="body"><div id="streamList" class="streamlist"></div></div></div>
-      <div class="panel" id="streamDetail"><div class="empty">Select a stream or create a new live stream.</div></div>
-    </div>`;
-  document.querySelector('#newStream').onclick=function(){
-    document.querySelector('#streamModal').classList.add('show');
-    document.querySelector('#streamName').focus();
-  };
-  loadStreams();
-  clearInterval(streamPoller);
-  streamPoller=setInterval(function(){if(activeStudioView==='streams')loadStreams().catch(function(){})},10000);
+  // Delegate the main portal to the redesigned streaming UI module.
+  if(window.renderStreamsPage && window.renderStreamsPage!==renderStreamsPage){
+    return window.renderStreamsPage();
+  }
 }
 
 
