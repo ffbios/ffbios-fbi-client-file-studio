@@ -149,7 +149,7 @@
     if(!s){pane.innerHTML="<div class='empty'>Select a stream or create a new live stream.</div>";return}
     const watch=String(s.viewer_url||""),rtmp=String(s.rtmp_server||""),key=String(s.stream_key||"");
     const rawHls=String(s.hls_url||"").trim();
-    const hls=rawHls?(\/\.m3u8(?:\?|$)/i.test(rawHls)?rawHls:rawHls.replace(/\/+$/,"")+"/index.m3u8"):"";
+    const hls=rawHls?(/\.m3u8(?:\?|$)/i.test(rawHls)?rawHls:rawHls.replace(/\/+$/,"")+"/index.m3u8"):"";
 
     pane.innerHTML=
       "<div class='streamstudio-top'>"+
