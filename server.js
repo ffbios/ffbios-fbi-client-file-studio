@@ -348,6 +348,20 @@ async function initDb(){
       started_at timestamptz,
       ended_at timestamptz
     );
+    ALTER TABLE streams ADD COLUMN IF NOT EXISTS record_enabled boolean NOT NULL DEFAULT true;
+    CREATE TABLE IF NOT EXISTS stream_recordings(
+      id uuid PRIMARY KEY,
+      stream_id uuid NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
+      filename text NOT NULL,
+      storage_key text UNIQUE NOT NULL,
+      status text NOT NULL DEFAULT 'recording',
+      size_bytes bigint NOT NULL DEFAULT 0,
+      started_at timestamptz NOT NULL DEFAULT now(),
+      ended_at timestamptz,
+      error text DEFAULT '',
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_stream_recordings_stream ON stream_recordings(stream_id,created_at DESC);
     CREATE TABLE IF NOT EXISTS stream_viewers(
       id uuid PRIMARY KEY,
       stream_id uuid NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
@@ -451,7 +465,7 @@ function parseQueryString(q){
 }
 async function checkStreamLive(row){
   if(!row || !row.enabled)return false;
-  const url=streamHlsUrl(row)+"/index.m3u8";
+  const url=streamInputHlsUrl(row)+"/index.m3u8";
   if(!url.startsWith("http"))return false;
   try{
     const r=await fetch(url,{method:"GET",cache:"no-store"});
@@ -466,9 +480,13 @@ async function refreshStreamStatus(row){
   if(status!==row.status){
     if(live){
       await pool.query("UPDATE streams SET status='live',started_at=COALESCE(started_at,now()),updated_at=now() WHERE id=$1",[row.id]);
+      startStreamRecording({...row,status:"live"}).catch(e=>console.error("Stream recording start failed:",e.message||e));
     }else{
       await pool.query("UPDATE streams SET status='offline',ended_at=now(),updated_at=now() WHERE id=$1",[row.id]);
+      stopStreamRecording(row.id).catch(e=>console.error("Stream recording stop failed:",e.message||e));
     }
+  }else if(live&&row.record_enabled&&!activeStreamRecordings.has(row.id)){
+    startStreamRecording({...row,status:"live"}).catch(e=>console.error("Stream recording recovery failed:",e.message||e));
   }
   return {...row,status};
 }
@@ -481,6 +499,14 @@ async function streamRows(){
   const out=[];for(const row of r.rows)out.push(await refreshStreamStatus(row));
   return out;
 }
+const streamMonitor=setInterval(async()=>{
+  try{
+    const r=await pool.query("SELECT * FROM streams WHERE enabled=true");
+    for(const row of r.rows)await refreshStreamStatus(row);
+  }catch(e){console.error("Stream monitor error:",e.message||e);}
+},5000);
+if(streamMonitor.unref)streamMonitor.unref();
+
 app.use(express.json({limit:"2mb"}));
 app.use(express.urlencoded({extended:true}));
 
@@ -772,11 +798,11 @@ app.get("/api/streams/:id",admin,async(req,res)=>{
 
 app.patch("/api/streams/:id",admin,async(req,res)=>{
   try{
-    const allowed=["name","title","description","shared","enabled"];
+    const allowed=["name","title","description","shared","enabled","record_enabled"];
     const fields=[],values=[];let n=1;
     for(const k of allowed)if(Object.prototype.hasOwnProperty.call(req.body,k)){
       fields.push(`${k}=${n++}`);
-      values.push(k==="shared"||k==="enabled"?Boolean(req.body[k]):String(req.body[k]??"").trim().slice(0,2000));
+      values.push(k==="shared"||k==="enabled"||k==="record_enabled"?Boolean(req.body[k]):String(req.body[k]??"").trim().slice(0,2000));
     }
     if(!fields.length)return res.status(400).json({error:"Nothing to update"});
     fields.push("updated_at=now()");values.push(req.params.id);
@@ -786,6 +812,17 @@ app.patch("/api/streams/:id",admin,async(req,res)=>{
   }catch(e){console.error(e);res.status(500).json({error:"Could not update stream"});}
 });
 
+app.get("/api/streams/:id/recordings",admin,async(req,res)=>{
+  try{
+    const q=await pool.query("SELECT * FROM stream_recordings WHERE stream_id=$1 ORDER BY created_at DESC LIMIT 50",[req.params.id]);
+    const rows=await Promise.all(q.rows.map(async r=>{
+      let play_url="";
+      if(r.status==="completed"&&s3Ready())play_url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:r.storage_key}),{expiresIn:3600});
+      return {...r,play_url};
+    }));
+    res.json({recordings:rows});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not load stream recordings"});}
+});
 app.post("/api/streams/:id/regenerate-key",admin,async(req,res)=>{
   try{
     const key=randomStreamKey();
