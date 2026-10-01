@@ -825,12 +825,101 @@ function renderStreamsList(){
 }
 function selectedStream(){return (window.__streams||[]).find(function(s){return s.id===selectedStreamId})||null;}
 function renderSelectedStream(){
-  // Delegate the main portal to the redesigned streaming UI module.
-  if(window.renderSelectedStream && window.renderSelectedStream!==renderSelectedStream){
-    return window.renderSelectedStream();
-  }
-}
+  const pane=document.querySelector('#streamDetail');if(!pane)return;
+  const s=selectedStream();
+  if(!s){pane.innerHTML='<div class="empty">Select a stream or create a new live stream.</div>';return}
 
+  const watch=esc(s.viewer_url||''),rtmp=esc(s.rtmp_server||''),key=esc(s.stream_key||'');
+  const player=s.status==='live'&&s.viewer_url
+    ? '<iframe src="'+watch+'" title="FBI Live Preview" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>'
+    : '<div class="offline"><div><b>'+(s.status==='live'?'ENCODER STARTING':'OFFLINE')+'</b><br><span>'+(s.status==='live'?'The live signal is received. Preparing the browser playback stream.':'Start publishing from OBS, vMix, Streamlabs or another RTMP encoder.')+'</span></div></div>';
+
+  pane.innerHTML=
+    '<div class="streamstudio-top">'+
+      '<div class="streamstudio-top-main"><div class="streamstudio-kicker">FBI Live Broadcast Studio</div><h1>'+esc(s.title||s.name)+'</h1><p>'+esc(s.name)+' • '+(s.status==='live'?'Live broadcast is on air':'Ready for broadcast')+'</p></div>'+
+      '<div class="streamstudio-top-actions"><button class="btn" id="copyAllStream">Copy Setup</button><button class="btn primary" id="openWatch">Open Watch Page</button></div>'+
+    '</div>'+
+    '<div class="streamstudio-layout">'+
+      '<aside class="stream-channel-card">'+
+        '<div class="stream-channel-head"><div><h2>Live Channels</h2><p>Select a channel to manage its broadcast.</p></div><span class="stream-channel-count">'+Number((window.__streams||[]).length)+' channels</span></div>'+
+        '<div class="stream-channel-actions"><button class="btn" id="newStream">＋ New Stream</button></div>'+
+        '<div id="streamList" class="streamlist"></div>'+
+      '</aside>'+
+      '<section class="stream-stage">'+
+        '<div class="streamhero">'+
+          '<div class="streamhero-top">'+
+            '<div><div class="streamhero-title">'+esc(s.name)+'</div><div class="streamhero-meta">'+esc(s.title||'FBI Live Channel')+' • '+Number(s.current_viewers||0)+' watching</div></div>'+
+            '<div class="streamhero-badge '+(s.status==='live'?'live':'')+'">'+(s.status==='live'?'● LIVE':'OFFLINE')+'</div>'+
+          '</div>'+
+          '<div class="streamplayer">'+player+'</div>'+
+          '<div class="streamhero-bottom"><div class="streamhero-glass"><h3>'+esc(s.title||s.name)+'</h3><p><span id="streamDetailViewers">'+Number(s.current_viewers||0)+' watching now</span> • '+(s.record_enabled?'Automatic recording ON':'Recording OFF')+'</p></div><div class="streamhero-actions"><button class="btn primary" id="openWatchHero">Watch Page</button></div></div>'+
+        '</div>'+
+        '<div class="streammetrics">'+
+          '<div class="streammetric"><small>Live Signal</small><b>'+(s.status==='live'?'ON AIR':'OFFLINE')+'</b><span>'+(s.status==='live'?'Input detected and online':'Waiting for encoder')+'</span></div>'+
+          '<div class="streammetric"><small>Viewers Now</small><b>'+Number(s.current_viewers||0)+'</b><span>'+Number(s.total_viewers||0)+' total viewer sessions</span></div>'+
+          '<div class="streammetric"><small>Recording</small><b>'+(s.record_enabled?'ON':'OFF')+'</b><span>'+(s.record_enabled?'Save completed sessions automatically':'Recording disabled')+'</span></div>'+
+        '</div>'+
+        '<div class="streamlower">'+
+          '<div class="streamglass"><div class="streamglass-head"><div><h3>Broadcast Setup</h3><p>Use these settings in OBS, vMix, Streamlabs or another RTMP encoder.</p></div><button class="mini" id="copyRtmp">Copy Server</button></div>'+
+            '<div class="streamsetup">'+
+              '<div class="credrow"><label>Server</label><input readonly value="'+rtmp+'"><button class="mini" id="copyRtmp2">Copy</button></div>'+
+              '<div class="credrow"><label>Key</label><input id="streamKey" type="password" readonly value="'+key+'"><div><button class="mini" id="toggleKey">Show</button> <button class="mini" id="copyKey">Copy</button></div></div>'+
+            '</div>'+
+            '<div class="streamcode" style="margin-top:10px">Service: Custom RTMP\nServer: '+rtmp+'\nStream Key: '+key+'</div>'+
+            '<div class="streamStatusLine"><span id="streamPlayerStatus" class="streamstatus-pill">'+(s.status==='live'?'Live playback active':'Waiting for the live signal')+'</span><span class="streamstatus-pill">H.264 / AAC</span></div>'+
+          '</div>'+
+          '<div class="streamglass"><div class="streamglass-head"><div><h3>Recorded Sessions</h3><p>Completed live broadcasts saved as playable files.</p></div></div><div id="streamRecordings"><div class="smallnote">Loading recordings…</div></div></div>'+
+        '</div>'+
+        '<div class="panel stream-settings" style="box-shadow:none"><div class="ph"><div><h2>Stream Settings</h2><p>Manage the channel without changing the streaming engine.</p></div><button class="btn primary" id="saveStream">Save Changes</button></div>'+
+          '<div class="body"><div class="settinggrid"><div class="field"><label>Stream Name</label><input id="streamNameEdit" value="'+esc(s.name)+'"></div><div class="field"><label>On-screen Title</label><input id="streamTitleEdit" value="'+esc(s.title||'')+'"></div></div>'+
+          '<div class="field"><label>Description</label><textarea id="streamDescEdit">'+esc(s.description||'')+'</textarea></div>'+
+          '<div class="settinggrid"><label class="toggle"><input id="streamShareEdit" type="checkbox" '+(s.shared?'checked':'')+'><span><b>Allow viewers to watch</b><br><small class="muted">Turn the public watch page on or off.</small></span></label>'+
+          '<label class="toggle"><input id="streamRecordEdit" type="checkbox" '+(s.record_enabled?'checked':'')+'><span><b>Record every live session</b><br><small class="muted">Save a playable MP4 automatically when streaming ends.</small></span></label></div></div></div>'+
+        '</div>'+
+        '<div class="stream-danger"><div><b>Stream Key Management</b><span>Regenerating the key changes the publishing address for this channel.</span></div><div><button class="btn" id="regenStreamKey">Regenerate Key</button> <button class="btn danger" id="deleteStream">Delete Stream</button></div></div>'+
+      '</section>'+
+    '</div>';
+
+  renderStreamsList();
+
+  document.querySelector('#copyRtmp').onclick=function(){copyText(s.rtmp_server)};
+  document.querySelector('#copyRtmp2').onclick=function(){copyText(s.rtmp_server)};
+  document.querySelector('#copyKey').onclick=function(){copyText(s.stream_key)};
+  document.querySelector('#copyAllStream').onclick=function(){copyText('Server: '+s.rtmp_server+'\nStream Key: '+s.stream_key)};
+  document.querySelector('#toggleKey').onclick=function(){const i=document.querySelector('#streamKey');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'Show':'Hide'};
+  document.querySelector('#openWatch').onclick=function(){window.open(s.viewer_url,'_blank','noopener')};
+  document.querySelector('#openWatchHero').onclick=function(){window.open(s.viewer_url,'_blank','noopener')};
+  document.querySelector('#newStream').onclick=function(){document.querySelector('#streamModal').classList.add('show');document.querySelector('#streamName').focus()};
+
+  document.querySelector('#saveStream').onclick=async function(){
+    try{
+      const r=await api('/api/streams/'+s.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        name:document.querySelector('#streamNameEdit').value,
+        title:document.querySelector('#streamTitleEdit').value,
+        description:document.querySelector('#streamDescEdit').value,
+        shared:document.querySelector('#streamShareEdit').checked,
+        record_enabled:document.querySelector('#streamRecordEdit').checked
+      })});
+      window.__streams=window.__streams.map(function(x){return x.id===s.id?{...x,...r.stream}:x});
+      renderedStreamSignature='';
+      renderStreamsList();renderSelectedStream();toast('Stream settings saved');
+    }catch(e){toast(e.message)}
+  };
+
+  document.querySelector('#regenStreamKey').onclick=async function(){
+    if(!confirm('Regenerate this stream key? The old publishing key will stop working.'))return;
+    const r=await api('/api/streams/'+s.id+'/regenerate-key',{method:'POST'});
+    renderedStreamSignature='';selectedStreamId=r.stream.id;await loadStreams();toast('Stream key regenerated');
+  };
+
+  document.querySelector('#deleteStream').onclick=async function(){
+    if(!confirm('Delete this stream configuration?'))return;
+    await api('/api/streams/'+s.id,{method:'DELETE'});
+    selectedStreamId=null;renderedStreamSignature='';await loadStreams();toast('Stream deleted');
+  };
+
+  window.loadStreamRecordings?.(s.id);
+}
 function copyText(value){
   if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(value).then(function(){toast('Copied')}).catch(function(){toast('Copy failed')});
   else{const t=document.createElement('textarea');t.value=value;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();toast('Copied')}
@@ -951,12 +1040,24 @@ function renderNdiSources(sources){
   box.innerHTML=sources.map(function(x){const name=typeof x==='string'?x:x.name||'';return '<label class="ndisource"><input type="radio" name="ndiSource" value="'+esc(name)+'"><span>'+esc(name)+'</span></label>'}).join('');
 }
 function renderStreamsPage(){
-  // Delegate the main portal to the redesigned streaming UI module.
-  if(window.renderStreamsPage && window.renderStreamsPage!==renderStreamsPage){
-    return window.renderStreamsPage();
-  }
+  const content=document.querySelector('#content');
+  if(!content)return;
+  content.innerHTML=
+    '<div class="streamstudio">'+
+      '<div class="streamstudio-top"><div class="streamstudio-top-main"><div class="streamstudio-kicker">FBI Live Broadcast Studio</div><h1>Live Streaming</h1><p>Manage your live channels, monitor the broadcast and access recorded sessions.</p></div><div class="streamstudio-top-actions"><button class="btn primary" id="newStreamTop">＋ New Stream</button></div></div>'+
+      '<div id="streamDetail"><div class="empty">Select a live channel or create a new stream.</div></div>'+
+    '</div>';
+  document.querySelector('#newStreamTop').onclick=function(){
+    document.querySelector('#streamModal').classList.add('show');
+    document.querySelector('#streamName').focus();
+  };
+  renderedStreamSignature='';
+  loadStreams();
+  clearInterval(streamPoller);
+  streamPoller=setInterval(function(){
+    if(activeStudioView==='streams')loadStreams().catch(function(){});
+  },5000);
 }
-
 
 function studioView(){
   document.body.innerHTML=`
