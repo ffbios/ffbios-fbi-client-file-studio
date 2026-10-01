@@ -1002,8 +1002,19 @@ function publicHlsCacheSet(key,body,type){
     publicHlsCacheBytes=Math.max(0,publicHlsCacheBytes-v.body.length);
   }
 }
-async function fetchPublicHlsBody(url){
-  const response=await fetch(url,{redirect:"follow",cache:"no-store"});
+const publicHlsSessionByToken=new Map();
+function publicHlsSessionGet(token){
+  const v=publicHlsSessionByToken.get(String(token||""));
+  if(!v)return "";
+  if(v.expiresAt<Date.now()){publicHlsSessionByToken.delete(String(token||""));return "";}
+  return v.session;
+}
+function publicHlsSessionSet(token,session){
+  if(!token||!session)return;
+  publicHlsSessionByToken.set(String(token),{session:String(session),expiresAt:Date.now()+25*60*1000});
+}
+async function fetchPublicHlsBody(url,headers){
+  const response=await fetch(url,{redirect:"follow",cache:"no-store",headers:headers||{}});
   const type=response.headers.get("content-type")||"application/octet-stream";
   const body=Buffer.from(await response.arrayBuffer());
   return {response,type,body};
@@ -1035,8 +1046,18 @@ async function proxyPublicHlsStream(req,res){
     for(const [k,v] of Object.entries(req.query||{}))upstream.searchParams.append(k,String(v));
     const incomingCookies=String(req.headers.cookie||"");
     const proxySession=(incomingCookies.match(/(?:^|;\s*)fbi_public_hls_session=([^;]+)/)||[])[1]||"";
-    if(proxySession&&!upstream.searchParams.has("session"))upstream.searchParams.set("session",decodeURIComponent(proxySession));
-    if(sub==="index.m3u8"&&!upstream.searchParams.has("session"))upstream.searchParams.set("cookieCheck","1");
+    const sharedSession=publicHlsSessionGet(token);
+    if(!upstream.searchParams.has("session")&&(proxySession||sharedSession)){
+      upstream.searchParams.set("session",decodeURIComponent(proxySession||sharedSession));
+    }
+    const upstreamHeaders={};
+    // MediaMTX v1.19.x establishes the HLS session through a cookieCheck
+    // redirect. Send the cookie on the first playlist request so the proxy can
+    // complete that handshake without depending on the browser or CDN to carry
+    // Set-Cookie between requests.
+    if(sub==="index.m3u8"&&!upstream.searchParams.has("session")&&!proxySession&&!sharedSession){
+      upstreamHeaders.cookie="cookieCheck=1";
+    }
 
     const isPlaylist=/\.m3u8$/i.test(sub);
     if(!isPlaylist){
@@ -1046,7 +1067,7 @@ async function proxyPublicHlsStream(req,res){
       let pending=publicHlsSegmentPending.get(cacheKey);
       if(!pending){
         pending=(async()=>{
-          const out=await fetchPublicHlsBody(upstream);
+          const out=await fetchPublicHlsBody(upstream,upstreamHeaders);
           const result={status:out.response.status,type:out.type,body:out.body};
           if(out.response.ok)publicHlsCacheSet(cacheKey,out.body,out.type);
           return result;
@@ -1063,7 +1084,7 @@ async function proxyPublicHlsStream(req,res){
       }
     }
 
-    const out=await fetchPublicHlsBody(upstream);
+    const out=await fetchPublicHlsBody(upstream,upstreamHeaders);
     const response=out.response,type=out.type;
     let body=out.body;
     if(!response.ok)return res.status(response.status).type(type).send(body);
@@ -1072,6 +1093,7 @@ async function proxyPublicHlsStream(req,res){
       const setCookies=typeof response.headers.getSetCookie==="function"?response.headers.getSetCookie():String(response.headers.get("set-cookie")||"").split(/,(?=\s*\w+=)/);
       for(const sc of setCookies){const m=String(sc).match(/(?:^|;\s*)hlsSession=([^;]+)/i);if(m){session=m[1];break;}}
       session=session||upstream.searchParams.get("session")||"";
+      if(session)publicHlsSessionSet(token,session);
       function publicUri(raw){
         const value=String(raw||"").trim(); if(!value)return value;
         try{
