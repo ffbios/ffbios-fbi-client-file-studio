@@ -488,7 +488,7 @@ app.get("/api/public/program/hls/:file",async(req,res)=>{
       const rewritten=body.split("\\n").map(line=>{
         const t=line.trim();
         if(!t||t.startsWith("#"))return line;
-        if(/^https?:\\/\\//i.test(t))return base+t.replace(MEDIA_BASE,"");
+        if(/^https?:\/\//i.test(t))return base+t.replace(MEDIA_BASE,"");
         return base+t;
       }).join("\\n");
       res.setHeader("Content-Type",type);return res.send(rewritten);
