@@ -117,6 +117,13 @@ async function init(){
       updated_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS idx_tv_streams_updated ON tv_streams(updated_at DESC);
+    CREATE TABLE IF NOT EXISTS tv_mcr_config(
+      id smallint PRIMARY KEY CHECK (id=1),
+      program_stream_id uuid REFERENCES tv_streams(id) ON DELETE SET NULL,
+      preview_stream_id uuid REFERENCES tv_streams(id) ON DELETE SET NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    INSERT INTO tv_mcr_config(id,program_stream_id,preview_stream_id) VALUES(1,NULL,NULL) ON CONFLICT (id) DO NOTHING;
   `);
 }
 function rtmpServer(){
@@ -222,42 +229,160 @@ app.get("/api/auth/me",async(req,res)=>{
 });
 app.post("/api/auth/logout",(req,res)=>{clearSession(res);res.json({ok:true})});
 
-app.get("/api/streams",admin,async(req,res)=>{
-  const q=await pool.query("SELECT * FROM tv_streams ORDER BY updated_at DESC");
-  res.json({streams:q.rows.map(s=>({
-    id:s.id,name:s.name,title:s.title,description:s.description,stream_key:s.stream_key,
-    status:s.status,shared:s.shared,record_enabled:s.record_enabled,current_viewers:s.current_viewers,total_viewers:s.total_viewers,
-    rtmp_server:rtmpServer(),viewer_url:(process.env.PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+s.viewer_token
-  }))});
-});
-app.post("/api/streams",admin,async(req,res)=>{
-  const name=String(req.body.name||"").trim();
-  if(!name)return res.status(400).json({error:"Stream name is required"});
-  const s={
-    id:uid(),name,title:String(req.body.title||name).trim(),description:String(req.body.description||"").trim(),
-    stream_key:token(18),viewer_token:token(24)
+
+async function refreshStreamStatusRow(row){
+  let live=String(row.status||"offline")==="live";
+  if(MEDIA_BASE){
+    try{
+      const probe=await fetch(MEDIA_BASE+"/live/"+encodeURIComponent(row.stream_key)+"/index.m3u8",{cache:"no-store"});
+      live=probe.ok;
+    }catch(_e){live=false}
+  }
+  if(live!==("".concat(row.status)==="live")){
+    await pool.query("UPDATE tv_streams SET status=$1,updated_at=now() WHERE id=$2",[live?"live":"offline",row.id]);
+  }
+  return {...row,status:live?"live":"offline"};
+}
+function streamView(row, req, programId, previewId){
+  const base=process.env.PUBLIC_BASE_URL||req.protocol+"://"+req.get("host");
+  return {
+    id:row.id,name:row.name,title:row.title,description:row.description,stream_key:row.stream_key,
+    enabled:row.enabled,shared:row.shared,record_enabled:row.record_enabled,status:row.status,
+    current_viewers:Number(row.current_viewers||0),total_viewers:Number(row.total_viewers||0),
+    rtmp_server:rtmpServer(),
+    rtmp_url:rtmpServer()?rtmpServer()+"/"+row.stream_key:"",
+    hls_url:"/api/public/watch/"+encodeURIComponent(row.viewer_token)+"/hls/index.m3u8",
+    preview_url:"/api/public/watch/"+encodeURIComponent(row.viewer_token)+"/hls/index.m3u8",
+    viewer_url:base+"/watch/"+row.viewer_token,
+    live_url:base+"/live/"+row.id,
+    is_program:String(programId||"")===String(row.id),
+    is_preview:String(previewId||"")===String(row.id)
   };
-  const q=await pool.query("INSERT INTO tv_streams(id,name,title,description,stream_key,viewer_token) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",[s.id,s.name,s.title,s.description,s.stream_key,s.viewer_token]);
-  const row=q.rows[0];
-  res.status(201).json({stream:{...row,rtmp_server:rtmpServer(),viewer_url:(process.env.PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+row.viewer_token}});
+}
+async function mcrConfig(){
+  const q=await pool.query("SELECT * FROM tv_mcr_config WHERE id=1");
+  return q.rows[0]||{id:1,program_stream_id:null,preview_stream_id:null};
+}
+
+app.get("/api/streams",admin,async(req,res)=>{
+  try{
+    const cfg=await mcrConfig();
+    const q=await pool.query("SELECT * FROM tv_streams ORDER BY updated_at DESC");
+    const rows=[];
+    for(const row of q.rows)rows.push(await refreshStreamStatusRow(row));
+    res.json({streams:rows.map(row=>streamView(row,req,cfg.program_stream_id,cfg.preview_stream_id))});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not load live streams"});}
 });
+
+app.post("/api/streams",admin,async(req,res)=>{
+  try{
+    const name=String(req.body.name||"").trim();
+    if(!name)return res.status(400).json({error:"Stream name is required"});
+    const s={id:uid(),name,title:String(req.body.title||name).trim(),description:String(req.body.description||"").trim(),stream_key:token(18),viewer_token:token(24)};
+    const q=await pool.query("INSERT INTO tv_streams(id,name,title,description,stream_key,viewer_token) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",[s.id,s.name,s.title,s.description,s.stream_key,s.viewer_token]);
+    const cfg=await mcrConfig();
+    const row=await refreshStreamStatusRow(q.rows[0]);
+    res.status(201).json({stream:streamView(row,req,cfg.program_stream_id,cfg.preview_stream_id)});
+  }catch(e){console.error("Stream create failed:",e);res.status(500).json({error:"Could not create stream"});}
+});
+
 app.get("/api/streams/:id",admin,async(req,res)=>{
-  const q=await pool.query("SELECT * FROM tv_streams WHERE id=$1",[req.params.id]);if(!q.rowCount)return res.status(404).json({error:"Stream not found"});
-  const s=q.rows[0];res.json({stream:{...s,rtmp_server:rtmpServer(),viewer_url:(process.env.PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+s.viewer_token}});
+  try{
+    const q=await pool.query("SELECT * FROM tv_streams WHERE id=$1",[req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Stream not found"});
+    const cfg=await mcrConfig();
+    const row=await refreshStreamStatusRow(q.rows[0]);
+    res.json({stream:streamView(row,req,cfg.program_stream_id,cfg.preview_stream_id)});
+  }catch(e){res.status(500).json({error:"Could not load stream"});}
 });
+
 app.patch("/api/streams/:id",admin,async(req,res)=>{
-  const fields=[],vals=[];for(const k of ["name","title","description","shared","record_enabled","enabled"]){if(req.body[k]!==undefined){vals.push(req.body[k]);fields.push(k+"=$"+vals.length)}}
-  if(!fields.length)return res.status(400).json({error:"Nothing to update"});
-  vals.push(req.params.id);const q=await pool.query(`UPDATE tv_streams SET ${fields.join(",")},updated_at=now() WHERE id=$${vals.length} RETURNING *`,vals);
-  if(!q.rowCount)return res.status(404).json({error:"Stream not found"});const s=q.rows[0];
-  res.json({stream:{...s,rtmp_server:rtmpServer(),viewer_url:(process.env.PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+s.viewer_token}});
+  try{
+    const fields=[],vals=[];
+    for(const k of ["name","title","description","shared","record_enabled","enabled"]){
+      if(req.body[k]!==undefined){
+        vals.push(k==="shared"||k==="record_enabled"||k==="enabled"?Boolean(req.body[k]):String(req.body[k]??"").trim().slice(0,2000));
+        fields.push(k+"=$"+vals.length);
+      }
+    }
+    if(!fields.length)return res.status(400).json({error:"Nothing to update"});
+    vals.push(req.params.id);
+    const q=await pool.query(\`UPDATE tv_streams SET \${fields.join(",")},updated_at=now() WHERE id=$\${vals.length} RETURNING *\`,vals);
+    if(!q.rowCount)return res.status(404).json({error:"Stream not found"});
+    const cfg=await mcrConfig();
+    const row=await refreshStreamStatusRow(q.rows[0]);
+    res.json({stream:streamView(row,req,cfg.program_stream_id,cfg.preview_stream_id)});
+  }catch(e){console.error("Stream update failed:",e);res.status(500).json({error:"Could not update stream"});}
 });
+
 app.post("/api/streams/:id/regenerate-key",admin,async(req,res)=>{
-  const key=token(18);const q=await pool.query("UPDATE tv_streams SET stream_key=$1,status='offline',updated_at=now() WHERE id=$2 RETURNING *",[key,req.params.id]);
-  if(!q.rowCount)return res.status(404).json({error:"Stream not found"});const s=q.rows[0];
-  res.json({stream:{...s,rtmp_server:rtmpServer(),viewer_url:(process.env.PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+s.viewer_token}});
+  try{
+    const key=token(18);
+    const q=await pool.query("UPDATE tv_streams SET stream_key=$1,status='offline',updated_at=now() WHERE id=$2 RETURNING *",[key,req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Stream not found"});
+    const cfg=await mcrConfig();
+    res.json({stream:streamView(q.rows[0],req,cfg.program_stream_id,cfg.preview_stream_id)});
+  }catch(e){res.status(500).json({error:"Could not regenerate stream key"});}
 });
-app.delete("/api/streams/:id",admin,async(req,res)=>{const q=await pool.query("DELETE FROM tv_streams WHERE id=$1 RETURNING id",[req.params.id]);if(!q.rowCount)return res.status(404).json({error:"Stream not found"});res.json({ok:true})});
+
+app.delete("/api/streams/:id",admin,async(req,res)=>{
+  try{
+    const q=await pool.query("DELETE FROM tv_streams WHERE id=$1 RETURNING id",[req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Stream not found"});
+    await pool.query("UPDATE tv_mcr_config SET program_stream_id=NULL,preview_stream_id=NULL,updated_at=now() WHERE id=1 AND (program_stream_id=$1 OR preview_stream_id=$1)",[req.params.id]);
+    res.json({ok:true});
+  }catch(e){res.status(500).json({error:"Could not delete stream"});}
+});
+
+app.get("/api/mcr/overview",admin,async(req,res)=>{
+  try{
+    const cfg=await mcrConfig();
+    const q=await pool.query("SELECT * FROM tv_streams WHERE enabled=true ORDER BY created_at ASC");
+    const sources=[];
+    for(const row of q.rows){
+      const fresh=await refreshStreamStatusRow(row);
+      sources.push(streamView(fresh,req,cfg.program_stream_id,cfg.preview_stream_id));
+    }
+    const program=sources.find(x=>String(x.id)===String(cfg.program_stream_id))||null;
+    const preview=sources.find(x=>String(x.id)===String(cfg.preview_stream_id))||null;
+    res.json({sources,program,preview,program_url:(process.env.PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/program"});
+  }catch(e){console.error("MCR overview failed:",e);res.status(500).json({error:"Could not load MCR"});}
+});
+
+app.post("/api/mcr/preview",admin,async(req,res)=>{
+  try{
+    const id=String(req.body.streamId||"");
+    if(id){
+      const q=await pool.query("SELECT id FROM tv_streams WHERE id=$1 AND enabled=true",[id]);
+      if(!q.rowCount)return res.status(404).json({error:"Input source not found"});
+    }
+    const q=await pool.query("UPDATE tv_mcr_config SET preview_stream_id=$1,updated_at=now() WHERE id=1 RETURNING *",[id||null]);
+    res.json({ok:true,preview_stream_id:q.rows[0].preview_stream_id||null});
+  }catch(e){res.status(500).json({error:"Could not set preview source"});}
+});
+
+app.get("/api/mcr/program",admin,async(req,res)=>{
+  try{
+    const cfg=await mcrConfig();
+    const q=cfg.program_stream_id?await pool.query("SELECT * FROM tv_streams WHERE id=$1 AND enabled=true",[cfg.program_stream_id]):{rowCount:0,rows:[]};
+    const row=q.rowCount?await refreshStreamStatusRow(q.rows[0]):null;
+    res.json({program:row?streamView(row,req,cfg.program_stream_id,cfg.preview_stream_id):null,program_url:(process.env.PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/program"});
+  }catch(e){res.status(500).json({error:"Could not load program output"});}
+});
+
+app.post("/api/mcr/program",admin,async(req,res)=>{
+  try{
+    const id=String(req.body.streamId||"");
+    if(id){
+      const q=await pool.query("SELECT * FROM tv_streams WHERE id=$1 AND enabled=true",[id]);
+      if(!q.rowCount)return res.status(404).json({error:"Program source not found"});
+    }
+    const q=await pool.query("UPDATE tv_mcr_config SET program_stream_id=$1,updated_at=now() WHERE id=1 RETURNING *",[id||null]);
+    const row=id?(await pool.query("SELECT * FROM tv_streams WHERE id=$1",[id])).rows[0]:null;
+    const fresh=row?await refreshStreamStatusRow(row):null;
+    res.json({ok:true,program:fresh?streamView(fresh,req,q.rows[0].program_stream_id,q.rows[0].preview_stream_id):null,program_url:(process.env.PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/program"});
+  }catch(e){console.error("Program switch failed:",e);res.status(500).json({error:"Could not change program source"});}
+});
 
 app.post("/api/mediamtx/auth",async(req,res)=>{
   const action=String(req.body.action||"");
@@ -332,6 +457,61 @@ app.post("/api/public/watch/:token/heartbeat",async(req,res)=>{
   const s=await publicStream(req.params.token);if(!s)return res.status(404).end();
   await pool.query("UPDATE tv_streams SET current_viewers=GREATEST(0,current_viewers+0),total_viewers=GREATEST(total_viewers,0),updated_at=now() WHERE id=$1",[s.id]);
   res.json({ok:true});
+});
+
+
+async function selectedProgram(){
+  const cfg=await mcrConfig();
+  if(!cfg.program_stream_id)return null;
+  const q=await pool.query("SELECT * FROM tv_streams WHERE id=$1 AND enabled=true AND shared=true",[cfg.program_stream_id]);
+  return q.rowCount?q.rows[0]:null;
+}
+app.get("/api/public/program/status",async(req,res)=>{
+  try{
+    const row=await selectedProgram();
+    if(!row)return res.json({live:false,program:null,hls_url:"/api/public/program/hls/index.m3u8"});
+    const fresh=await refreshStreamStatusRow(row);
+    res.json({live:fresh.status==="live",program:{id:fresh.id,name:fresh.name,title:fresh.title,current_viewers:Number(fresh.current_viewers||0)},hls_url:"/api/public/program/hls/index.m3u8"});
+  }catch(e){res.status(500).json({error:"Program status unavailable"});}
+});
+app.get("/api/public/program/hls/:file",async(req,res)=>{
+  try{
+    const s=await selectedProgram();
+    if(!s||!MEDIA_BASE)return res.status(404).end();
+    const target=MEDIA_BASE+"/live/"+encodeURIComponent(s.stream_key)+"/"+req.params.file;
+    const upstream=await fetch(target);
+    if(!upstream.ok)return res.status(upstream.status).end();
+    const type=upstream.headers.get("content-type")||"application/octet-stream";
+    const body=await upstream.text();
+    if(/mpegurl|vnd\\.apple\\.mpegurl/i.test(type)){
+      const base="/api/public/program/hls/";
+      const rewritten=body.split("\\n").map(line=>{
+        const t=line.trim();
+        if(!t||t.startsWith("#"))return line;
+        if(/^https?:\\/\\//i.test(t))return base+t.replace(MEDIA_BASE,"");
+        return base+t;
+      }).join("\\n");
+      res.setHeader("Content-Type",type);return res.send(rewritten);
+    }
+    res.setHeader("Content-Type",type);return res.send(body);
+  }catch(e){res.status(502).end();}
+});
+app.get("/api/public/program/hls/*asset",async(req,res)=>{
+  try{
+    const s=await selectedProgram();
+    if(!s||!MEDIA_BASE)return res.status(404).end();
+    const asset=Array.isArray(req.params.asset)?req.params.asset.join("/") : String(req.params.asset||"");
+    const target=MEDIA_BASE+"/live/"+encodeURIComponent(s.stream_key)+"/"+asset;
+    const upstream=await fetch(target);
+    if(!upstream.ok)return res.status(upstream.status).end();
+    const ab=Buffer.from(await upstream.arrayBuffer());
+    res.setHeader("Content-Type",upstream.headers.get("content-type")||"application/octet-stream");
+    res.send(ab);
+  }catch(e){res.status(502).end();}
+});
+app.get("/watch/program",async(req,res)=>{
+  const title="FBI TV • Program";
+  res.type("html").send(\`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>\${title}</title><script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script><style>body{margin:0;background:#08090b;color:#f5f5f7;font-family:Inter,system-ui,sans-serif}.wrap{max-width:1400px;margin:auto;padding:24px}.brand{color:#e8c448;font-size:12px;letter-spacing:.16em;text-transform:uppercase}.top{display:flex;justify-content:space-between;gap:12px;align-items:end}.title{font-size:28px;font-weight:900;margin-top:8px}.meta{color:#9b9ba4;font-size:12px;margin:6px 0 18px}.player{background:#000;border:1px solid #2a2a2d;border-radius:18px;overflow:hidden}.player video{width:100%;display:block;aspect-ratio:16/9;background:#000}.offline{min-height:460px;display:grid;place-items:center;color:#aaa;font-size:14px;text-align:center}.foot{color:#666;font-size:10px;text-align:center;padding:18px}</style></head><body><div class="wrap"><div class="top"><div><div class="brand">FILM BEYOND IMAGINATION • FBI TV</div><div class="title">PROGRAM</div><div class="meta" id="meta">Connecting…</div></div></div><div class="player"><video id="video" controls autoplay muted playsinline></video><div id="offline" class="offline" style="display:none">No program source is currently selected.</div></div><div class="foot">FBI TV • Official Program Output</div></div><script>const video=document.getElementById("video"),offline=document.getElementById("offline"),meta=document.getElementById("meta");let hls=null,current="";function stop(){if(hls){try{hls.destroy()}catch{}hls=null}video.pause();video.removeAttribute("src");video.load()}function start(url){stop();video.style.display="block";offline.style.display="none";if(window.Hls&&Hls.isSupported()){hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:6,maxBufferLength:30,maxMaxBufferLength:60,backBufferLength:90});hls.loadSource(url);hls.attachMedia(video);hls.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));hls.on(Hls.Events.ERROR,(_,d)=>{if(d&&d.fatal){setTimeout(()=>{if(current)start(url)},1500)}})}else{video.src=url;video.play().catch(()=>{})}}async function refresh(){try{const r=await fetch("/api/public/program/status",{cache:"no-store"}),d=await r.json();meta.textContent=d.program?(d.live?"● LIVE • "+d.program.title:"OFFLINE • "+d.program.title):"NO PROGRAM SOURCE";if(d.live){if(current!==d.program.id){current=d.program.id;start(d.hls_url)}}else{if(current){current="";stop()}video.style.display="none";offline.style.display="grid"}}catch(e){meta.textContent="PROGRAM UNAVAILABLE"}}refresh();setInterval(refresh,5000)</script></body></html>\`);
 });
 
 app.get("/live/:id",admin,async(req,res)=>{
