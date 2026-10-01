@@ -487,47 +487,32 @@ app.get("/api/public/watch/:token/status",async(req,res)=>{
   res.json({live,title:s.title,name:s.name,current_viewers:Number(s.current_viewers||0),hls_url:hlsProxyBase(req.params.token)});
 });
 
-async function proxyTvHlsStream(req,res,opts){
+async function proxyHlsStream(req,res){
   try{
-    const id=opts.id?String(opts.id):"";
-    const tokenValue=opts.token?String(opts.token):"";
-    let row=null;
-    if(id){
-      const q=await pool.query("SELECT * FROM tv_streams WHERE id=$1 AND enabled=true",[id]);
-      if(!q.rowCount)return res.status(404).end();
-      row=q.rows[0];
-    }else{
-      row=await publicStream(tokenValue);
-      if(!row)return res.status(404).end();
-    }
+    const id=String(req.params.id||"");
+    const q=await pool.query("SELECT * FROM tv_streams WHERE id=$1 AND enabled=true",[id]);
+    if(!q.rowCount)return res.status(404).end();
+    const row=q.rows[0];
 
-    let sub=String(req.path||"/").replace(/^\/+?/,"");
+    const internalBase=(process.env.STREAM_HLS_INTERNAL||"http://fbi-tv-live-ingest:8888").replace(/\/+$/,"");
+    let sub=String(req.path||"/").replace(/^\/+/, "");
+    // Accept URLs emitted by older cached players.
     if(/^index\.m3u8\/index\.m3u8$/i.test(sub))sub="index.m3u8";
     else if(/^index\.m3u8\//i.test(sub))sub=sub.slice("index.m3u8/".length);
 
-    const cookieName=opts.cookieName;
-    const proxyBase=opts.proxyBase;
+    const upstreamPath="encoded/"+String(row.stream_key||"");
+    const upstream=new URL(internalBase+"/"+upstreamPath+(sub?"/"+sub:""));
+
+    for(const [k,v] of Object.entries(req.query||{}))upstream.searchParams.append(k,String(v));
+
     const incomingCookies=String(req.headers.cookie||"");
-    const cookiePattern=new RegExp("(?:^|;\\s*)"+cookieName+"=([^;]+)");
-    const rawSession=(incomingCookies.match(cookiePattern)||[])[1]||"";
-    const proxySession=rawSession?decodeURIComponent(rawSession):"";
-
-    let selected=null;
-    let lastResponse=null;
-    for(const base of hlsBackends()){
-      const got=await fetchPlayback(base,row.stream_key,sub);
-      if(!got)continue;
-      selected=got;
-      lastResponse=got.response;
-      if(got.response.ok)break;
-      if(got.response.status!==404&&got.response.status!==401&&got.response.status!==403)break;
-    }
-    if(!selected||!lastResponse)return res.status(502).json({error:"Live stream playback unavailable."});
-
-    const sourcePath=selected.sourcePath;
-    const upstream=new URL(selected.backend+"/"+sourcePath+(sub?"/"+sub:""));
+    const proxySession=(incomingCookies.match(/(?:^|;\s*)fbi_hls_session=([^;]+)/)||[])[1]||"";
     if(proxySession&&!upstream.searchParams.has("session"))upstream.searchParams.set("session",proxySession);
+
+    // The first HLS request is intentionally made without MediaMTX's cookie.
+    // cookieCheck=1 forces MediaMTX to emit a query-based HLS session.
     if(sub==="index.m3u8"&&!upstream.searchParams.has("session"))upstream.searchParams.set("cookieCheck","1");
+
     const response=await fetch(upstream,{redirect:"follow",cache:"no-store"});
     const type=response.headers.get("content-type")||"application/octet-stream";
     let body=Buffer.from(await response.arrayBuffer());
@@ -545,37 +530,41 @@ async function proxyTvHlsStream(req,res,opts){
       }
       session=session||upstream.searchParams.get("session")||"";
 
-      const proxyUri=(raw)=>{
+      function proxyUri(raw){
         const value=String(raw||"").trim();
         if(!value)return value;
         try{
           const absolute=/^https?:\/\//i.test(value)?new URL(value):null;
           let pathname=absolute?absolute.pathname:value.split("?")[0];
-          let query=absolute?absolute.search:(value.includes("?")?"?"+value.split("?").slice(1).join("?"):"");
-          const marker="/"+sourcePath+"/";
+          let query=absolute?absolute.search:value.includes("?")?"?"+value.split("?").slice(1).join("?"):"";
+          const marker="/"+upstreamPath+"/";
           const markerIndex=pathname.indexOf(marker);
           if(markerIndex>=0)pathname=pathname.slice(markerIndex+marker.length);
-          pathname=pathname.replace(/^\/+?/,"");
+          pathname=pathname.replace(/^\/+/,"");
+          const proxyBase="/api/streams/"+encodeURIComponent(id)+"/hls/";
           const url=proxyBase+pathname;
           const sp=new URLSearchParams(query.replace(/^\?/,""));
           if(session&&!sp.has("session"))sp.set("session",session);
           const suffix=sp.toString();
           return url+(suffix?"?"+suffix:"");
-        }catch{return value}
-      };
+        }catch{
+          return value;
+        }
+      }
 
-      textBody=textBody.split(/\r?\n/).map(line=>{
+      textBody=textBody.split(/\r?\n/).map(function(line){
         const trimmed=line.trim();
         if(!trimmed)return line;
         if(/^#EXT-X-(?:MEDIA|I-FRAME-STREAM-INF|MAP):/i.test(trimmed)){
-          return line.replace(/URI="([^"]+)"/gi,(_,uri)=>'URI="'+proxyUri(uri)+'"');
+          return line.replace(/URI="([^"]+)"/gi,function(_,uri){return 'URI="'+proxyUri(uri)+'"';});
         }
         if(trimmed[0]==="#")return line;
         return proxyUri(trimmed);
       }).join("\n");
       body=Buffer.from(textBody,"utf8");
+
       if(session){
-        res.setHeader("Set-Cookie",cookieName+"="+encodeURIComponent(session)+"; Path="+proxyBase.replace(/index\.m3u8$/,"")+"; HttpOnly; Secure; SameSite=Lax; Max-Age=1800");
+        res.setHeader("Set-Cookie","fbi_hls_session="+encodeURIComponent(session)+"; Path=/api/streams/"+encodeURIComponent(id)+"/hls; HttpOnly; Secure; SameSite=Lax; Max-Age=1800");
       }
     }
 
@@ -584,20 +573,15 @@ async function proxyTvHlsStream(req,res,opts){
       .type(type)
       .send(body);
   }catch(e){
-    console.error("TV HLS proxy error:",e?.stack||e);
+    console.error("HLS proxy error:",e?.stack||e);
     res.status(502).json({error:"Live stream playback proxy unavailable."});
   }
 }
 
 app.use("/api/streams/:id/hls",admin,async(req,res)=>{
-  const id=String(req.params.id||"");
-  await proxyTvHlsStream(req,res,{id,cookieName:"fbi_hls_session",proxyBase:"/api/streams/"+encodeURIComponent(id)+"/hls/"});
+  await proxyHlsStream(req,res);
 });
 
-app.use("/api/public/watch/:token/hls",async(req,res)=>{
-  const tokenValue=String(req.params.token||"");
-  await proxyTvHlsStream(req,res,{token:tokenValue,cookieName:"fbi_public_hls_session",proxyBase:"/api/public/watch/"+encodeURIComponent(tokenValue)+"/hls/"});
-});
 
 app.post("/api/public/watch/:token/heartbeat",async(req,res)=>{
   const s=await publicStream(req.params.token);if(!s)return res.status(404).end();
