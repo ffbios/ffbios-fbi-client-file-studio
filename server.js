@@ -217,6 +217,18 @@ function choosePartSize(size){
   while(Math.ceil(size/part)>MAX_PARTS) part*=2;
   return part;
 }
+async function headObjectWithRetry(input,attempts=8,baseDelay=400){
+  var last=null;
+  for(var i=0;i<attempts;i++){
+    try{
+      return await s3.send(new HeadObjectCommand(input));
+    }catch(e){
+      last=e;
+      if(i<attempts-1)await new Promise(function(resolve){setTimeout(resolve,baseDelay*Math.pow(1.5,i))});
+    }
+  }
+  throw last;
+}
 function safeRelativePath(rel,name){
   var raw=String(rel||name||"").replace(/\\/g,"/");
   var parts=raw.split("/").filter(Boolean).filter(function(x){return x!=="."&&x!=="..";}).map(function(x){
@@ -1101,19 +1113,49 @@ app.post("/api/portal/uploads/:id/complete",portalUser,async(req,res)=>{
   const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
   if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
   const u=q.rows[0];
+
+  if(u.status==="completed"){
+    const done=await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key]);
+    return res.json({ok:true,file:done.rows[0]||null,alreadyCompleted:true});
+  }
+
+  const alreadyStored=await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key]);
+  if(alreadyStored.rowCount){
+    await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
+    await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[u.project_id]);
+    return res.json({ok:true,file:alreadyStored.rows[0],alreadyCompleted:true});
+  }
+
   if(u.mode==="multipart"){
    const parts=(Array.isArray(req.body.parts)?req.body.parts:[]).map(function(p){return {ETag:String(p.etag||p.ETag||"").replace(/^"+|"+$/g,""),PartNumber:Number(p.partNumber||p.PartNumber)}}).filter(function(p){return p.ETag&&Number.isInteger(p.PartNumber)}).sort(function(a,b){return a.PartNumber-b.PartNumber});
    if(!parts.length)return res.status(400).json({error:"Multipart upload has no completed parts."});
-   await s3.send(new CompleteMultipartUploadCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,MultipartUpload:{Parts:parts}}));
-  }else await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:u.storage_key}));
-  const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:u.storage_key})),actualSize=Number(head.ContentLength||0);
-  if(actualSize!==Number(u.size_bytes))return res.status(400).json({error:"Uploaded size mismatch."});
-  const fileId=uid();
-  const ins=await pool.query("INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *",[fileId,u.project_id,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,actualSize,u.relative_path,u.content_fingerprint||null]);
+
+   let objectReady=false;
+   try{
+    await headObjectWithRetry({Bucket:bucket(),Key:u.storage_key},2,300);
+    objectReady=true;
+   }catch{}
+
+   if(!objectReady){
+    await s3.send(new CompleteMultipartUploadCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,MultipartUpload:{Parts:parts}}));
+   }
+  }
+
+  const head=await headObjectWithRetry({Bucket:bucket(),Key:u.storage_key},8,400);
+  const actualSize=Number(head.ContentLength||0);
+  if(actualSize!==Number(u.size_bytes))return res.status(400).json({error:"Uploaded size mismatch. The transfer is complete but the stored size is different; please resume and complete again."});
+
+  const ins=await pool.query(
+    "INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING *",
+    [uid(),u.project_id,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,actualSize,u.relative_path,u.content_fingerprint||null]
+  );
+  const fileRow=ins.rows[0]||(await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key])).rows[0];
+  if(!fileRow)throw new Error("Stored object is ready but the file record could not be created.");
+
   await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
   await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[u.project_id]);
-  res.json({ok:true,file:ins.rows[0]});
- }catch(e){console.error(e);res.status(500).json({error:"Could not complete upload. The upload can be resumed."})}
+  res.json({ok:true,file:fileRow});
+ }catch(e){console.error("Portal upload finalization failed:",e);res.status(500).json({error:"Upload reached storage but could not be registered in the project. Please resume the upload; it will safely continue from the stored data."})}
 });
 app.post("/api/portal/uploads/:id/abort",portalUser,async(req,res)=>{
  try{
@@ -1257,10 +1299,19 @@ app.post("/api/uploads/:id/complete",admin,async(req,res)=>{
     var q=await pool.query("SELECT * FROM upload_sessions WHERE id=$1",[req.params.id]);
     if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
     var u=q.rows[0];
+
     if(u.status==="completed"){
-      var done=await pool.query("SELECT * FROM files WHERE storage_path=$1",[u.storage_key]);
+      var done=await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key]);
       return res.json({ok:true,file:done.rows[0]||null,alreadyCompleted:true});
     }
+
+    var alreadyStored=await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key]);
+    if(alreadyStored.rowCount){
+      await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
+      await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[u.project_id]);
+      return res.json({ok:true,file:alreadyStored.rows[0],alreadyCompleted:true});
+    }
+
     if(u.mode==="multipart"){
       var incoming=Array.isArray(req.body.parts)?req.body.parts:[];
       var parts=incoming.map(function(p){
@@ -1270,31 +1321,40 @@ app.post("/api/uploads/:id/complete",admin,async(req,res)=>{
       if(!parts.length)return res.status(400).json({error:"Multipart upload has no completed parts."});
       var seen=new Set(parts.map(function(p){return p.PartNumber;}));
       if(seen.size!==parts.length)return res.status(400).json({error:"Duplicate multipart part."});
-      await s3.send(new CompleteMultipartUploadCommand({
-        Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,
-        MultipartUpload:{Parts:parts}
-      }));
-    }else{
-      await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:u.storage_key}));
+
+      var objectReady=false;
+      try{
+        await headObjectWithRetry({Bucket:bucket(),Key:u.storage_key},2,300);
+        objectReady=true;
+      }catch{}
+
+      if(!objectReady){
+        await s3.send(new CompleteMultipartUploadCommand({
+          Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,
+          MultipartUpload:{Parts:parts}
+        }));
+      }
     }
-    var head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:u.storage_key}));
+
+    var head=await headObjectWithRetry({Bucket:bucket(),Key:u.storage_key},8,400);
     var actualSize=Number(head.ContentLength||0);
     if(actualSize!==Number(u.size_bytes)){
-      return res.status(400).json({error:"Uploaded size mismatch. Resume the upload and complete it again."});
+      return res.status(400).json({error:"Uploaded size mismatch. The transfer is complete but the stored size is different; please resume and complete again."});
     }
-    var fileId=uid();
+
     var ins=await pool.query(
-      "INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING RETURNING *",
-      [fileId,u.project_id,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,actualSize,u.relative_path,u.content_fingerprint||null]
+      "INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING *",
+      [uid(),u.project_id,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,actualSize,u.relative_path,u.content_fingerprint||null]
     );
     var fileRow=ins.rows[0];
-    if(!fileRow)fileRow=(await pool.query("SELECT * FROM files WHERE storage_path=$1",[u.storage_key])).rows[0];
+    if(!fileRow)fileRow=(await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key])).rows[0];
+    if(!fileRow)throw new Error("Stored object is ready but the file record could not be created.");
+
     await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
     await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[u.project_id]);
     res.json({ok:true,file:fileRow});
-  }catch(e){console.error(e);res.status(500).json({error:"Could not complete upload. The upload can be resumed."})}
+  }catch(e){console.error("Admin upload finalization failed:",e);res.status(500).json({error:"Upload reached storage but could not be registered in the project. Please resume the upload; it will safely continue from the stored data."})}
 });
-
 app.post("/api/uploads/:id/abort",admin,async(req,res)=>{
   try{
     var q=await pool.query("SELECT * FROM upload_sessions WHERE id=$1",[req.params.id]);
