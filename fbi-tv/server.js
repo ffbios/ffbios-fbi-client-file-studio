@@ -14,6 +14,7 @@ const MEDIA_BASE=(process.env.MEDIA_BASE_URL||"").replace(/\/+$/,"");
 const RTMP_HOST=process.env.RTMP_HOST||"";
 const RTMP_PORT=Number(process.env.RTMP_PORT||1935);
 const pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:false});
+const TV_PUBLIC_INGEST_HLS=(process.env.STREAM_HLS_PUBLIC_BASE||"https://fbi-tv-live-ingest-production.up.railway.app").replace(/\/+$/,"");
 
 function uid(){return crypto.randomUUID()}
 function token(n=24){return crypto.randomBytes(n).toString("base64url")}
@@ -298,7 +299,9 @@ async function refreshStreamStatusRow(row){
 function streamView(row, req, programId, previewId){
   const base=process.env.PUBLIC_BASE_URL||req.protocol+"://"+req.get("host");
   const publicHls="/api/public/watch/"+encodeURIComponent(row.viewer_token)+"/hls/index.m3u8";
-  const adminHls="/api/streams/"+encodeURIComponent(row.id)+"/hls/index.m3u8";
+  // MCR monitors consume the already-normalized HLS output directly from the exact
+  // Client File Studio-compatible ingest engine. Public viewers remain proxied.
+  const adminHls=TV_PUBLIC_INGEST_HLS+"/encoded/"+encodeURIComponent(row.stream_key)+"/index.m3u8";
   return {
     id:row.id,name:row.name,title:row.title,description:row.description,stream_key:row.stream_key,
     enabled:row.enabled,shared:row.shared,record_enabled:row.record_enabled,status:row.status,
