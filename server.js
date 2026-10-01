@@ -1132,6 +1132,23 @@ app.use("/api/public/stream/:token/hls",async(req,res)=>{
   await proxyPublicHlsStream(req,res);
 });
 
+app.get("/api/public/stream/:token/replay",async(req,res)=>{
+  try{
+    const r=await publicStreamByToken(req.params.token);
+    if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
+    const stream=r.rows[0];
+    const q=await pool.query("SELECT id,filename,status,size_bytes,started_at,ended_at,created_at,storage_key FROM stream_recordings WHERE stream_id=$1 ORDER BY created_at DESC LIMIT 1",[stream.id]);
+    const recording=q.rows[0];
+    if(!recording)return res.json({available:false,status:"none"});
+    if(recording.status!=="completed"||!s3Ready())return res.json({available:false,status:recording.status});
+    const play_url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:recording.storage_key,ResponseContentType:"video/mp4",ResponseContentDisposition:"inline"}),{expiresIn:3600});
+    res.json({available:true,status:"completed",play_url,recording:{id:recording.id,filename:recording.filename,size_bytes:recording.size_bytes,started_at:recording.started_at,ended_at:recording.ended_at}});
+  }catch(e){
+    console.error("Public replay load failed:",e);
+    res.status(500).json({error:"Could not load the stream replay."});
+  }
+});
+
 app.get("/api/streams/:id/recordings",admin,async(req,res)=>{
   try{
     const q=await pool.query("SELECT * FROM stream_recordings WHERE stream_id=$1 ORDER BY created_at DESC LIMIT 50",[req.params.id]);
