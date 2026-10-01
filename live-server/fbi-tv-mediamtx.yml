@@ -32,7 +32,9 @@ paths:
   # Bridge the existing FBI TV public RTMP input into this exact
   # proven normalization engine without changing the public RTMP endpoint.
   ~^pull/live/(.+)$:
-    source: rtsp://fbi-tv-media:8554/live/$G1
+    # Pull the existing FBI TV RTMP input directly. This avoids the RTP/UDP
+    # packet-loss seen when the bridge used RTSP.
+    source: rtmp://fbi-tv-media:1935/live/$G1
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     runOnReady: >
