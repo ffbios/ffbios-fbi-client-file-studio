@@ -785,12 +785,26 @@ function renderProjectsPage(){
 }
 let selectedStreamId=null;
 let streamPoller=null;
+let renderedStreamSignature="";
 
 async function loadStreams(){
-  const d=await api('/api/streams'); 
+  const d=await api('/api/streams');
   window.__streams=d.streams||[];
   renderStreamsList();
-  renderSelectedStream();
+
+  const s=selectedStream();
+  const signature=s ? [s.id,s.status,s.viewer_url||""] .join("|") : "";
+  // The main-portal poller runs every 5 seconds. Do not rebuild the player
+  // while the same live stream is still active, because replacing the iframe
+  // interrupts playback. Re-render only when the selected stream changes
+  // between offline/live or its playback URL changes.
+  if(signature!==renderedStreamSignature){
+    renderedStreamSignature=signature;
+    renderSelectedStream();
+  } else if(s){
+    const viewers=document.querySelector('#streamDetailViewers');
+    if(viewers)viewers.textContent=Number(s.current_viewers||0)+" watching";
+  }
 }
 function streamStatusBadge(s){
   return '<span class="livebadge '+(s.status==='live'?'live':'')+'">'+(s.status==='live'?'● LIVE':'OFFLINE')+'</span>';
@@ -817,7 +831,7 @@ function renderSelectedStream(){
   const watch=esc(s.viewer_url||''),rtmp=esc(s.rtmp_server||''),key=esc(s.stream_key||'');
   const player=s.status==='live'&&s.viewer_url?'<iframe src="'+esc(s.viewer_url)+'" title="FBI Live Preview" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>':'<div class="offline"><div><b>OFFLINE</b><br><span>Start publishing from OBS, vMix, Streamlabs or a mobile RTMP app. The preview will appear here automatically.</span></div></div>';
   pane.innerHTML=`
-    <div class="ph"><div><h2>${esc(s.name)}</h2><p>${esc(s.title||'')} • ${s.status==='live'?'<span style="color:var(--green)">Live now</span>':'Waiting for encoder'}</p></div><div class="pillline">${streamStatusBadge(s)} <span class="onoff">${Number(s.current_viewers||0)} watching</span></div></div>
+    <div class="ph"><div><h2>${esc(s.name)}</h2><p>${esc(s.title||'')} • ${s.status==='live'?'<span style="color:var(--green)">Live now</span>':'Waiting for encoder'}</p></div><div class="pillline">${streamStatusBadge(s)} <span class="onoff" id="streamDetailViewers">${Number(s.current_viewers||0)} watching</span></div></div>
     <div class="body">
       <div class="streamplayer">${player}</div>
       <div style="height:13px"></div>
