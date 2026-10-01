@@ -1,4 +1,4 @@
-const CACHE_NAME="fbi-client-file-studio-v10";
+const CACHE_NAME="fbi-client-file-studio-v11";
 const APP_SHELL=["/","/manifest.webmanifest","/pwa-icon.svg","/official-logo.png"];
 
 self.addEventListener("install",event=>{
