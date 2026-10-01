@@ -5,7 +5,6 @@ const crypto=require("crypto");
 const fs=require("fs");
 const fsp=fs.promises;
 const path=require("path");
-const os=require("os");
 const {spawn}=require("child_process");
 let ffmpegPath="";try{ffmpegPath=require("ffmpeg-static")||""}catch(e){console.warn("ffmpeg-static is unavailable; video thumbnails will use fallback cards.")}
 const {S3Client,PutObjectCommand,GetObjectCommand,DeleteObjectCommand,DeleteObjectsCommand,HeadObjectCommand,CreateMultipartUploadCommand,UploadPartCommand,CompleteMultipartUploadCommand,AbortMultipartUploadCommand,ListPartsCommand,PutBucketCorsCommand}=require("@aws-sdk/client-s3");
@@ -1129,127 +1128,6 @@ async function proxyPublicHlsStream(req,res){
   }catch(e){console.error("Public HLS proxy error:",e?.stack||e);res.status(502).json({error:"Live stream playback unavailable."});}
 }
 
-
-const STREAM_QUALITY_LADDER_ENABLED=String(process.env.STREAM_QUALITY_LADDER||"true").toLowerCase()!=="false";
-const qualityTranscoders=new Map();
-function qualityRoot(token){
-  const safe=crypto.createHash("sha1").update(String(token||"")).digest("hex");
-  return path.join(os.tmpdir(),"fbi-live-quality",safe);
-}
-function qualityInputUrl(row){
-  const base=(process.env.STREAM_RTMP_INTERNAL||"rtmp://fbi-live-ingest:1935").replace(/\/+$/,"");
-  return base+"/encoded/"+encodeURIComponent(String(row.stream_key||""));
-}
-function qualityTranscoderAlive(token){
-  const state=qualityTranscoders.get(String(token||""));
-  return state&&state.child&&!state.child.killed;
-}
-function stopQualityTranscoder(token){
-  const key=String(token||""),state=qualityTranscoders.get(key);
-  if(!state)return;
-  try{state.child.kill("SIGTERM")}catch{}
-  qualityTranscoders.delete(key);
-}
-function startQualityTranscoder(token,row){
-  const key=String(token||"");
-  if(!STREAM_QUALITY_LADDER_ENABLED)return null;
-  if(!ffmpegPath)throw new Error("FFmpeg is not available for the quality ladder.");
-  const existing=qualityTranscoders.get(key);
-  if(existing&&existing.child&&!existing.child.killed)return existing;
-  const root=qualityRoot(key);
-  fs.mkdirSync(path.join(root,"1080p"),{recursive:true});
-  fs.mkdirSync(path.join(root,"720p"),{recursive:true});
-  fs.mkdirSync(path.join(root,"480p"),{recursive:true});
-  fs.mkdirSync(path.join(root,"360p"),{recursive:true});
-  const input=qualityInputUrl(row);
-  const filter="[0:v]split=4[v0][v1][v2][v3];"+
-    "[v0]scale=1920:1080:force_original_aspect_ratio=decrease:force_divisible_by=2[v0o];"+
-    "[v1]scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2[v1o];"+
-    "[v2]scale=852:480:force_original_aspect_ratio=decrease:force_divisible_by=2[v2o];"+
-    "[v3]scale=640:360:force_original_aspect_ratio=decrease:force_divisible_by=2[v3o]";
-  const args=[
-    "-hide_banner","-loglevel","warning","-i",input,
-    "-filter_complex",filter,
-    "-map","[v0o]","-map","0:a:0",
-    "-map","[v1o]","-map","0:a:0",
-    "-map","[v2o]","-map","0:a:0",
-    "-map","[v3o]","-map","0:a:0",
-    "-c:v","libx264","-preset","veryfast","-tune","zerolatency",
-    "-pix_fmt","yuv420p","-g","60","-keyint_min","60","-sc_threshold","0",
-    "-b:v:0","5000k","-maxrate:v:0","5350k","-bufsize:v:0","7500k",
-    "-b:v:1","3000k","-maxrate:v:1","3300k","-bufsize:v:1","4500k",
-    "-b:v:2","1500k","-maxrate:v:2","1650k","-bufsize:v:2","2250k",
-    "-b:v:3","700k","-maxrate:v:3","800k","-bufsize:v:3","1050k",
-    "-c:a","aac","-b:a","128k","-ar","48000","-ac","2",
-    "-f","hls","-hls_time","2","-hls_list_size","6",
-    "-hls_flags","delete_segments+independent_segments",
-    "-master_pl_name","master.m3u8",
-    "-var_stream_map","v:0,a:0,name:1080p v:1,a:1,name:720p v:2,a:2,name:480p v:3,a:3,name:360p",
-    "-hls_segment_filename",path.join(root,"%v","seg%06d.ts"),
-    path.join(root,"%v","index.m3u8")
-  ];
-  const child=spawn(ffmpegPath,args,{stdio:["ignore","pipe","pipe"]});
-  const state={child,root,startedAt:Date.now(),stderr:""};
-  qualityTranscoders.set(key,state);
-  child.stderr.on("data",chunk=>{
-    state.stderr=(state.stderr+String(chunk||"")).slice(-6000);
-  });
-  child.on("error",err=>{
-    state.stderr=(state.stderr+"\n"+String(err?.message||err)).slice(-6000);
-  });
-  child.on("exit",(code,signal)=>{
-    const current=qualityTranscoders.get(key);
-    if(current===state)qualityTranscoders.delete(key);
-    console.log("FBI quality transcoder stopped",key,{code,signal,stderr:state.stderr.slice(-1200)});
-    setTimeout(()=>{try{fs.rmSync(root,{recursive:true,force:true})}catch{}},1500);
-  });
-  console.log("FBI quality transcoder started",key,input);
-  return state;
-}
-async function waitForQualityMaster(token,row,timeoutMs=10000){
-  const root=qualityRoot(token);
-  const master=path.join(root,"master.m3u8");
-  startQualityTranscoder(token,row);
-  const deadline=Date.now()+timeoutMs;
-  while(Date.now()<deadline){
-    try{
-      const st=fs.statSync(master);
-      if(st.size>80)return master;
-    }catch{}
-    const state=qualityTranscoders.get(String(token||""));
-    if(!state||!state.child||state.child.killed)break;
-    await new Promise(resolve=>setTimeout(resolve,250));
-  }
-  const state=qualityTranscoders.get(String(token||""));
-  throw new Error(state?.stderr?.slice(-900)||"Quality ladder is still starting. Please retry.");
-}
-app.use("/api/public/stream/:token/quality",async(req,res)=>{
-  setPublicHlsCors(req,res);
-  try{
-    const token=String(req.params.token||"");
-    const lookup=await publicStreamByToken(token);
-    if(!lookup.rowCount)return res.status(404).end();
-    const row=lookup.rows[0];
-    const rel=decodeURIComponent(String(req.path||"/").replace(/^\/+/,""));
-    if(!rel||rel.includes("\0")||rel.split("/").some(part=>part===".."||part==="."))return res.status(400).end();
-    const root=qualityRoot(token);
-    if(rel==="master.m3u8")await waitForQualityMaster(token,row);
-    else if(!qualityTranscoderAlive(token))startQualityTranscoder(token,row);
-    const file=path.resolve(root,rel);
-    if(file!==root&&!file.startsWith(root+path.sep))return res.status(400).end();
-    try{await fsp.access(file,fs.constants.R_OK)}catch{return res.status(404).end();}
-    const isPlaylist=/\.m3u8$/i.test(file);
-    const isSegment=/\.ts$/i.test(file);
-    res.set("Cache-Control",isPlaylist?"no-store":"public, max-age=2, s-maxage=6, stale-while-revalidate=4");
-    res.set("CDN-Cache-Control",isPlaylist?"no-store":"public, max-age=6, stale-while-revalidate=4");
-    res.type(isPlaylist?"application/vnd.apple.mpegurl":isSegment?"video/mp2t":"application/octet-stream");
-    return res.sendFile(file);
-  }catch(e){
-    console.error("Quality ladder error:",e?.stack||e);
-    res.status(503).json({error:"Resolution ladder is starting. The original live feed remains available."});
-  }
-});
-
 app.use("/api/public/stream/:token/hls",async(req,res)=>{
   await proxyPublicHlsStream(req,res);
 });
@@ -1411,13 +1289,13 @@ app.get("/watch/:token",async(req,res)=>{
   try{
     const r=await publicStreamByToken(req.params.token);
     if(!r.rowCount)return res.status(404).send("Stream link is invalid or disabled.");
-    const s=r.rows[0],viewerBase=String(process.env.PUBLIC_HLS_BASE_URL||"").replace(/\/+$/,"")||req.protocol+"://"+req.get("host"),hls=viewerBase+"/api/public/stream/"+encodeURIComponent(req.params.token)+"/hls/index.m3u8",qualityHls=viewerBase+"/api/public/stream/"+encodeURIComponent(req.params.token)+"/quality/master.m3u8";
+    const s=r.rows[0],viewerBase=String(process.env.PUBLIC_HLS_BASE_URL||"").replace(/\/+$/,"")||req.protocol+"://"+req.get("host"),hls=viewerBase+"/api/public/stream/"+encodeURIComponent(req.params.token)+"/hls/index.m3u8";
     const title=escHtml(s.title||s.name),tokenJs=JSON.stringify(req.params.token);
     res.type("html").send(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} • FBI Live</title><script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script><script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1.29.1/index.js"></script><style>
-body{margin:0;background:#09090a;color:#f6f6f7;font-family:Inter,system-ui,sans-serif;min-height:100vh}.wrap{max-width:1380px;margin:auto;padding:18px}.head{padding:14px 5px 18px}.brand{font-size:9px;letter-spacing:.12em;color:#8f8f98;text-transform:uppercase}.head h1{font-size:26px;margin:7px 0 4px}.head p{color:#9b9ba4;margin:0;font-size:11px}.badge{display:inline-block;padding:5px 9px;border-radius:999px;border:1px solid #29292e;font-size:9px}.live{color:#4ade80;border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.05)}.error{color:#fb7185}.layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}.card{background:#101012;border:1px solid #29292e;border-radius:18px;box-shadow:0 20px 70px rgba(0,0,0,.25)}.player{overflow:hidden;position:relative}.player video{display:block;width:100%;aspect-ratio:16/9;background:#000}.playerbar{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:10px 12px;border-top:1px solid #29292e;background:#111114}.nowq{font-size:9px;color:#aaaab2}.quality-wrap{display:flex;align-items:center;gap:6px;color:#8f8f98;font-size:9px}.quality-wrap select{background:#0b0b0d;color:#f2f2f3;border:1px solid #303036;border-radius:8px;padding:7px 9px;font:inherit;font-size:9px}.quality-wrap select:disabled{opacity:.55}.comments{display:flex;flex-direction:column;height:min(620px,calc(100vh - 170px));min-height:420px;overflow:hidden}.comments-head{padding:14px;border-bottom:1px solid #29292e;display:flex;align-items:center;justify-content:space-between}.comments-head h2{margin:0;font-size:13px}.comment-list{padding:10px 12px;overflow-y:auto;overflow-x:hidden;flex:1;min-height:0;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}.comment{padding:9px 0;border-bottom:1px solid #222226}.comment:last-child{border-bottom:0}.comment b{display:block;font-size:9px}.comment span{display:block;color:#9b9ba4;font-size:10px;line-height:1.45;margin-top:3px;word-break:break-word}.comment time{display:block;color:#66666e;font-size:7px;margin-top:4px}.comment-form{padding:12px;border-top:1px solid #29292e;display:grid;gap:7px;flex:none;background:#101012}.comment-form input,.comment-form textarea{width:100%;box-sizing:border-box;background:#0b0b0d;color:#f5f5f6;border:1px solid #303036;border-radius:9px;padding:9px;font:inherit;font-size:9px}.comment-form textarea{min-height:66px;resize:vertical}.comment-form button{border:0;border-radius:9px;padding:10px;background:#e8c448;color:#171719;font-weight:800}.comment-tools{display:flex;gap:7px;align-items:center}.comment-tools .emoji-open{width:40px;flex:0 0 40px;padding:8px;background:#19191c;color:#f1c84a;border:1px solid #35353b;border-radius:9px}.emoji-popover{position:static}.emoji-popover emoji-picker{position:fixed;left:50%;right:auto;bottom:78px;transform:translateX(-50%);width:min(92vw,340px);height:min(52vh,380px);display:none;z-index:9999;--background:#111114;--border-color:#34343a;--input-border-color:#34343a;--button-hover-background:#25252a;border:1px solid #34343a;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.55)}.emoji-popover.open emoji-picker{display:block}.statusline{font-size:9px;color:#8f8f98;margin-top:7px;min-height:13px}.foot{text-align:center;color:#66666e;font-size:9px;padding:18px}.offline{display:grid;place-items:center;min-height:360px;color:#9b9ba4;text-align:center;padding:20px}
+body{margin:0;background:#09090a;color:#f6f6f7;font-family:Inter,system-ui,sans-serif;min-height:100vh}.wrap{max-width:1380px;margin:auto;padding:18px}.head{padding:14px 5px 18px}.brand{font-size:9px;letter-spacing:.12em;color:#8f8f98;text-transform:uppercase}.head h1{font-size:26px;margin:7px 0 4px}.head p{color:#9b9ba4;margin:0;font-size:11px}.badge{display:inline-block;padding:5px 9px;border-radius:999px;border:1px solid #29292e;font-size:9px}.live{color:#4ade80;border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.05)}.error{color:#fb7185}.layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}.card{background:#101012;border:1px solid #29292e;border-radius:18px;box-shadow:0 20px 70px rgba(0,0,0,.25)}.player{overflow:hidden;position:relative}.player video{display:block;width:100%;aspect-ratio:16/9;background:#000}.playerbar{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:10px 12px;border-top:1px solid #29292e;background:#111114}.nowq{font-size:9px;color:#aaaab2}.comments{display:flex;flex-direction:column;height:min(620px,calc(100vh - 170px));min-height:420px;overflow:hidden}.comments-head{padding:14px;border-bottom:1px solid #29292e;display:flex;align-items:center;justify-content:space-between}.comments-head h2{margin:0;font-size:13px}.comment-list{padding:10px 12px;overflow-y:auto;overflow-x:hidden;flex:1;min-height:0;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}.comment{padding:9px 0;border-bottom:1px solid #222226}.comment:last-child{border-bottom:0}.comment b{display:block;font-size:9px}.comment span{display:block;color:#9b9ba4;font-size:10px;line-height:1.45;margin-top:3px;word-break:break-word}.comment time{display:block;color:#66666e;font-size:7px;margin-top:4px}.comment-form{padding:12px;border-top:1px solid #29292e;display:grid;gap:7px;flex:none;background:#101012}.comment-form input,.comment-form textarea{width:100%;box-sizing:border-box;background:#0b0b0d;color:#f5f5f6;border:1px solid #303036;border-radius:9px;padding:9px;font:inherit;font-size:9px}.comment-form textarea{min-height:66px;resize:vertical}.comment-form button{border:0;border-radius:9px;padding:10px;background:#e8c448;color:#171719;font-weight:800}.comment-tools{display:flex;gap:7px;align-items:center}.comment-tools .emoji-open{width:40px;flex:0 0 40px;padding:8px;background:#19191c;color:#f1c84a;border:1px solid #35353b;border-radius:9px}.emoji-popover{position:static}.emoji-popover emoji-picker{position:fixed;left:50%;right:auto;bottom:78px;transform:translateX(-50%);width:min(92vw,340px);height:min(52vh,380px);display:none;z-index:9999;--background:#111114;--border-color:#34343a;--input-border-color:#34343a;--button-hover-background:#25252a;border:1px solid #34343a;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.55)}.emoji-popover.open emoji-picker{display:block}.statusline{font-size:9px;color:#8f8f98;margin-top:7px;min-height:13px}.foot{text-align:center;color:#66666e;font-size:9px;padding:18px}.offline{display:grid;place-items:center;min-height:360px;color:#9b9ba4;text-align:center;padding:20px}
 @media(max-width:950px){.layout{grid-template-columns:1fr}.comments{height:min(560px,62vh);min-height:420px}}@media(max-width:480px){.wrap{padding:10px}.head h1{font-size:21px}.comments{height:520px;min-height:0}.comment-form textarea{min-height:58px}.emoji-popover emoji-picker{bottom:72px;width:min(94vw,340px);height:min(56vh,360px)}}
-</style></head><body><div class="wrap"><div class="head"><div class="brand">FILM BEYOND IMAGINATION • FBI Live</div><div style="margin-top:8px"><span class="badge" id="status">Checking live status…</span></div><h1>${title}</h1><p id="viewers">FBI Live Stream</p></div><div class="layout"><section><div class="card player"><video id="video" controls playsinline autoplay muted></video><div id="offline" class="offline" style="display:none"></div><div class="playerbar"><span class="nowq" id="streamState">Connecting…</span><label class="quality-wrap">Quality <select id="qualitySelect" disabled><option value="-1">Auto</option></select></label></div></div></section><aside class="card comments"><div class="comments-head"><h2>Live Comments</h2><span class="badge" id="commentCount">0</span></div><div id="commentList" class="comment-list"><div style="color:#777;font-size:9px;padding:10px 0">No comments yet.</div></div><form id="commentForm" class="comment-form"><input id="commentName" maxlength="60" placeholder="Your name"><textarea id="commentText" maxlength="500" placeholder="Write a comment…"></textarea><div class="comment-tools"><div class="emoji-popover" id="emojiPopover"><button type="button" class="emoji-open" id="emojiOpen" title="Add emoji">😊</button><emoji-picker id="emojiPicker" locale="en"></emoji-picker></div><button type="submit">Post Comment</button></div><div class="statusline" id="commentStatus"></div></form></aside></div><div class="foot">FBI Live • Live broadcast and viewer comments</div></div><script>
-const token=${tokenJs},hlsUrl=${JSON.stringify(hls)},qualityHlsUrl=${JSON.stringify(qualityHls)};const video=document.getElementById("video"),qualitySelect=document.getElementById("qualitySelect"),emojiOpen=document.getElementById("emojiOpen"),emojiPopover=document.getElementById("emojiPopover"),emojiPicker=document.getElementById("emojiPicker"),offline=document.getElementById("offline"),statusEl=document.getElementById("status"),viewers=document.getElementById("viewers"),streamState=document.getElementById("streamState"),commentList=document.getElementById("commentList"),commentCount=document.getElementById("commentCount"),commentForm=document.getElementById("commentForm"),commentName=document.getElementById("commentName"),commentText=document.getElementById("commentText"),commentStatus=document.getElementById("commentStatus");const sessionKey=crypto.randomUUID();let player=null,live=false,qualityMode=true,desiredQuality=-1,nativeQualityUrls={};
+</style></head><body><div class="wrap"><div class="head"><div class="brand">FILM BEYOND IMAGINATION • FBI Live</div><div style="margin-top:8px"><span class="badge" id="status">Checking live status…</span></div><h1>${title}</h1><p id="viewers">FBI Live Stream</p></div><div class="layout"><section><div class="card player"><video id="video" controls playsinline autoplay muted></video><div id="offline" class="offline" style="display:none"></div><div class="playerbar"><span class="nowq" id="streamState">Connecting…</span></div></div></section><aside class="card comments"><div class="comments-head"><h2>Live Comments</h2><span class="badge" id="commentCount">0</span></div><div id="commentList" class="comment-list"><div style="color:#777;font-size:9px;padding:10px 0">No comments yet.</div></div><form id="commentForm" class="comment-form"><input id="commentName" maxlength="60" placeholder="Your name"><textarea id="commentText" maxlength="500" placeholder="Write a comment…"></textarea><div class="comment-tools"><div class="emoji-popover" id="emojiPopover"><button type="button" class="emoji-open" id="emojiOpen" title="Add emoji">😊</button><emoji-picker id="emojiPicker" locale="en"></emoji-picker></div><button type="submit">Post Comment</button></div><div class="statusline" id="commentStatus"></div></form></aside></div><div class="foot">FBI Live • Live broadcast and viewer comments</div></div><script>
+const token=${tokenJs},hlsUrl=${JSON.stringify(hls)};const video=document.getElementById("video"),emojiOpen=document.getElementById("emojiOpen"),emojiPopover=document.getElementById("emojiPopover"),emojiPicker=document.getElementById("emojiPicker"),offline=document.getElementById("offline"),statusEl=document.getElementById("status"),viewers=document.getElementById("viewers"),streamState=document.getElementById("streamState"),commentList=document.getElementById("commentList"),commentCount=document.getElementById("commentCount"),commentForm=document.getElementById("commentForm"),commentName=document.getElementById("commentName"),commentText=document.getElementById("commentText"),commentStatus=document.getElementById("commentStatus");const sessionKey=crypto.randomUUID();let player=null,live=false;
 try{commentName.value=localStorage.getItem("fbiLiveCommentName")||""}catch{}
 if(emojiOpen&&emojiPicker){
   emojiOpen.onclick=function(e){e.stopPropagation();emojiPopover.classList.toggle("open")};
@@ -1436,100 +1314,8 @@ if(emojiOpen&&emojiPicker){
     if(emojiPopover&&!emojiPopover.contains(e.target))emojiPopover.classList.remove("open");
   });
 }
-function setQualityOptions(levels){
-  if(!qualitySelect)return;
-  const current=qualitySelect.value;
-  qualitySelect.innerHTML='<option value="-1">Auto</option>';
-  const items=(levels||[]).map((level,index)=>({index,height:Number(level.height||0),width:Number(level.width||0),bitrate:Number(level.bitrate||0)}))
-    .filter(x=>x.height>0).sort((a,b)=>b.height-a.height);
-  items.forEach(x=>{
-    const o=document.createElement("option");
-    o.value=String(x.index);
-    o.textContent=x.height+"p";
-    qualitySelect.appendChild(o);
-  });
-  if(current&&Array.from(qualitySelect.options).some(o=>o.value===current))qualitySelect.value=current;
-  qualitySelect.disabled=false;
-}
-function setNativeQualityOptions(){
-  if(!qualitySelect)return;
-  qualitySelect.innerHTML='<option value="-1">Auto</option>';
-  ["1080p","720p","480p","360p"].forEach(label=>{
-    const o=document.createElement("option");o.value=label;o.textContent=label;qualitySelect.appendChild(o);
-  });
-  qualitySelect.disabled=false;
-}
-function nativeQualityUrl(value){
-  if(value==="1080p"||value==="720p"||value==="480p"||value==="360p")return qualityHlsUrl.replace(/\/master\.m3u8$/,"/"+value+"/index.m3u8");
-  return qualityHlsUrl;
-}
-function switchNativeQuality(value){
-  const wasPlaying=!video.paused;
-  const previousTime=Number.isFinite(video.currentTime)?video.currentTime:0;
-  const url=nativeQualityUrl(value);
-  video.src=url;
-  const once=()=>{
-    video.removeEventListener("loadedmetadata",once);
-    try{if(previousTime>0&&Number.isFinite(video.duration)&&previousTime<video.duration)video.currentTime=previousTime}catch{}
-    if(wasPlaying)video.play().catch(()=>{});
-  };
-  video.addEventListener("loadedmetadata",once);
-}
-function applyQualitySelection(value){
-  desiredQuality=value;
-  if(player&&qualityMode&&player.levels&&player.levels.length){
-    if(value==="-1"){player.currentLevel=-1;streamState.textContent="Auto quality";return}
-    const idx=Number(value);
-    if(Number.isInteger(idx)&&idx>=0&&idx<player.levels.length){player.currentLevel=idx;streamState.textContent="Quality "+(player.levels[idx].height||"")+"p";return}
-  }
-  if(!qualityMode&&value!=="-1"){
-    qualityMode=true;
-    startPlayer(qualityHlsUrl,true,value);
-    return;
-  }
-  if(!player&&qualityMode&&value!=="-1"&&video.src!==qualityHlsUrl){
-    startPlayer(qualityHlsUrl,true,value);
-    return;
-  }
-  if(!window.Hls||!Hls.isSupported()){
-    switchNativeQuality(value);
-    streamState.textContent=value==="-1"?"Auto quality":"Quality "+value;
-  }
-}
-if(qualitySelect)qualitySelect.addEventListener("change",()=>applyQualitySelection(qualitySelect.value));
 function clearPlayer(){if(player){try{player.destroy()}catch{}player=null}try{video.pause();video.removeAttribute("src");video.load()}catch{}}
-function startPlayer(source=qualityHlsUrl,useQuality=true,initialQuality=desiredQuality){
-  clearPlayer();qualityMode=useQuality;offline.style.display="none";video.style.display="block";streamState.textContent="Connecting…";
-  if(window.Hls&&Hls.isSupported()){
-    player=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:4,liveMaxLatencyDurationCount:12,maxLiveSyncPlaybackRate:1.08,maxBufferLength:45,maxMaxBufferLength:90,backBufferLength:60,maxBufferHole:0.5,liveSyncOnStallIncrease:2,preserveManualLevelOnError:false});
-    let retryTimer=0,fallbackTried=false;
-    player.on(Hls.Events.ERROR,function(_,data){
-      if(!data)return;
-      if(data.fatal&&data.type===Hls.ErrorTypes.NETWORK_ERROR){
-        if(qualityMode&&!fallbackTried){
-          fallbackTried=true;qualityMode=false;desiredQuality=-1;if(qualitySelect)qualitySelect.value="-1";streamState.textContent="Using original live feed…";clearTimeout(retryTimer);retryTimer=setTimeout(()=>{if(live)startPlayer(hlsUrl,false,-1)},300);return;
-        }
-        streamState.textContent="Network recovery…";try{player.startLoad(-1);return}catch{}
-      }
-      if(data.fatal&&data.type===Hls.ErrorTypes.MEDIA_ERROR){streamState.textContent="Recovering playback…";try{player.recoverMediaError();return}catch{}}
-      if(data.fatal){
-        streamState.textContent="Reconnecting…";clearTimeout(retryTimer);retryTimer=setTimeout(()=>{if(live)startPlayer(source,useQuality,initialQuality)},1200);
-      }
-    });
-    player.on(Hls.Events.MANIFEST_PARSED,function(_,data){
-      streamState.textContent="Live playback";
-      if(useQuality){setQualityOptions(player.levels);if(initialQuality!==-1&&Number.isInteger(Number(initialQuality))){const idx=Number(initialQuality);if(idx>=0&&idx<player.levels.length){player.currentLevel=idx;qualitySelect.value=String(idx)}}else if(qualitySelect)qualitySelect.value="-1"}else if(qualitySelect){qualitySelect.innerHTML='<option value="-1">Auto</option>';qualitySelect.disabled=true}
-      video.play().catch(()=>{});
-    });
-    player.on(Hls.Events.LEVEL_SWITCHED,function(_,data){if(useQuality&&data&&data.level>=0&&player.levels[data.level]&&qualitySelect&&qualitySelect.value!=="-1"){streamState.textContent="Quality "+(player.levels[data.level].height||"")+"p"}});
-    player.on(Hls.Events.BUFFER_STALLED_ERROR,function(){streamState.textContent="Buffering…"});
-    player.loadSource(source);player.attachMedia(video);return;
-  }
-  if(useQuality){setNativeQualityOptions();qualitySelect.value=initialQuality===-1?"-1":String(initialQuality)}
-  else if(qualitySelect){qualitySelect.innerHTML='<option value="-1">Auto</option>';qualitySelect.disabled=true}
-  video.src=useQuality?nativeQualityUrl(initialQuality===-1?"-1":String(initialQuality)):hlsUrl;
-  video.play().catch(()=>{});streamState.textContent="Live playback";
-}
+function startPlayer(){clearPlayer();offline.style.display="none";video.style.display="block";streamState.textContent="Connecting…";if(window.Hls&&Hls.isSupported()){player=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:4,liveMaxLatencyDurationCount:12,maxLiveSyncPlaybackRate:1.08,maxBufferLength:45,maxMaxBufferLength:90,backBufferLength:60,maxBufferHole:0.5,liveSyncOnStallIncrease:2});let retryTimer=0;player.on(Hls.Events.ERROR,function(_,data){if(!data)return;if(data.fatal&&data.type===Hls.ErrorTypes.NETWORK_ERROR){streamState.textContent="Network recovery…";try{player.startLoad(-1);return}catch{}}if(data.fatal&&data.type===Hls.ErrorTypes.MEDIA_ERROR){streamState.textContent="Recovering playback…";try{player.recoverMediaError();return}catch{}}if(data.fatal){streamState.textContent="Reconnecting…";clearTimeout(retryTimer);retryTimer=setTimeout(()=>{if(live)startPlayer()},1200)}});player.on(Hls.Events.MANIFEST_PARSED,function(){streamState.textContent="Live playback";video.play().catch(()=>{})});player.on(Hls.Events.BUFFER_STALLED_ERROR,function(){streamState.textContent="Buffering…"});player.loadSource(hlsUrl);player.attachMedia(video);return}video.src=hlsUrl;video.play().catch(()=>{});streamState.textContent="Live playback"}
 async function refresh(){try{const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/status",{cache:"no-store"}),d=await r.json();if(!r.ok)throw new Error(d.error);statusEl.textContent=d.live?"● LIVE":"OFFLINE";statusEl.className="badge "+(d.live?"live":"");viewers.textContent=d.live?(d.current_viewers||0)+" watching now":"Waiting for the stream to start";if(d.live){if(!live){live=true;startPlayer()}await fetch("/api/public/stream/"+encodeURIComponent(token)+"/heartbeat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionKey})});}else{if(live){live=false;clearPlayer()}offline.style.display="grid";offline.textContent="Waiting for the stream to start…";video.style.display="none";streamState.textContent="Offline"}}catch(e){statusEl.textContent="STREAM UNAVAILABLE";statusEl.className="badge error";streamState.textContent=e.message||"Unavailable"}}
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 function fmtTime(v){try{return new Date(v).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}catch{return ""}}
