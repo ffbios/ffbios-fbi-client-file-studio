@@ -22,8 +22,7 @@ paths:
   ~^live/(.+)$:
     runOnReady: >
       ffmpeg -hide_banner -loglevel warning
-      -rtsp_transport tcp
-      -i rtsp://127.0.0.1:8554/$MTX_PATH
+      -i rtmp://127.0.0.1:1935/$MTX_PATH
       -map 0:v:0
       -map 0:a:0?
       -c:v libx264 -preset ultrafast -tune zerolatency
@@ -31,8 +30,7 @@ paths:
       -r 30 -g 60 -keyint_min 60 -sc_threshold 0
       -b:v 5M -maxrate 6M -bufsize 10M
       -c:a aac -b:a 128k -ar 48000 -ac 2
-      -rtsp_transport tcp
-      -f rtsp rtsp://127.0.0.1:8554/encoded/$G1
+      -f flv rtmp://127.0.0.1:1935/encoded/$G1
     runOnReadyRestart: yes
 
   all_others:
