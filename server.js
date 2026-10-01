@@ -1063,6 +1063,9 @@ app.post("/api/ndi/gateway/:pairToken/heartbeat",async(req,res)=>{
   }catch(e){res.status(500).json({error:"NDI heartbeat failed"});}
 });
 
+function publicStreamByToken(token){
+  return pool.query("SELECT * FROM streams WHERE viewer_token=$1 AND enabled=true AND shared=true",[token]);
+}
 app.post("/api/public/stream/:token/heartbeat",async(req,res)=>{
   try{
     const r=await pool.query("SELECT id FROM streams WHERE viewer_token=$1 AND enabled=true AND shared=true",[req.params.token]);
