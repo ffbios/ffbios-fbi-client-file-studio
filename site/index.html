@@ -435,7 +435,7 @@ function renderUploadQueue(){
     var p=uploadStats(item);
     var action=item.status==="paused"?"<button class='mini' data-upresume='"+item.id+"'>Resume</button>":(item.status==="queued"||item.status==="checking"||item.status==="deduplicated"?"":"<button class='mini' data-uppause='"+item.id+"'>Pause</button>");
     html+="<div class='upload-item'><div class='utop'><div class='uname'>"+esc(item.relativePath)+"</div><div>"+p.pct.toFixed(0)+"%</div></div>";
-    html+="<div class='ustatus'>"+esc(item.status)+(item.mode?" • "+esc(item.mode):"")+" • "+fmt(Math.min(item.loadedBytes,item.totalBytes))+" / "+fmt(item.totalBytes)+" • "+(p.rate?fmtRate(p.rate):"--")+" • ETA "+etaText(p.eta)+(item.error?"<br><span style='color:#fca5a5'>"+esc(item.error)+"</span>":"")+"</div>";
+    html+="<div class='ustatus'>"+(item.completionRemark?esc(item.completionRemark):esc(item.status))+(item.mode&& !item.completionRemark?" • "+esc(item.mode):"")+" • "+fmt(Math.min(item.loadedBytes,item.totalBytes))+" / "+fmt(item.totalBytes)+(item.completionRemark?"":" • "+(p.rate?fmtRate(p.rate):"--")+" • ETA "+etaText(p.eta))+(item.error?"<br><span style='color:#fca5a5'>"+esc(item.error)+"</span>":"")+"</div>";
     html+="<div class='ubar'><i style='width:"+p.pct+"%'></i></div>";
     html+="<div class='ufoot'><span>"+(item.resumed?"Resumed session":item.status==="deduplicated"?"Already stored":"Lossless direct cloud upload")+"</span><span>"+action+" <button class='mini' data-upcancel='"+item.id+"'>Cancel</button></span></div></div>";
   });
@@ -527,11 +527,11 @@ async function uploadOne(item){
     })});
     item.sessionId=session.uploadId;item.mode=session.mode;item.resumed=!!session.resumed;
     if(session.deduplicated){
-      item.status="deduplicated";item.loadedBytes=item.totalBytes;renderUploadQueue();
+      item.status="deduplicated";item.loadedBytes=item.totalBytes;item.completedAt=Date.now();item.completionRemark="✓ FILE ALREADY STORED — no new upload required";renderUploadQueue();
       await loadProjects();await openProject(item.projectId);toast("Already stored: "+item.file.name);return;
     }
     if(session.mode==="single")await uploadSingle(item,session);else await uploadMultipart(item,session);
-    item.status="completed";item.error="";renderUploadQueue();
+    item.status="completed";item.completedAt=Date.now();item.error="";item.completionRemark="✓ FILE UPLOAD COMPLETE — saved successfully";renderUploadQueue();
     await loadProjects();await openProject(item.projectId);toast("Uploaded without quality loss: "+item.file.name);
   }catch(e){
     if(item.paused){item.status="paused";renderUploadQueue();return}
