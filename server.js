@@ -1003,17 +1003,6 @@ function publicHlsCacheSet(key,body,type){
     publicHlsCacheBytes=Math.max(0,publicHlsCacheBytes-v.body.length);
   }
 }
-const publicHlsSessionByToken=new Map();
-function publicHlsSessionGet(token){
-  const v=publicHlsSessionByToken.get(String(token||""));
-  if(!v)return "";
-  if(v.expiresAt<Date.now()){publicHlsSessionByToken.delete(String(token||""));return "";}
-  return v.session;
-}
-function publicHlsSessionSet(token,session){
-  if(!token||!session)return;
-  publicHlsSessionByToken.set(String(token),{session:String(session),expiresAt:Date.now()+25*60*1000});
-}
 async function fetchPublicHlsBody(url,headers){
   const response=await fetch(url,{redirect:"follow",cache:"no-store",headers:headers||{}});
   const type=response.headers.get("content-type")||"application/octet-stream";
@@ -1045,18 +1034,12 @@ async function proxyPublicHlsStream(req,res){
     const upstreamPath="encoded/"+String(row.stream_key||"");
     const upstream=new URL(internalBase+"/"+upstreamPath+(sub?"/"+sub:""));
     for(const [k,v] of Object.entries(req.query||{}))upstream.searchParams.append(k,String(v));
-    const incomingCookies=String(req.headers.cookie||"");
-    const proxySession=(incomingCookies.match(/(?:^|;\s*)fbi_public_hls_session=([^;]+)/)||[])[1]||"";
-    const sharedSession=publicHlsSessionGet(token);
-    if(!upstream.searchParams.has("session")&&(proxySession||sharedSession)){
-      upstream.searchParams.set("session",decodeURIComponent(proxySession||sharedSession));
-    }
     const upstreamHeaders={};
-    // MediaMTX v1.19.x establishes the HLS session through a cookieCheck
-    // redirect. Send the cookie on the first playlist request so the proxy can
-    // complete that handshake without depending on the browser or CDN to carry
-    // Set-Cookie between requests.
-    if(sub==="index.m3u8"&&!upstream.searchParams.has("session")&&!proxySession&&!sharedSession){
+    // Create a fresh MediaMTX HLS session for each viewer's initial playlist
+    // request. Do not reuse a session across viewers. MediaMTX v1.19.x can
+    // carry the resulting session in the playlist URLs, so the browser does
+    // not need cross-origin cookies and each viewer remains isolated.
+    if(sub==="index.m3u8"&&!upstream.searchParams.has("session")){
       upstreamHeaders.cookie="cookieCheck=1";
     }
 
@@ -1094,7 +1077,6 @@ async function proxyPublicHlsStream(req,res){
       const setCookies=typeof response.headers.getSetCookie==="function"?response.headers.getSetCookie():String(response.headers.get("set-cookie")||"").split(/,(?=\s*\w+=)/);
       for(const sc of setCookies){const m=String(sc).match(/(?:^|;\s*)hlsSession=([^;]+)/i);if(m){session=m[1];break;}}
       session=session||upstream.searchParams.get("session")||"";
-      if(session)publicHlsSessionSet(token,session);
       function publicUri(raw){
         const value=String(raw||"").trim(); if(!value)return value;
         try{
@@ -1123,7 +1105,6 @@ async function proxyPublicHlsStream(req,res){
         return publicUri(trimmed);
       }).join("\n");
       body=Buffer.from(textBody,"utf8");
-      if(session)res.setHeader("Set-Cookie","fbi_public_hls_session="+encodeURIComponent(session)+"; Path=/api/public/stream/"+encodeURIComponent(token)+"/hls; HttpOnly; Secure; SameSite=Lax; Max-Age=1800");
     }
     res.status(200).set("Cache-Control","no-store, no-cache, must-revalidate").type(type).send(body);
   }catch(e){console.error("Public HLS proxy error:",e?.stack||e);res.status(502).json({error:"Live stream playback unavailable."});}
