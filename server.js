@@ -1089,73 +1089,6 @@ app.get("/api/public/stream/:token/status",async(req,res)=>{
   }catch(e){res.status(500).json({error:"Could not load stream status"});}
 });
 
-const STREAM_QUALITY_PRESETS=[
-  {q:"240",label:"240p",width:426,height:240,bandwidth:450000},
-  {q:"360",label:"360p",width:640,height:360,bandwidth:800000},
-  {q:"480",label:"480p",width:854,height:480,bandwidth:1500000},
-  {q:"720",label:"720p",width:1280,height:720,bandwidth:3000000},
-  {q:"1080",label:"1080p",width:1920,height:1080,bandwidth:6000000},
-  {q:"1440",label:"1440p",width:2560,height:1440,bandwidth:10000000},
-  {q:"2160",label:"4K",width:3840,height:2160,bandwidth:16000000}
-];
-function publicStreamByToken(token){
-  return pool.query("SELECT * FROM streams WHERE viewer_token=$1 AND enabled=true AND shared=true",[token]);
-}
-function streamQualityPublicUrl(token,q,file){
-  return "/api/public/stream/"+encodeURIComponent(token)+"/quality/"+encodeURIComponent(q)+"/"+file;
-}
-app.get("/api/public/stream/:token/master.m3u8",async(req,res)=>{
-  try{
-    const r=await publicStreamByToken(req.params.token);
-    if(!r.rowCount)return res.status(404).end();
-    const s=r.rows[0];
-    const internal=(process.env.STREAM_HLS_INTERNAL||"http://fbi-live-ingest:8888").replace(/\/+$/,"");
-    const results=await Promise.all(STREAM_QUALITY_PRESETS.map(async p=>{
-      const u=internal+"/quality/"+p.q+"/"+encodeURIComponent(String(s.stream_key))+"/index.m3u8";
-      try{
-        const x=await fetch(u,{cache:"no-store"});
-        if(!x.ok)return null;
-        const t=await x.text();
-        return /#EXTM3U/.test(t)?p:null;
-      }catch{return null}
-    }));
-    const available=results.filter(Boolean);
-    let body="#EXTM3U\n#EXT-X-VERSION:3\n";
-    for(const p of available){
-      body+="#EXT-X-STREAM-INF:BANDWIDTH="+p.bandwidth+",AVERAGE-BANDWIDTH="+Math.round(p.bandwidth*.82)+",RESOLUTION="+p.width+"x"+p.height+",CODECS=\"avc1.4d401f,mp4a.40.2\"\n";
-      body+=streamQualityPublicUrl(req.params.token,p.q,"index.m3u8")+"\n";
-    }
-    if(!available.length){
-      body+="#EXT-X-STREAM-INF:BANDWIDTH=6000000,AVERAGE-BANDWIDTH=4920000,RESOLUTION=1920x1080,CODECS=\"avc1.4d401f,mp4a.40.2\"\n";
-      body+="/api/public/stream/"+encodeURIComponent(req.params.token)+"/main/index.m3u8\n";
-    }
-    res.status(200).set("Cache-Control","no-store, no-cache, must-revalidate").type("application/vnd.apple.mpegurl").send(body);
-  }catch(e){console.error("Quality master error:",e?.stack||e);res.status(500).end();}
-});
-
-app.use("/api/public/stream/:token/main",async(req,res)=>{
-  try{
-    const r=await publicStreamByToken(req.params.token);
-    if(!r.rowCount)return res.status(404).end();
-    const raw=String(req.path||"").replace(/^\/+/, "");
-    if(!raw||raw.includes("..")||raw.includes("/")||!/^[A-Za-z0-9._-]+$/.test(raw))return res.status(400).end();
-    const internal=(process.env.STREAM_HLS_INTERNAL||"http://fbi-live-ingest:8888").replace(/\/+$/,"");
-    const key=String(r.rows[0].stream_key);
-    const x=await fetch(internal+"/encoded/"+encodeURIComponent(key)+"/"+raw,{cache:"no-store"});
-    const type=x.headers.get("content-type")||"application/octet-stream";
-    let body=Buffer.from(await x.arrayBuffer());
-    if(!x.ok)return res.status(x.status).type(type).send(body);
-    if(type.toLowerCase().includes("mpegurl")){
-      const txt=body.toString("utf8").split(/\r?\n/).map(line=>{
-        const t=line.trim(); if(!t||t[0]==="#")return line;
-        return "/api/public/stream/"+encodeURIComponent(req.params.token)+"/main/"+t;
-      }).join("\n");
-      body=Buffer.from(txt,"utf8");
-    }
-    res.status(200).set("Cache-Control",type.toLowerCase().includes("mpegurl")?"no-store":"public, max-age=2").type(type).send(body);
-  }catch(e){console.error("Main HLS proxy error:",e?.stack||e);res.status(502).end();}
-});
-
 app.get("/api/public/stream/:token/comments",async(req,res)=>{
   try{
     const r=await publicStreamByToken(req.params.token);
@@ -1185,36 +1118,22 @@ app.get("/watch/:token",async(req,res)=>{
   try{
     const r=await publicStreamByToken(req.params.token);
     if(!r.rowCount)return res.status(404).send("Stream link is invalid or disabled.");
-    const s=r.rows[0];
-    const title=escHtml(s.title||s.name);
-    const tokenJs=JSON.stringify(req.params.token);
-    const masterUrl="/api/public/stream/"+encodeURIComponent(req.params.token)+"/master.m3u8";
+    const s=r.rows[0],hls=streamHlsUrl(s);
+    const title=escHtml(s.title||s.name),tokenJs=JSON.stringify(req.params.token);
     res.type("html").send(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} • FBI Live</title><script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script><style>
-body{margin:0;background:#080809;color:#f6f6f7;font-family:Inter,system-ui,sans-serif;min-height:100vh}.wrap{max-width:1380px;margin:auto;padding:18px}.head{padding:14px 5px 18px}.brand{font-size:9px;letter-spacing:.12em;color:#8f8f98;text-transform:uppercase}.head h1{font-size:26px;margin:7px 0 4px}.head p{color:#9b9ba4;margin:0;font-size:11px}.badge{display:inline-block;padding:5px 9px;border-radius:999px;border:1px solid #29292e;font-size:9px}.live{color:#4ade80;border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.05)}.error{color:#fb7185}.layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}.card{background:#101012;border:1px solid #29292e;border-radius:18px;box-shadow:0 20px 70px rgba(0,0,0,.25)}.player{overflow:hidden;position:relative}.player video{display:block;width:100%;aspect-ratio:16/9;background:#000}.playerbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-top:1px solid #29292e;background:#111114}.tools{display:flex;align-items:center;gap:8px}.tools label{font-size:9px;color:#9b9ba4}.tools select{background:#19191c;color:#f6f6f7;border:1px solid #35353b;border-radius:8px;padding:7px 10px;font-size:9px}.nowq{font-size:9px;color:#aaaab2}.comments{display:flex;flex-direction:column;max-height:calc(100vh - 180px);min-height:520px}.comments-head{padding:14px;border-bottom:1px solid #29292e;display:flex;align-items:center;justify-content:space-between}.comments-head h2{margin:0;font-size:13px}.comment-list{padding:10px 12px;overflow:auto;flex:1}.comment{padding:9px 0;border-bottom:1px solid #222226}.comment:last-child{border-bottom:0}.comment b{display:block;font-size:9px}.comment span{display:block;color:#9b9ba4;font-size:10px;line-height:1.45;margin-top:3px;word-break:break-word}.comment time{display:block;color:#66666e;font-size:7px;margin-top:4px}.comment-form{padding:12px;border-top:1px solid #29292e;display:grid;gap:7px}.comment-form input,.comment-form textarea{width:100%;box-sizing:border-box;background:#0b0b0d;color:#f5f5f6;border:1px solid #303036;border-radius:9px;padding:9px;font:inherit;font-size:9px}.comment-form textarea{min-height:66px;resize:vertical}.comment-form button{border:0;border-radius:9px;padding:10px;background:#e8c448;color:#171719;font-weight:800}.statusline{font-size:9px;color:#8f8f98;margin-top:7px;min-height:13px}.foot{text-align:center;color:#66666e;font-size:9px;padding:18px}.offline{display:grid;place-items:center;min-height:360px;color:#9b9ba4;text-align:center;padding:20px}
+body{margin:0;background:#09090a;color:#f6f6f7;font-family:Inter,system-ui,sans-serif;min-height:100vh}.wrap{max-width:1380px;margin:auto;padding:18px}.head{padding:14px 5px 18px}.brand{font-size:9px;letter-spacing:.12em;color:#8f8f98;text-transform:uppercase}.head h1{font-size:26px;margin:7px 0 4px}.head p{color:#9b9ba4;margin:0;font-size:11px}.badge{display:inline-block;padding:5px 9px;border-radius:999px;border:1px solid #29292e;font-size:9px}.live{color:#4ade80;border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.05)}.error{color:#fb7185}.layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}.card{background:#101012;border:1px solid #29292e;border-radius:18px;box-shadow:0 20px 70px rgba(0,0,0,.25)}.player{overflow:hidden;position:relative}.player video{display:block;width:100%;aspect-ratio:16/9;background:#000}.playerbar{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:10px 12px;border-top:1px solid #29292e;background:#111114}.nowq{font-size:9px;color:#aaaab2}.comments{display:flex;flex-direction:column;max-height:calc(100vh - 180px);min-height:520px}.comments-head{padding:14px;border-bottom:1px solid #29292e;display:flex;align-items:center;justify-content:space-between}.comments-head h2{margin:0;font-size:13px}.comment-list{padding:10px 12px;overflow:auto;flex:1}.comment{padding:9px 0;border-bottom:1px solid #222226}.comment:last-child{border-bottom:0}.comment b{display:block;font-size:9px}.comment span{display:block;color:#9b9ba4;font-size:10px;line-height:1.45;margin-top:3px;word-break:break-word}.comment time{display:block;color:#66666e;font-size:7px;margin-top:4px}.comment-form{padding:12px;border-top:1px solid #29292e;display:grid;gap:7px}.comment-form input,.comment-form textarea{width:100%;box-sizing:border-box;background:#0b0b0d;color:#f5f5f6;border:1px solid #303036;border-radius:9px;padding:9px;font:inherit;font-size:9px}.comment-form textarea{min-height:66px;resize:vertical}.comment-form button{border:0;border-radius:9px;padding:10px;background:#e8c448;color:#171719;font-weight:800}.statusline{font-size:9px;color:#8f8f98;margin-top:7px;min-height:13px}.foot{text-align:center;color:#66666e;font-size:9px;padding:18px}.offline{display:grid;place-items:center;min-height:360px;color:#9b9ba4;text-align:center;padding:20px}
 @media(max-width:950px){.layout{grid-template-columns:1fr}.comments{max-height:none;min-height:420px}}
-</style></head><body><div class="wrap"><div class="head"><div class="brand">FILM BEYOND IMAGINATION • FBI Live</div><div style="margin-top:8px"><span class="badge" id="status">Checking live status…</span></div><h1>${title}</h1><p id="viewers">FBI Live Stream</p></div><div class="layout"><section><div class="card player"><video id="video" controls playsinline autoplay muted></video><div id="offline" class="offline" style="display:none"></div><div class="playerbar"><div class="tools"><label for="quality">Quality</label><select id="quality"><option value="-1">Auto</option></select><span class="nowq" id="nowq">Auto</span></div><span class="nowq" id="streamState">Connecting…</span></div></div></section><aside class="card comments"><div class="comments-head"><h2>Live Comments</h2><span class="badge" id="commentCount">0</span></div><div id="commentList" class="comment-list"><div style="color:#777;font-size:9px;padding:10px 0">No comments yet.</div></div><form id="commentForm" class="comment-form"><input id="commentName" maxlength="60" placeholder="Your name"><textarea id="commentText" maxlength="500" placeholder="Write a comment…"></textarea><button type="submit">Post Comment</button><div class="statusline" id="commentStatus"></div></form></aside></div><div class="foot">FBI Live • Live broadcast, quality control and viewer comments</div></div><script>
-const token=${tokenJs},masterUrl=${JSON.stringify(masterUrl)};const video=document.getElementById("video"),offline=document.getElementById("offline"),statusEl=document.getElementById("status"),viewers=document.getElementById("viewers"),streamState=document.getElementById("streamState"),quality=document.getElementById("quality"),nowq=document.getElementById("nowq"),commentList=document.getElementById("commentList"),commentCount=document.getElementById("commentCount"),commentForm=document.getElementById("commentForm"),commentName=document.getElementById("commentName"),commentText=document.getElementById("commentText"),commentStatus=document.getElementById("commentStatus");const sessionKey=crypto.randomUUID();let player=null,live=false,commentTimer=null,qualityMode=-1;
+</style></head><body><div class="wrap"><div class="head"><div class="brand">FILM BEYOND IMAGINATION • FBI Live</div><div style="margin-top:8px"><span class="badge" id="status">Checking live status…</span></div><h1>${title}</h1><p id="viewers">FBI Live Stream</p></div><div class="layout"><section><div class="card player"><video id="video" controls playsinline autoplay muted></video><div id="offline" class="offline" style="display:none"></div><div class="playerbar"><span class="nowq" id="streamState">Connecting…</span></div></div></section><aside class="card comments"><div class="comments-head"><h2>Live Comments</h2><span class="badge" id="commentCount">0</span></div><div id="commentList" class="comment-list"><div style="color:#777;font-size:9px;padding:10px 0">No comments yet.</div></div><form id="commentForm" class="comment-form"><input id="commentName" maxlength="60" placeholder="Your name"><textarea id="commentText" maxlength="500" placeholder="Write a comment…"></textarea><button type="submit">Post Comment</button><div class="statusline" id="commentStatus"></div></form></aside></div><div class="foot">FBI Live • Live broadcast and viewer comments</div></div><script>
+const token=${tokenJs},hlsUrl=${JSON.stringify(hls)};const video=document.getElementById("video"),offline=document.getElementById("offline"),statusEl=document.getElementById("status"),viewers=document.getElementById("viewers"),streamState=document.getElementById("streamState"),commentList=document.getElementById("commentList"),commentCount=document.getElementById("commentCount"),commentForm=document.getElementById("commentForm"),commentName=document.getElementById("commentName"),commentText=document.getElementById("commentText"),commentStatus=document.getElementById("commentStatus");const sessionKey=crypto.randomUUID();let player=null,live=false;
 try{commentName.value=localStorage.getItem("fbiLiveCommentName")||""}catch{}
-function fmtTime(v){try{return new Date(v).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}catch{return ""}}
-function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 function clearPlayer(){if(player){try{player.destroy()}catch{}player=null}try{video.pause();video.removeAttribute("src");video.load()}catch{}}
-function setQualityOptions(levels){quality.innerHTML='<option value="-1">Auto</option>';levels.forEach((l,i)=>{const h=Number(l.height||0);if(!h)return;const label=h>=2160?"4K":h+"p";const o=document.createElement("option");o.value=String(i);o.textContent=label;quality.appendChild(o)});quality.value=String(qualityMode)}
-function startPlayer(){
-  clearPlayer();offline.style.display="none";video.style.display="block";streamState.textContent="Connecting…";
-  if(window.Hls&&Hls.isSupported()){
-    player=new Hls({enableWorker:true,lowLatencyMode:false,capLevelToPlayerSize:false,startLevel:-1,maxBufferLength:30,maxMaxBufferLength:60,backBufferLength:90});
-    player.on(Hls.Events.ERROR,function(_,data){if(data&&data.fatal){streamState.textContent="Reconnecting…";setTimeout(()=>{if(live)startPlayer()},1800)}});
-    player.on(Hls.Events.MANIFEST_PARSED,function(){setQualityOptions(player.levels||[]);streamState.textContent="Live playback";video.play().catch(()=>{})});
-    player.on(Hls.Events.LEVEL_SWITCHED,function(_,d){if(d&&d.level>=0){const h=Number(player.levels[d.level]?.height||0);nowq.textContent=h>=2160?"4K":h+"p"}else nowq.textContent="Auto"});
-    player.loadSource(masterUrl);player.attachMedia(video);return;
-  }
-  video.src=masterUrl;video.play().catch(()=>{});streamState.textContent="Live playback";
-}
-quality.onchange=function(){qualityMode=Number(this.value);nowq.textContent=qualityMode<0?"Auto":(Number(player?.levels?.[qualityMode]?.height||0)>=2160?"4K":(player?.levels?.[qualityMode]?.height||"")+"p");if(player)player.currentLevel=qualityMode};
+function startPlayer(){clearPlayer();offline.style.display="none";video.style.display="block";streamState.textContent="Connecting…";if(window.Hls&&Hls.isSupported()){player=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:6,maxLiveSyncPlaybackRate:1.15,maxBufferLength:30,maxMaxBufferLength:60,backBufferLength:90});player.on(Hls.Events.ERROR,function(_,data){if(data&&data.fatal){streamState.textContent="Reconnecting…";setTimeout(()=>{if(live)startPlayer()},1800)}});player.on(Hls.Events.MANIFEST_PARSED,function(){streamState.textContent="Live playback";video.play().catch(()=>{})});player.loadSource(hlsUrl);player.attachMedia(video);return}video.src=hlsUrl;video.play().catch(()=>{});streamState.textContent="Live playback"}
 async function refresh(){try{const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/status",{cache:"no-store"}),d=await r.json();if(!r.ok)throw new Error(d.error);statusEl.textContent=d.live?"● LIVE":"OFFLINE";statusEl.className="badge "+(d.live?"live":"");viewers.textContent=d.live?(d.current_viewers||0)+" watching now":"Waiting for the stream to start";if(d.live){if(!live){live=true;startPlayer()}await fetch("/api/public/stream/"+encodeURIComponent(token)+"/heartbeat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionKey})});}else{if(live){live=false;clearPlayer()}offline.style.display="grid";offline.textContent="Waiting for the stream to start…";video.style.display="none";streamState.textContent="Offline"}}catch(e){statusEl.textContent="STREAM UNAVAILABLE";statusEl.className="badge error";streamState.textContent=e.message||"Unavailable"}}
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+function fmtTime(v){try{return new Date(v).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}catch{return ""}}
 async function loadComments(){try{const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/comments?limit=80",{cache:"no-store"}),d=await r.json();if(!r.ok)throw new Error(d.error);const rows=d.comments||[];commentCount.textContent=rows.length;commentList.innerHTML=rows.length?rows.map(x=>'<div class="comment"><b>'+esc(x.display_name)+'</b><span>'+esc(x.comment)+'</span><time>'+esc(fmtTime(x.created_at))+'</time></div>').join(""):'<div style="color:#777;font-size:9px;padding:10px 0">No comments yet. Start the conversation.</div>';commentList.scrollTop=commentList.scrollHeight}catch(e){commentStatus.textContent=e.message||"Comments unavailable"}}
 commentForm.onsubmit=async e=>{e.preventDefault();const name=commentName.value.trim()||"Anonymous",comment=commentText.value.trim();if(!comment)return;commentStatus.textContent="Posting…";try{const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/comments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({display_name:name,comment})}),d=await r.json();if(!r.ok)throw new Error(d.error);try{localStorage.setItem("fbiLiveCommentName",name)}catch{}commentText.value="";commentStatus.textContent="";await loadComments()}catch(e){commentStatus.textContent=e.message||"Could not post comment"}};
-refresh();loadComments();commentTimer=setInterval(loadComments,3000);setInterval(refresh,10000);
+refresh();loadComments();setInterval(loadComments,3000);setInterval(refresh,10000);
 </script></body></html>`);
   }catch(e){res.status(500).send("Could not load stream.");}
 });
