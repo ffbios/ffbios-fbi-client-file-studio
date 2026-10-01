@@ -605,15 +605,90 @@ app.get("/api/public/program/status",async(req,res)=>{
   }catch(e){res.status(500).json({error:"Program status unavailable"});}
 });
 
-app.use("/api/public/program/hls",async(req,res)=>{
+
+async function proxyProgramHlsStream(req,res){
   try{
     const row=await selectedProgram();
     if(!row)return res.status(404).end();
-    await proxyTvHlsStream(req,res,{id:row.id,cookieName:"fbi_program_hls_session",proxyBase:"/api/public/program/hls/"});
+
+    const internalBase=(process.env.STREAM_HLS_INTERNAL||"http://fbi-tv-live-ingest:8888").replace(/\/+$/,"");
+    let sub=String(req.path||"/").replace(/^\/+/,"");
+    if(/^index\.m3u8\/index\.m3u8$/i.test(sub))sub="index.m3u8";
+    else if(/^index\.m3u8\//i.test(sub))sub=sub.slice("index.m3u8/".length);
+
+    const upstreamPath="encoded/"+String(row.stream_key||"");
+    const upstream=new URL(internalBase+"/"+upstreamPath+(sub?"/"+sub:""));
+    for(const [k,v] of Object.entries(req.query||{}))upstream.searchParams.append(k,String(v));
+
+    const incomingCookies=String(req.headers.cookie||"");
+    const proxySession=(incomingCookies.match(/(?:^|;\s*)fbi_program_hls_session=([^;]+)/)||[])[1]||"";
+    if(proxySession&&!upstream.searchParams.has("session"))upstream.searchParams.set("session",decodeURIComponent(proxySession));
+    if(sub==="index.m3u8"&&!upstream.searchParams.has("session"))upstream.searchParams.set("cookieCheck","1");
+
+    const response=await fetch(upstream,{redirect:"follow",cache:"no-store"});
+    const type=response.headers.get("content-type")||"application/octet-stream";
+    let body=Buffer.from(await response.arrayBuffer());
+    if(!response.ok)return res.status(response.status).type(type).send(body);
+
+    if(type.toLowerCase().includes("mpegurl")){
+      let textBody=body.toString("utf8");
+      let session="";
+      const setCookies=typeof response.headers.getSetCookie==="function"
+        ? response.headers.getSetCookie()
+        : String(response.headers.get("set-cookie")||"").split(/,(?=\s*\w+=)/);
+      for(const sc of setCookies){
+        const m=String(sc).match(/(?:^|;\s*)hlsSession=([^;]+)/i);
+        if(m){session=m[1];break;}
+      }
+      session=session||upstream.searchParams.get("session")||"";
+
+      function programUri(raw){
+        const value=String(raw||"").trim();
+        if(!value)return value;
+        try{
+          const absolute=/^https?:\/\//i.test(value)?new URL(value):null;
+          let pathname=absolute?absolute.pathname:value.split("?")[0];
+          let query=absolute?absolute.search:value.includes("?")?"?"+value.split("?").slice(1).join("?"):"";
+          const marker="/"+upstreamPath+"/";
+          const markerIndex=pathname.indexOf(marker);
+          if(markerIndex>=0)pathname=pathname.slice(markerIndex+marker.length);
+          pathname=pathname.replace(/^\/+/,"");
+          const base="/api/public/program/hls/";
+          const url=base+pathname;
+          const sp=new URLSearchParams(query.replace(/^\?/,""));
+          if(session&&!sp.has("session"))sp.set("session",session);
+          const suffix=sp.toString();
+          return url+(suffix?"?"+suffix:"");
+        }catch{return value}
+      }
+
+      textBody=textBody.split(/\r?\n/).map(line=>{
+        const trimmed=line.trim();
+        if(!trimmed)return line;
+        if(/^#EXT-X-(?:MEDIA|I-FRAME-STREAM-INF|MAP):/i.test(trimmed)){
+          return line.replace(/URI="([^"]+)"/gi,(_,uri)=>'URI="'+programUri(uri)+'"');
+        }
+        if(trimmed[0]==="#")return line;
+        return programUri(trimmed);
+      }).join("\n");
+      body=Buffer.from(textBody,"utf8");
+      if(session){
+        res.setHeader("Set-Cookie","fbi_program_hls_session="+encodeURIComponent(session)+"; Path=/api/public/program/hls; HttpOnly; Secure; SameSite=Lax; Max-Age=1800");
+      }
+    }
+
+    res.status(200)
+      .set("Cache-Control",type.toLowerCase().includes("mpegurl")?"no-store, no-cache, must-revalidate":"no-cache")
+      .type(type)
+      .send(body);
   }catch(e){
-    console.error("Program HLS proxy failed:",e?.stack||e);
-    res.status(502).end();
+    console.error("Program HLS proxy error:",e?.stack||e);
+    res.status(502).json({error:"Program live playback unavailable."});
   }
+}
+
+app.use("/api/public/program/hls",async(req,res)=>{
+  await proxyProgramHlsStream(req,res);
 });
 
 app.get("/watch/program",async(req,res)=>{
