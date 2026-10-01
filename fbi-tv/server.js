@@ -58,7 +58,7 @@ async function init(){
   `);
 }
 function rtmpServer(){
-  return RTMP_HOST?\`rtmp://\${RTMP_HOST}:\${RTMP_PORT}/live\`:"";
+  return RTMP_HOST?"rtmp://"+RTMP_HOST+":"+RTMP_PORT+"/live":"";
 }
 function hlsForKey(key){
   return MEDIA_BASE?MEDIA_BASE+"/live/"+encodeURIComponent(key)+"/index.m3u8":"";
