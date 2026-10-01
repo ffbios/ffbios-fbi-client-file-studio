@@ -895,7 +895,6 @@ function renderSelectedStream(){
           '<label class="toggle"><input id="streamRecordEdit" type="checkbox" '+(s.record_enabled?'checked':'')+'><span><b>Record every live session</b><br><small class="muted">Save a playable MP4 automatically when streaming ends.</small></span></label></div></div></div>'+
         '</div>'+
         '<div class="stream-danger"><div><b>Stream Key Management</b><span>Regenerating the key changes the publishing address for this channel.</span></div><div><button class="btn" id="regenStreamKey">Regenerate Key</button> <button class="btn danger" id="deleteStream">Delete Stream</button></div></div>'+
-      '</div>'+
     '</div>';
 
   renderStreamsList();
@@ -1060,7 +1059,7 @@ function renderStreamsPage(){
   if(!content)return;
   content.innerHTML=
     '<div class="streamstudio">'+
-      '<div class="streamstudio-top"><div class="streamstudio-top-main"><div class="streamstudio-kicker">FBI Live Broadcast Studio</div><h1>Live Streaming</h1><p>Manage your live channels, monitor the broadcast and access recorded sessions.</p></div><div class="streamstudio-top-actions"><button class="btn primary" id="newStreamTop">＋ New Stream</button></div></div>'+
+      '<div class="streamstudio-top"><div class="streamstudio-top-main"><div class="streamstudio-kicker">FBI Live Broadcast Studio</div><h1>Live Streaming</h1><p>All your existing live channels are available here. Select one to manage it, or create a new channel when needed.</p></div><div class="streamstudio-top-actions"><button class="btn primary" id="newStreamTop">＋ New Stream</button></div></div>'+
       '<div class="streamgrid">'+
         '<aside class="stream-channel-card">'+
           '<div class="stream-channel-head"><div><h2>Live Channels</h2><p>Select a channel to manage its broadcast.</p></div><span class="stream-channel-count" id="streamChannelCount">0 channels</span></div>'+
