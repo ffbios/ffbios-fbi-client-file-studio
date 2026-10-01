@@ -220,4 +220,7 @@ refresh();setInterval(refresh,8000);
 const index=path.join(__dirname,"public/index.html");
 app.use(express.static(path.join(__dirname,"public")));
 app.get("/",(req,res)=>res.sendFile(index));
-init().then(()=>app.listen(PORT,()=>console.log("FBI TV Control listening on port "+PORT))).catch(e=>{console.error(e);process.exit(1)});
+app.listen(PORT,"0.0.0.0",()=>{
+  console.log("FBI TV Control listening on port "+PORT);
+  init().then(()=>console.log("Database initialised")).catch(e=>console.error("Database init failed; server remains running:",e));
+});
