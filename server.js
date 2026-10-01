@@ -451,9 +451,10 @@ function escHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<"
 function streamPathForKey(key){return "live/"+key;}
 function streamPlaybackPathForRow(row){return "encoded/"+String(row?.stream_key||"");}
 function streamHlsUrl(row){
-  // Use the HLS path that MediaMTX is actually receiving from OBS/vMix.
-  // The /encoded path is only available when a separate transcoder is running.
-  return streamInputHlsUrl(row);
+  // Play the browser-safe H.264/AAC stream produced by the MediaMTX FFmpeg relay.
+  // The relay is started automatically when the incoming live stream becomes available.
+  const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
+  return base+"/"+streamPlaybackPathForRow(row);
 }
 function streamInputHlsUrl(row){
   const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
