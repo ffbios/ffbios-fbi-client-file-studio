@@ -39,7 +39,8 @@ async function attach(video,url){
       maxMaxBufferLength:60,
       backBufferLength:90,
       capLevelToPlayerSize:true,
-      startLevel:-1
+      startLevel:-1,
+      xhrSetup:function(xhr){xhr.withCredentials=true}
     });
     video.__hls=hls;
     hls.on(H.Events.ERROR,function(_,data){
