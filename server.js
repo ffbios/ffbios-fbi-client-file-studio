@@ -1008,6 +1008,17 @@ async function fetchPublicHlsBody(url){
   const body=Buffer.from(await response.arrayBuffer());
   return {response,type,body};
 }
+function setPublicHlsCors(req,res){
+  // Public viewer playback is intentionally cross-origin because the player page
+  // lives on files.fbigh.com while HLS is served from live.fbigh.com.
+  // The viewer token is the access control; no browser credentials are required
+  // for the HLS media requests because the session is carried in rewritten URLs.
+  res.set("Access-Control-Allow-Origin","*");
+  res.set("Access-Control-Allow-Methods","GET,HEAD,OPTIONS");
+  res.set("Access-Control-Allow-Headers","Range,Origin,Accept,Content-Type");
+  res.set("Access-Control-Expose-Headers","Content-Length,Content-Range");
+}
+
 async function proxyPublicHlsStream(req,res){
   try{
     const token=String(req.params.token||"");
