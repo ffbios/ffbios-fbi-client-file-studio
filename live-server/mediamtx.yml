@@ -11,10 +11,9 @@ hls: true
 hlsAddress: :8888
 hlsAllowOrigins: ["*"]
 hlsAlwaysRemux: true
-hlsVariant: lowLatency
-hlsSegmentCount: 7
-hlsSegmentDuration: 1s
-hlsPartDuration: 200ms
+hlsVariant: mpegts
+hlsSegmentCount: 6
+hlsSegmentDuration: 2s
 
 # Normalize incoming RTMP feeds to a browser-safe H.264/AAC stream.
 # MediaMTX starts this encoder when a live input becomes available.
