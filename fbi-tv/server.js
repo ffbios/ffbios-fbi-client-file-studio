@@ -18,26 +18,88 @@ const pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:false});
 function uid(){return crypto.randomUUID()}
 function token(n=24){return crypto.randomBytes(n).toString("base64url")}
 function cookies(req){const out={};for(const p of String(req.headers.cookie||"").split(";")){const i=p.indexOf("=");if(i>0)out[p.slice(0,i).trim()]=decodeURIComponent(p.slice(i+1).trim())}return out}
-function signSession(email){
-  const exp=Date.now()+7*86400000;
-  const payload=Buffer.from(JSON.stringify({email,exp})).toString("base64url");
-  const sig=crypto.createHmac("sha256",SESSION_SECRET).update(payload).digest("base64url");
-  return payload+"."+sig;
+function normalizeEmail(v){return String(v||"").trim().toLowerCase()}
+function normalizeAnswer(v){return String(v||"").trim().toLowerCase().replace(/\s+/g," ")}
+function passwordHash(password){
+  const salt=crypto.randomBytes(16).toString("hex");
+  const hash=crypto.scryptSync(String(password),salt,64).toString("hex");
+  return salt+"$"+hash;
 }
-function validSession(req){
-  const s=cookies(req).fbi_tv_session;if(!s)return false;
-  const [payload,sig]=s.split(".");if(!payload||!sig)return false;
+function passwordVerify(password,stored){
   try{
-    const expected=crypto.createHmac("sha256",SESSION_SECRET).update(payload).digest("base64url");
-    if(sig.length!==expected.length||!crypto.timingSafeEqual(Buffer.from(sig),Buffer.from(expected)))return false;
-    const d=JSON.parse(Buffer.from(payload,"base64url").toString("utf8"));
-    return d.email===ADMIN_EMAIL&&Number(d.exp)>Date.now();
+    const [salt,hex]=String(stored||"").split("$");
+    if(!salt||!hex)return false;
+    const actual=crypto.scryptSync(String(password),salt,64);
+    const expected=Buffer.from(hex,"hex");
+    return actual.length===expected.length&&crypto.timingSafeEqual(actual,expected);
   }catch{return false}
 }
-function admin(req,res,next){if(!validSession(req))return res.status(401).json({error:"Unauthorised"});next()}
+function cookies(req){const out={};for(const p of String(req.headers.cookie||"").split(";")){const i=p.indexOf("=");if(i>0)out[p.slice(0,i).trim()]=decodeURIComponent(p.slice(i+1).trim())}return out}
+function signPayload(payload,purpose){
+  const body=Buffer.from(JSON.stringify({...payload,purpose})).toString("base64url");
+  const sig=crypto.createHmac("sha256",SESSION_SECRET).update(body).digest("base64url");
+  return body+"."+sig;
+}
+function readSigned(value,purpose){
+  const [body,sig]=String(value||"").split(".");
+  if(!body||!sig)return null;
+  try{
+    const expected=crypto.createHmac("sha256",SESSION_SECRET).update(body).digest("base64url");
+    if(sig.length!==expected.length||!crypto.timingSafeEqual(Buffer.from(sig),Buffer.from(expected)))return null;
+    const d=JSON.parse(Buffer.from(body,"base64url").toString("utf8"));
+    if(d.purpose!==purpose||Number(d.exp)<=Date.now())return null;
+    return d;
+  }catch{return null}
+}
+function signSession(user){return signPayload({uid:user.id,email:user.email,exp:Date.now()+7*86400000},"session")}
+function signReset(user){return signPayload({uid:user.id,email:user.email,exp:Date.now()+10*60*1000,nonce:crypto.randomBytes(12).toString("hex")},"reset")}
+function setSession(res,user){res.setHeader("Set-Cookie","fbi_tv_session="+encodeURIComponent(signSession(user))+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800")}
+function clearSession(res){res.setHeader("Set-Cookie","fbi_tv_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0")}
+async function sessionUser(req){
+  const d=readSigned(cookies(req).fbi_tv_session,"session");
+  if(!d?.uid)return null;
+  const q=await pool.query("SELECT id,full_name,email,role,active FROM tv_admin_users WHERE id=$1 AND active=true",[d.uid]);
+  return q.rows[0]||null;
+}
+async function admin(req,res,next){
+  try{
+    const user=await sessionUser(req);
+    if(!user)return res.status(401).json({error:"Unauthorised"});
+    req.adminUser=user;
+    next();
+  }catch(e){
+    console.error("Auth middleware failed:",e);
+    res.status(500).json({error:"Authentication service unavailable"});
+  }
+}
+const SECURITY_QUESTIONS=[
+  "What was the name of your first school?",
+  "What city or town were you born in?",
+  "What was your childhood nickname?",
+  "What was the name of your first pet?",
+  "What was your favourite food growing up?",
+  "What was the name of your favourite teacher?"
+]
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 async function init(){
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS tv_admin_users(
+      id uuid PRIMARY KEY,
+      full_name text NOT NULL,
+      email text UNIQUE NOT NULL,
+      password_hash text NOT NULL,
+      q1 text NOT NULL,
+      a1_hash text NOT NULL,
+      q2 text NOT NULL,
+      a2_hash text NOT NULL,
+      q3 text NOT NULL,
+      a3_hash text NOT NULL,
+      role text NOT NULL DEFAULT 'admin',
+      active boolean NOT NULL DEFAULT true,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      last_login timestamptz
+    );
+    CREATE INDEX IF NOT EXISTS idx_tv_admin_users_email ON tv_admin_users(email);
     CREATE TABLE IF NOT EXISTS tv_streams(
       id uuid PRIMARY KEY,
       name text NOT NULL,
@@ -71,15 +133,94 @@ async function publicStream(tokenValue){
   return q.rows[0]||null;
 }
 
-app.post("/api/auth/login",async(req,res)=>{
-  const email=String(req.body.email||"").trim().toLowerCase();
-  const password=String(req.body.password||"");
-  if(!ADMIN_PASSWORD||email!==ADMIN_EMAIL||password!==ADMIN_PASSWORD)return res.status(401).json({error:"Invalid login"});
-  res.setHeader("Set-Cookie","fbi_tv_session="+encodeURIComponent(signSession(email))+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800");
-  res.json({ok:true});
+app.get("/api/auth/status",async(req,res)=>{
+  try{
+    const q=await pool.query("SELECT count(*)::int AS count FROM tv_admin_users WHERE active=true");
+    res.json({hasAdmin:Number(q.rows[0]?.count||0)>0,securityQuestions:SECURITY_QUESTIONS});
+  }catch(e){res.status(500).json({error:"Could not load account status"})}
 });
-app.get("/api/auth/me",(req,res)=>res.json({authenticated:validSession(req),email:validSession(req)?ADMIN_EMAIL:null}));
-app.post("/api/auth/logout",(req,res)=>{res.setHeader("Set-Cookie","fbi_tv_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0");res.json({ok:true})});
+app.post("/api/auth/register",async(req,res)=>{
+  try{
+    const fullName=String(req.body.fullName||"").trim();
+    const email=normalizeEmail(req.body.email);
+    const password=String(req.body.password||"");
+    const confirm=String(req.body.confirmPassword||"");
+    const questions=Array.isArray(req.body.questions)?req.body.questions:[];
+    const answers=Array.isArray(req.body.answers)?req.body.answers:[];
+    if(fullName.length<2)return res.status(400).json({error:"Enter the administrator's full name."});
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))return res.status(400).json({error:"Enter a valid email address."});
+    if(password.length<10)return res.status(400).json({error:"Password must be at least 10 characters."});
+    if(password!==confirm)return res.status(400).json({error:"Passwords do not match."});
+    if(questions.length!==3||answers.length!==3)return res.status(400).json({error:"Choose and answer all three security questions."});
+    if(new Set(questions).size!==3||questions.some(q=>!SECURITY_QUESTIONS.includes(String(q))))return res.status(400).json({error:"Choose three different security questions."});
+    if(answers.some(a=>normalizeAnswer(a).length<2))return res.status(400).json({error:"Each security answer must contain at least 2 characters."});
+    const count=await pool.query("SELECT count(*)::int AS count FROM tv_admin_users WHERE active=true");
+    if(Number(count.rows[0]?.count||0)>0)return res.status(403).json({error:"An administrator already exists. Ask an existing administrator to add another account."});
+    const id=uid();
+    const q=await pool.query("INSERT INTO tv_admin_users(id,full_name,email,password_hash,q1,a1_hash,q2,a2_hash,q3,a3_hash,role) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'admin') RETURNING id,full_name,email,role",
+      [id,fullName,email,passwordHash(password),questions[0],passwordHash(normalizeAnswer(answers[0])),questions[1],passwordHash(normalizeAnswer(answers[1])),questions[2],passwordHash(normalizeAnswer(answers[2]))]);
+    const user=q.rows[0];
+    setSession(res,user);
+    res.status(201).json({ok:true,user});
+  }catch(e){
+    if(e?.code==="23505")return res.status(409).json({error:"An account with that email already exists."});
+    console.error("Admin registration failed:",e);
+    res.status(500).json({error:"Could not create administrator account."});
+  }
+});
+app.post("/api/auth/login",async(req,res)=>{
+  try{
+    const email=normalizeEmail(req.body.email);
+    const password=String(req.body.password||"");
+    const q=await pool.query("SELECT * FROM tv_admin_users WHERE email=$1 AND active=true LIMIT 1",[email]);
+    const user=q.rows[0];
+    if(!user||!passwordVerify(password,user.password_hash))return res.status(401).json({error:"Invalid email or password."});
+    await pool.query("UPDATE tv_admin_users SET last_login=now() WHERE id=$1",[user.id]);
+    setSession(res,user);
+    res.json({ok:true,user:{id:user.id,full_name:user.full_name,email:user.email,role:user.role}});
+  }catch(e){console.error("Login failed:",e);res.status(500).json({error:"Could not sign in."})}
+});
+app.post("/api/auth/forgot/start",async(req,res)=>{
+  try{
+    const email=normalizeEmail(req.body.email);
+    const q=await pool.query("SELECT id,email,q1,q2,q3 FROM tv_admin_users WHERE email=$1 AND active=true LIMIT 1",[email]);
+    if(!q.rowCount)return res.status(404).json({error:"No active FBI TV administrator account was found for that email."});
+    const u=q.rows[0];
+    res.json({ok:true,resetToken:signReset(u),questions:[u.q1,u.q2,u.q3]});
+  }catch(e){console.error("Password recovery start failed:",e);res.status(500).json({error:"Could not start password recovery."})}
+});
+app.post("/api/auth/forgot/reset",async(req,res)=>{
+  try{
+    const d=readSigned(req.body.resetToken,"reset");
+    if(!d?.uid)return res.status(400).json({error:"This password recovery session has expired. Start again."});
+    const answers=Array.isArray(req.body.answers)?req.body.answers:[];
+    const password=String(req.body.password||"");
+    const confirm=String(req.body.confirmPassword||"");
+    if(answers.length!==3)return res.status(400).json({error:"Answer all three security questions."});
+    if(password.length<10)return res.status(400).json({error:"New password must be at least 10 characters."});
+    if(password!==confirm)return res.status(400).json({error:"Passwords do not match."});
+    const q=await pool.query("SELECT id,email,q1,a1_hash,q2,a2_hash,q3,a3_hash,full_name,role FROM tv_admin_users WHERE id=$1 AND active=true LIMIT 1",[d.uid]);
+    if(!q.rowCount)return res.status(400).json({error:"Administrator account not found."});
+    const u=q.rows[0];
+    const ok=[
+      passwordVerify(normalizeAnswer(answers[0]),u.a1_hash),
+      passwordVerify(normalizeAnswer(answers[1]),u.a2_hash),
+      passwordVerify(normalizeAnswer(answers[2]),u.a3_hash)
+    ].every(Boolean);
+    if(!ok)return res.status(401).json({error:"One or more security answers are incorrect."});
+    await pool.query("UPDATE tv_admin_users SET password_hash=$1 WHERE id=$2",[passwordHash(password),u.id]);
+    const user={id:u.id,email:u.email,full_name:u.full_name,role:u.role};
+    setSession(res,user);
+    res.json({ok:true,user});
+  }catch(e){console.error("Password reset failed:",e);res.status(500).json({error:"Could not reset the password."})}
+});
+app.get("/api/auth/me",async(req,res)=>{
+  try{
+    const user=await sessionUser(req);
+    res.json({authenticated:!!user,user:user||null});
+  }catch(e){res.status(500).json({error:"Could not verify session"})}
+});
+app.post("/api/auth/logout",(req,res)=>{clearSession(res);res.json({ok:true})});
 
 app.get("/api/streams",admin,async(req,res)=>{
   const q=await pool.query("SELECT * FROM tv_streams ORDER BY updated_at DESC");
