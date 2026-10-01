@@ -2,6 +2,8 @@ const express=require("express");
 const crypto=require("crypto");
 const path=require("path");
 const {Pool}=require("pg");
+const {spawn}=require("child_process");
+const ffmpegPath=require("ffmpeg-static");
 
 const app=express();
 app.use(express.json({limit:"1mb"}));
@@ -14,6 +16,95 @@ const MEDIA_BASE=(process.env.MEDIA_BASE_URL||"").replace(/\/+$/,"");
 const RTMP_HOST=process.env.RTMP_HOST||"";
 const RTMP_PORT=Number(process.env.RTMP_PORT||1935);
 const pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:false});
+
+const MEDIA_RTMP_INTERNAL=String(process.env.MEDIA_RTMP_INTERNAL||"rtmp://fbi-tv-media:1935").replace(/\/+$/,"");
+const tvTranscoders=new Map();
+
+function encodedPublishUrl(key){
+  const clean=encodeURIComponent(String(key||""));
+  const u=new URL(MEDIA_RTMP_INTERNAL);
+  u.pathname="/encoded/"+clean;
+  u.username="fbi";
+  u.password=String(key||"");
+  return u.toString();
+}
+function inputRtmpUrl(key){
+  const u=new URL(MEDIA_RTMP_INTERNAL);
+  u.pathname="/live/"+encodeURIComponent(String(key||""));
+  u.username="";
+  u.password="";
+  return u.toString();
+}
+function stopTvTranscoder(id){
+  const entry=tvTranscoders.get(String(id));
+  if(!entry)return;
+  try{entry.proc.kill("SIGINT")}catch{}
+  tvTranscoders.delete(String(id));
+}
+function startTvTranscoder(row,delay=0){
+  if(!row||!row.id||!row.stream_key||!row.enabled)return;
+  const id=String(row.id);
+  if(tvTranscoders.has(id))return;
+  if(!ffmpegPath){
+    console.error("FFmpeg static binary is unavailable; cannot normalize stream",id);
+    return;
+  }
+  const launch=()=>{
+    if(tvTranscoders.has(id))return;
+    const key=String(row.stream_key);
+    const input=inputRtmpUrl(key);
+    const output=encodedPublishUrl(key);
+    const args=[
+      "-hide_banner","-loglevel","warning",
+      "-i",input,
+      "-map","0:v:0",
+      "-map","0:a:0?",
+      "-c:v","libx264",
+      "-preset","ultrafast",
+      "-tune","zerolatency",
+      "-pix_fmt","yuv420p",
+      "-profile:v","main",
+      "-level","4.1",
+      "-r","30",
+      "-g","60",
+      "-keyint_min","60",
+      "-sc_threshold","0",
+      "-b:v","5M",
+      "-maxrate","6M",
+      "-bufsize","10M",
+      "-c:a","aac",
+      "-b:a","128k",
+      "-ar","48000",
+      "-ac","2",
+      "-f","flv",
+      output
+    ];
+    console.log("Starting FBI TV H264 normalizer for",id);
+    const proc=spawn(ffmpegPath,args,{stdio:["ignore","pipe","pipe"]});
+    const entry={proc,key,startedAt:Date.now(),restartTimer:null};
+    tvTranscoders.set(id,entry);
+    proc.stdout.on("data",()=>{});
+    proc.stderr.on("data",buf=>{
+      const msg=String(buf||"").trim();
+      if(msg)console.error("FBI TV normalizer",id,msg);
+    });
+    proc.on("error",err=>{
+      console.error("FBI TV normalizer process error",id,err?.message||err);
+    });
+    proc.on("exit",(code,signal)=>{
+      if(tvTranscoders.get(id)?.proc===proc)tvTranscoders.delete(id);
+      console.log("FBI TV H264 normalizer stopped",id,"code",code,"signal",signal||"");
+      setTimeout(async()=>{
+        try{
+          const q=await pool.query("SELECT * FROM tv_streams WHERE id=$1 AND enabled=true",[id]);
+          if(q.rowCount&&String(q.rows[0].status)==="live")startTvTranscoder(q.rows[0],0);
+        }catch(e){console.error("Normalizer restart check failed",id,e?.message||e)}
+      },1500);
+    });
+  };
+  if(delay>0)setTimeout(launch,delay);else launch();
+}
+
 
 function uid(){return crypto.randomUUID()}
 function token(n=24){return crypto.randomBytes(n).toString("base64url")}
@@ -245,22 +336,19 @@ function hlsBackends(){
 }
 async function fetchPlayback(base,key,sub){
   const clean=String(sub||"index.m3u8").replace(/^\/+?/,"");
-  const paths=["encoded/"+String(key||""), "live/"+String(key||"")];
-  let last=null;
-  for(const sourcePath of paths){
-    const url=new URL(base+"/"+sourcePath+(clean?"/"+clean:""));
-    try{
-      const r=await fetch(url,{cache:"no-store",redirect:"follow"});
-      if(r.ok)return {response:r,sourcePath,backend:base};
-      last=r;
-      if(r.status!==404&&r.status!==401&&r.status!==403)break;
-    }catch(e){last=e}
+  const sourcePath="encoded/"+String(key||"");
+  const url=new URL(base+"/"+sourcePath+(clean?"/"+clean:""));
+  try{
+    const r=await fetch(url,{cache:"no-store",redirect:"follow"});
+    return {response:r,sourcePath,backend:base};
+  }catch(e){
+    return null;
   }
-  if(last instanceof Response)return {response:last,sourcePath:paths[paths.length-1],backend:base};
-  return null;
 }
-async function checkBackendLive(base,key){
-  const probes=["encoded/"+String(key||""),"live/"+String(key||"")];
+async function checkBackendLive(base,key,mode="both"){
+  const probes=mode==="live"
+    ? ["live/"+String(key||"")]
+    : ["encoded/"+String(key||""),"live/"+String(key||"")];
   for(const sourcePath of probes){
     try{
       const r=await fetch(base+"/"+sourcePath+"/index.m3u8",{cache:"no-store"});
@@ -274,7 +362,12 @@ async function checkBackendLive(base,key){
 async function refreshStreamStatusRow(row){
   let live=false;
   for(const base of hlsBackends()){
-    if(await checkBackendLive(base,row.stream_key)){live=true;break;}
+    if(await checkBackendLive(base,row.stream_key,"live")){live=true;break;}
+  }
+  if(live){
+    startTvTranscoder(row,500);
+  }else{
+    stopTvTranscoder(row.id);
   }
   if(live!==String(row.status||"offline")==="live"){
     await pool.query("UPDATE tv_streams SET status=$1,updated_at=now() WHERE id=$2",[live?"live":"offline",row.id]);
@@ -448,11 +541,19 @@ app.post("/api/mediamtx/auth",async(req,res)=>{
 
     if(action==="publish"){
       if(!stream.enabled)return res.status(403).end();
-      if(!isExactPublishPath && !(isStreamDescendant && (presentedPassword===stream.stream_key || presentedToken===stream.stream_key))) {
-        return res.status(403).end();
+      const isEncodedPublish=pathValue==="encoded/"+stream.stream_key;
+      if(isExactPublishPath){
+        await pool.query("UPDATE tv_streams SET status='live',updated_at=now() WHERE id=$1",[stream.id]);
+        startTvTranscoder(stream,700);
+        return res.status(200).end();
       }
-      await pool.query("UPDATE tv_streams SET status='live',updated_at=now() WHERE id=$1",[stream.id]);
-      return res.status(200).end();
+      if(isEncodedPublish && presentedPassword===stream.stream_key){
+        return res.status(200).end();
+      }
+      if(isStreamDescendant && (presentedPassword===stream.stream_key || presentedToken===stream.stream_key)){
+        return res.status(200).end();
+      }
+      return res.status(403).end();
     }
 
     if(action==="read"||action==="playback"){
