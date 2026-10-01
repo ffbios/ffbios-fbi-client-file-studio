@@ -572,7 +572,7 @@ async function proxyTvHlsStream(req,res,opts){
         }
         if(trimmed[0]==="#")return line;
         return proxyUri(trimmed);
-      }).join("\\n");
+      }).join("\n");
       body=Buffer.from(textBody,"utf8");
       if(session){
         res.setHeader("Set-Cookie",cookieName+"="+encodeURIComponent(session)+"; Path="+proxyBase.replace(/index\.m3u8$/,"")+"; HttpOnly; Secure; SameSite=Lax; Max-Age=1800");
