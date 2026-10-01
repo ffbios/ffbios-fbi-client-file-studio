@@ -878,23 +878,85 @@ async function proxyHlsStream(req,res){
     const q=await pool.query("SELECT * FROM streams WHERE id=$1 AND enabled=true",[id]);
     if(!q.rowCount)return res.status(404).end();
     const row=q.rows[0];
+
     const internalBase=(process.env.STREAM_HLS_INTERNAL||"http://fbi-live-ingest:8888").replace(/\/+$/,"");
     let sub=String(req.path||"/").replace(/^\/+/, "");
-    // Normalize requests from older cached player builds that appended
-    // index.m3u8 twice.
+    // Accept URLs emitted by older cached players.
     if(/^index\.m3u8\/index\.m3u8$/i.test(sub))sub="index.m3u8";
+    else if(/^index\.m3u8\//i.test(sub))sub=sub.slice("index.m3u8/".length);
+
     const upstreamPath="encoded/"+String(row.stream_key||"");
     const upstream=new URL(internalBase+"/"+upstreamPath+(sub?"/"+sub:""));
+
     for(const [k,v] of Object.entries(req.query||{}))upstream.searchParams.append(k,String(v));
-    // For the HLS multivariant playlist, prime MediaMTX's query-based
-    // session mode. Node's fetch does not persist Set-Cookie across requests,
-    // so MediaMTX places the session ID in the returned child playlist URLs.
-    if(!sub || sub==="index.m3u8")upstream.searchParams.set("cookieCheck","1");
+
+    const incomingCookies=String(req.headers.cookie||"");
+    const proxySession=(incomingCookies.match(/(?:^|;\s*)fbi_hls_session=([^;]+)/)||[])[1]||"";
+    if(proxySession&&!upstream.searchParams.has("session"))upstream.searchParams.set("session",proxySession);
+
+    // The first HLS request is intentionally made without MediaMTX's cookie.
+    // cookieCheck=1 forces MediaMTX to emit a query-based HLS session.
+    if(sub==="index.m3u8"&&!upstream.searchParams.has("session"))upstream.searchParams.set("cookieCheck","1");
+
     const response=await fetch(upstream,{redirect:"follow",cache:"no-store"});
     const type=response.headers.get("content-type")||"application/octet-stream";
-    const body=Buffer.from(await response.arrayBuffer());
+    let body=Buffer.from(await response.arrayBuffer());
     if(!response.ok)return res.status(response.status).type(type).send(body);
-    res.status(200).set("Cache-Control",type.includes("mpegurl")?"no-store, no-cache, must-revalidate":"no-cache").type(type).send(body);
+
+    if(type.toLowerCase().includes("mpegurl")){
+      let textBody=body.toString("utf8");
+      let session="";
+      const setCookies=typeof response.headers.getSetCookie==="function"
+        ? response.headers.getSetCookie()
+        : String(response.headers.get("set-cookie")||"").split(/,(?=\s*\w+=)/);
+      for(const sc of setCookies){
+        const m=String(sc).match(/(?:^|;\s*)hlsSession=([^;]+)/i);
+        if(m){session=m[1];break;}
+      }
+      session=session||upstream.searchParams.get("session")||"";
+
+      function proxyUri(raw){
+        const value=String(raw||"").trim();
+        if(!value)return value;
+        try{
+          const absolute=/^https?:\/\//i.test(value)?new URL(value):null;
+          let pathname=absolute?absolute.pathname:value.split("?")[0];
+          let query=absolute?absolute.search:value.includes("?")?"?"+value.split("?").slice(1).join("?"):"";
+          const marker="/"+upstreamPath+"/";
+          const markerIndex=pathname.indexOf(marker);
+          if(markerIndex>=0)pathname=pathname.slice(markerIndex+marker.length);
+          pathname=pathname.replace(/^\/+/,"");
+          const proxyBase="/api/streams/"+encodeURIComponent(id)+"/hls/";
+          const url=proxyBase+pathname;
+          const sp=new URLSearchParams(query.replace(/^\?/,""));
+          if(session&&!sp.has("session"))sp.set("session",session);
+          const suffix=sp.toString();
+          return url+(suffix?"?"+suffix:"");
+        }catch{
+          return value;
+        }
+      }
+
+      textBody=textBody.split(/\r?\n/).map(function(line){
+        const trimmed=line.trim();
+        if(!trimmed)return line;
+        if(/^#EXT-X-(?:MEDIA|I-FRAME-STREAM-INF|MAP):/i.test(trimmed)){
+          return line.replace(/URI="([^"]+)"/gi,function(_,uri){return 'URI="'+proxyUri(uri)+'"';});
+        }
+        if(trimmed[0]==="#")return line;
+        return proxyUri(trimmed);
+      }).join("\n");
+      body=Buffer.from(textBody,"utf8");
+
+      if(session){
+        res.setHeader("Set-Cookie","fbi_hls_session="+encodeURIComponent(session)+"; Path=/api/streams/"+encodeURIComponent(id)+"/hls; HttpOnly; Secure; SameSite=Lax; Max-Age=1800");
+      }
+    }
+
+    res.status(200)
+      .set("Cache-Control",type.toLowerCase().includes("mpegurl")?"no-store, no-cache, must-revalidate":"no-cache")
+      .type(type)
+      .send(body);
   }catch(e){
     console.error("HLS proxy error:",e?.stack||e);
     res.status(502).json({error:"Live stream playback proxy unavailable."});
