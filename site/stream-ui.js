@@ -61,13 +61,13 @@
       if(!H||!H.isSupported())throw new Error("This browser does not support HLS playback.");
       const hls=new H({
         enableWorker:true,
-        lowLatencyMode:true,
+        lowLatencyMode:false,
         liveSyncDurationCount:3,
         liveMaxLatencyDurationCount:6,
-        maxLiveSyncPlaybackRate:1.25,
-        maxBufferLength:15,
-        maxMaxBufferLength:30,
-        backBufferLength:60,
+        maxLiveSyncPlaybackRate:1.15,
+        maxBufferLength:30,
+        maxMaxBufferLength:60,
+        backBufferLength:90,
         capLevelToPlayerSize:true,
         startLevel:-1
       });
