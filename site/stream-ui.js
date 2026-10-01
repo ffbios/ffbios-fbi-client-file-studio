@@ -62,10 +62,12 @@
       const hls=new H({
         enableWorker:true,
         lowLatencyMode:true,
-        liveSyncDurationCount:2,
-        liveMaxLatencyDurationCount:4,
-        maxLiveSyncPlaybackRate:1.5,
-        backBufferLength:30,
+        liveSyncDurationCount:3,
+        liveMaxLatencyDurationCount:6,
+        maxLiveSyncPlaybackRate:1.25,
+        maxBufferLength:15,
+        maxMaxBufferLength:30,
+        backBufferLength:60,
         capLevelToPlayerSize:true,
         startLevel:-1
       });
@@ -75,8 +77,8 @@
         try{hls.destroy()}catch{}
         video.__hls=null;
         const note=document.querySelector("#streamPlayerStatus");
-        if(note)note.textContent="Playback reconnecting…";
-        setTimeout(function(){window.mountStudioStreamPlayer(video,url)},1200);
+        if(note)note.textContent="Live playback reconnecting…";
+        setTimeout(function(){window.mountStudioStreamPlayer(video,url)},1800);
       });
       hls.on(H.Events.MANIFEST_PARSED,function(){video.play().catch(function(){})});
       hls.loadSource(url);
