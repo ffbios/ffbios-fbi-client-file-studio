@@ -28,21 +28,13 @@ hlsVariant: mpegts
 hlsSegmentCount: 6
 hlsSegmentDuration: 2s
 
-# Normalize incoming RTMP feeds to a browser-safe H.264/AAC stream.
-# MediaMTX starts this encoder when a live input becomes available.
+# The existing browser-safe H.264/AAC stream remains the primary feed.
+# An additive FFmpeg ladder publishes separate quality renditions under
+# quality/<height>/<stream-key> for viewer-selectable HLS playback.
 paths:
   ~^live/(.+)$:
     runOnReady: >
-      ffmpeg -hide_banner -loglevel warning
-      -i rtmp://127.0.0.1:1935/$MTX_PATH
-      -map 0:v:0
-      -map 0:a:0?
-      -c:v libx264 -preset ultrafast -tune zerolatency
-      -pix_fmt yuv420p -profile:v main -level 4.1
-      -r 30 -g 60 -keyint_min 60 -sc_threshold 0
-      -b:v 5M -maxrate 6M -bufsize 10M
-      -c:a aac -b:a 128k -ar 48000 -ac 2
-      -f flv rtmp://127.0.0.1:1935/encoded/$G1
+      /usr/local/bin/fbi-live-encode "$MTX_PATH" "$G1"
     runOnReadyRestart: yes
 
   all_others:
