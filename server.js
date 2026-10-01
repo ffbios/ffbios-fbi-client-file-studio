@@ -880,7 +880,10 @@ async function proxyHlsStream(req,res){
     if(!q.rowCount)return res.status(404).end();
     const row=q.rows[0];
     const internalBase=(process.env.STREAM_HLS_INTERNAL||"http://fbi-live-ingest:8888").replace(/\/+$/,"");
-    const sub=String(req.path||"/").replace(/^\/+/,"");
+        let sub=String(req.path||"/").replace(/^\/+/, "");
+    // Normalize requests from older cached player builds that appended
+    // index.m3u8 twice.
+    sub=sub.replace(/\/index\.m3u8\/index\.m3u8$/i,"/index.m3u8");
     const upstreamPath="encoded/"+String(row.stream_key||"");
     const upstream=new URL(internalBase+"/"+upstreamPath+(sub?"/"+sub:""));
     for(const [k,v] of Object.entries(req.query||{}))upstream.searchParams.append(k,String(v));
