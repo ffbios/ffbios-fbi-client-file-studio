@@ -230,29 +230,70 @@ app.get("/api/auth/me",async(req,res)=>{
 app.post("/api/auth/logout",(req,res)=>{clearSession(res);res.json({ok:true})});
 
 
-async function refreshStreamStatusRow(row){
-  let live=String(row.status||"offline")==="live";
-  if(MEDIA_BASE){
-    try{
-      const probe=await fetch(MEDIA_BASE+"/live/"+encodeURIComponent(row.stream_key)+"/index.m3u8",{cache:"no-store"});
-      live=probe.ok;
-    }catch(_e){live=false}
+function hlsBackends(){
+  const raw=[
+    "http://fbi-tv-live-ingest:8888",
+    process.env.STREAM_HLS_INTERNAL||"",
+    MEDIA_BASE
+  ];
+  const out=[];
+  for(const v of raw){
+    const x=String(v||"").replace(/\\/+$/,"");
+    if(x&&!out.includes(x))out.push(x);
   }
-  if(live!==("".concat(row.status)==="live")){
+  return out;
+}
+async function fetchPlayback(base,key,sub){
+  const clean=String(sub||"index.m3u8").replace(/^\\/+?/,"");
+  const paths=["encoded/"+String(key||""), "live/"+String(key||"")];
+  let last=null;
+  for(const sourcePath of paths){
+    const url=new URL(base+"/"+sourcePath+(clean?"/"+clean:""));
+    try{
+      const r=await fetch(url,{cache:"no-store",redirect:"follow"});
+      if(r.ok)return {response:r,sourcePath,backend:base};
+      last=r;
+      if(r.status!==404&&r.status!==401&&r.status!==403)break;
+    }catch(e){last=e}
+  }
+  if(last instanceof Response)return {response:last,sourcePath:paths[paths.length-1],backend:base};
+  return null;
+}
+async function checkBackendLive(base,key){
+  const probes=["encoded/"+String(key||""),"live/"+String(key||"")];
+  for(const sourcePath of probes){
+    try{
+      const r=await fetch(base+"/"+sourcePath+"/index.m3u8",{cache:"no-store"});
+      if(!r.ok)continue;
+      const t=await r.text();
+      if(/#EXTM3U/.test(t))return true;
+    }catch{}
+  }
+  return false;
+}
+async function refreshStreamStatusRow(row){
+  let live=false;
+  for(const base of hlsBackends()){
+    if(await checkBackendLive(base,row.stream_key)){live=true;break;}
+  }
+  if(live!==String(row.status||"offline")==="live"){
     await pool.query("UPDATE tv_streams SET status=$1,updated_at=now() WHERE id=$2",[live?"live":"offline",row.id]);
   }
   return {...row,status:live?"live":"offline"};
 }
 function streamView(row, req, programId, previewId){
   const base=process.env.PUBLIC_BASE_URL||req.protocol+"://"+req.get("host");
+  const publicHls="/api/public/watch/"+encodeURIComponent(row.viewer_token)+"/hls/index.m3u8";
+  const adminHls="/api/streams/"+encodeURIComponent(row.id)+"/hls/index.m3u8";
   return {
     id:row.id,name:row.name,title:row.title,description:row.description,stream_key:row.stream_key,
     enabled:row.enabled,shared:row.shared,record_enabled:row.record_enabled,status:row.status,
     current_viewers:Number(row.current_viewers||0),total_viewers:Number(row.total_viewers||0),
     rtmp_server:rtmpServer(),
     rtmp_url:rtmpServer()?rtmpServer()+"/"+row.stream_key:"",
-    hls_url:"/api/public/watch/"+encodeURIComponent(row.viewer_token)+"/hls/index.m3u8",
-    preview_url:"/api/public/watch/"+encodeURIComponent(row.viewer_token)+"/hls/index.m3u8",
+    hls_url:adminHls,
+    preview_url:adminHls,
+    public_hls_url:publicHls,
     viewer_url:base+"/watch/"+row.viewer_token,
     live_url:base+"/live/"+row.id,
     is_program:String(programId||"")===String(row.id),
@@ -385,72 +426,158 @@ app.post("/api/mcr/program",admin,async(req,res)=>{
 });
 
 app.post("/api/mediamtx/auth",async(req,res)=>{
-  const action=String(req.body.action||"");
-  const pathValue=String(req.body.path||"");
-  const key=pathValue.split("/").filter(Boolean).pop()||"";
-  if(action==="publish"){
-    const q=await pool.query("SELECT id FROM tv_streams WHERE stream_key=$1 AND enabled=true",[key]);
-    if(!q.rowCount)return res.status(401).end();
-    await pool.query("UPDATE tv_streams SET status='live',updated_at=now() WHERE id=$1",[q.rows[0].id]);
-    return res.status(200).end();
+  try{
+    const action=String(req.body.action||"");
+    const pathValue=String(req.body.path||"").replace(/^\\/+|\\/+$/g,"");
+    const parts=pathValue.split("/").filter(Boolean);
+    const key=(parts[0]==="live"||parts[0]==="encoded")?String(parts[1]||""):"";
+    if(!key)return res.status(401).end();
+    const q=await pool.query("SELECT * FROM tv_streams WHERE stream_key=$1 AND enabled=true LIMIT 1",[key]);
+    if(!q.rowCount)return res.status(403).end();
+    const stream=q.rows[0];
+    if(action==="publish"){
+      const exactLivePath=pathValue==="live/"+stream.stream_key;
+      const presentedPassword=String(req.body.password||"");
+      const presentedToken=String(req.body.token||"");
+      if(!exactLivePath || (!stream.enabled && !stream.shared) || (presentedPassword!==stream.stream_key && presentedToken!==stream.stream_key))return res.status(403).end();
+      await pool.query("UPDATE tv_streams SET status='live',updated_at=now() WHERE id=$1",[stream.id]);
+      return res.status(200).end();
+    }
+    if(action==="read"||action==="playback"){
+      if(!stream.enabled||!stream.shared)return res.status(403).end();
+      return res.status(200).end();
+    }
+    if(action==="api"||action==="metrics"||action==="pprof")return res.status(200).end();
+    return res.status(403).end();
+  }catch(e){
+    console.error("MediaMTX auth failed:",e);
+    res.status(500).end();
   }
-  if(action==="read"){
-    const q=await pool.query("SELECT id FROM tv_streams WHERE stream_key=$1 AND enabled=true AND shared=true",[key]);
-    if(q.rowCount)return res.status(200).end();
-    return res.status(401).end();
-  }
-  return res.status(401).end();
 });
 
 app.get("/api/public/watch/:token/status",async(req,res)=>{
-  const s=await publicStream(req.params.token);if(!s)return res.status(404).json({error:"Watch link is invalid or disabled."});
-  let live=String(s.status||"offline")==="live";
-  if(MEDIA_BASE){
-    try{
-      const probe=await fetch(MEDIA_BASE+"/live/"+encodeURIComponent(s.stream_key)+"/index.m3u8",{cache:"no-store"});
-      const actual=probe.ok;
-      if(actual!==live){
-        await pool.query("UPDATE tv_streams SET status=$1,updated_at=now() WHERE id=$2",[actual?"live":"offline",s.id]);
-        live=actual;
-      }
-    }catch(_e){}
+  const s=await publicStream(req.params.token);
+  if(!s)return res.status(404).json({error:"Watch link is invalid or disabled."});
+  let live=false;
+  for(const base of hlsBackends()){
+    if(await checkBackendLive(base,s.stream_key)){live=true;break;}
+  }
+  if(live!==("".concat(s.status)==="live")){
+    await pool.query("UPDATE tv_streams SET status=$1,updated_at=now() WHERE id=$2",[live?"live":"offline",s.id]).catch(()=>{});
   }
   res.json({live,title:s.title,name:s.name,current_viewers:Number(s.current_viewers||0),hls_url:hlsProxyBase(req.params.token)});
 });
-app.get("/api/public/watch/:token/hls/:file",async(req,res)=>{
-  const s=await publicStream(req.params.token);if(!s)return res.status(404).end();
-  if(!MEDIA_BASE)return res.status(503).end();
-  const target=MEDIA_BASE+"/live/"+encodeURIComponent(s.stream_key)+"/"+req.params.file;
+
+async function proxyTvHlsStream(req,res,opts){
   try{
-    const upstream=await fetch(target);
-    if(!upstream.ok)return res.status(upstream.status).end();
-    const type=upstream.headers.get("content-type")||"application/octet-stream";
-    const body=await upstream.text();
-    if(/mpegurl|vnd\.apple\.mpegurl/i.test(type)){
-      const base="/api/public/watch/"+encodeURIComponent(req.params.token)+"/hls/";
-      const rewritten=body.split("\n").map(line=>{
-        const t=line.trim();if(!t||t.startsWith("#"))return line;
-        if(/^https?:\/\//i.test(t))return t.replace(MEDIA_BASE,base);
-        return base+t;
-      }).join("\n");
-      res.setHeader("Content-Type",type);return res.send(rewritten);
+    const id=opts.id?String(opts.id):"";
+    const tokenValue=opts.token?String(opts.token):"";
+    let row=null;
+    if(id){
+      const q=await pool.query("SELECT * FROM tv_streams WHERE id=$1 AND enabled=true",[id]);
+      if(!q.rowCount)return res.status(404).end();
+      row=q.rows[0];
+    }else{
+      row=await publicStream(tokenValue);
+      if(!row)return res.status(404).end();
     }
-    res.setHeader("Content-Type",type);return res.send(body);
-  }catch(e){res.status(502).end()}
+
+    let sub=String(req.path||"/").replace(/^\\/+?/,"");
+    if(/^index\\.m3u8\\/index\\.m3u8$/i.test(sub))sub="index.m3u8";
+    else if(/^index\\.m3u8\\//i.test(sub))sub=sub.slice("index.m3u8/".length);
+
+    const cookieName=opts.cookieName;
+    const proxyBase=opts.proxyBase;
+    const incomingCookies=String(req.headers.cookie||"");
+    const cookiePattern=new RegExp("(?:^|;\\s*)"+cookieName+"=([^;]+)");
+    const rawSession=(incomingCookies.match(cookiePattern)||[])[1]||"";
+    const proxySession=rawSession?decodeURIComponent(rawSession):"";
+
+    let selected=null;
+    let lastResponse=null;
+    for(const base of hlsBackends()){
+      const got=await fetchPlayback(base,row.stream_key,sub);
+      if(!got)continue;
+      selected=got;
+      lastResponse=got.response;
+      if(got.response.ok)break;
+      if(got.response.status!==404&&got.response.status!==401&&got.response.status!==403)break;
+    }
+    if(!selected||!lastResponse)return res.status(502).json({error:"Live stream playback unavailable."});
+
+    const sourcePath=selected.sourcePath;
+    const upstream=new URL(selected.backend+"/"+sourcePath+(sub?"/"+sub:""));
+    if(proxySession&&!upstream.searchParams.has("session"))upstream.searchParams.set("session",proxySession);
+    if(sub==="index.m3u8"&&!upstream.searchParams.has("session"))upstream.searchParams.set("cookieCheck","1");
+    const response=await fetch(upstream,{redirect:"follow",cache:"no-store"});
+    const type=response.headers.get("content-type")||"application/octet-stream";
+    let body=Buffer.from(await response.arrayBuffer());
+    if(!response.ok)return res.status(response.status).type(type).send(body);
+
+    if(type.toLowerCase().includes("mpegurl")){
+      let textBody=body.toString("utf8");
+      let session="";
+      const setCookies=typeof response.headers.getSetCookie==="function"
+        ? response.headers.getSetCookie()
+        : String(response.headers.get("set-cookie")||"").split(/,(?=\\s*\\w+=)/);
+      for(const sc of setCookies){
+        const m=String(sc).match(/(?:^|;\\s*)hlsSession=([^;]+)/i);
+        if(m){session=m[1];break;}
+      }
+      session=session||upstream.searchParams.get("session")||"";
+
+      const proxyUri=(raw)=>{
+        const value=String(raw||"").trim();
+        if(!value)return value;
+        try{
+          const absolute=/^https?:\\/\\//i.test(value)?new URL(value):null;
+          let pathname=absolute?absolute.pathname:value.split("?")[0];
+          let query=absolute?absolute.search:(value.includes("?")?"?"+value.split("?").slice(1).join("?"):"");
+          const marker="/"+sourcePath+"/";
+          const markerIndex=pathname.indexOf(marker);
+          if(markerIndex>=0)pathname=pathname.slice(markerIndex+marker.length);
+          pathname=pathname.replace(/^\\/+?/,"");
+          const url=proxyBase+pathname;
+          const sp=new URLSearchParams(query.replace(/^\\?/,""));
+          if(session&&!sp.has("session"))sp.set("session",session);
+          const suffix=sp.toString();
+          return url+(suffix?"?"+suffix:"");
+        }catch{return value}
+      };
+
+      textBody=textBody.split(/\\r?\\n/).map(line=>{
+        const trimmed=line.trim();
+        if(!trimmed)return line;
+        if(/^#EXT-X-(?:MEDIA|I-FRAME-STREAM-INF|MAP):/i.test(trimmed)){
+          return line.replace(/URI="([^"]+)"/gi,(_,uri)=>'URI="'+proxyUri(uri)+'"');
+        }
+        if(trimmed[0]==="#")return line;
+        return proxyUri(trimmed);
+      }).join("\\n");
+      body=Buffer.from(textBody,"utf8");
+      if(session){
+        res.setHeader("Set-Cookie",cookieName+"="+encodeURIComponent(session)+"; Path="+proxyBase.replace(/index\\.m3u8$/,"")+"; HttpOnly; Secure; SameSite=Lax; Max-Age=1800");
+      }
+    }
+
+    res.status(200)
+      .set("Cache-Control",type.toLowerCase().includes("mpegurl")?"no-store, no-cache, must-revalidate":"no-cache")
+      .type(type)
+      .send(body);
+  }catch(e){
+    console.error("TV HLS proxy error:",e?.stack||e);
+    res.status(502).json({error:"Live stream playback proxy unavailable."});
+  }
+}
+
+app.use("/api/streams/:id/hls",admin,async(req,res)=>{
+  const id=String(req.params.id||"");
+  await proxyTvHlsStream(req,res,{id,cookieName:"fbi_hls_session",proxyBase:"/api/streams/"+encodeURIComponent(id)+"/hls/"});
 });
 
-// generic HLS asset proxy for segment paths such as .m4s or .ts
-app.get("/api/public/watch/:token/hls/*asset",async(req,res)=>{
-  const s=await publicStream(req.params.token);if(!s||!MEDIA_BASE)return res.status(404).end();
-  const asset=Array.isArray(req.params.asset)?req.params.asset.join("/") : String(req.params.asset||"");
-  const target=MEDIA_BASE+"/live/"+encodeURIComponent(s.stream_key)+"/"+asset;
-  try{
-    const upstream=await fetch(target);
-    if(!upstream.ok)return res.status(upstream.status).end();
-    const ab=Buffer.from(await upstream.arrayBuffer());
-    res.setHeader("Content-Type",upstream.headers.get("content-type")||"application/octet-stream");
-    res.send(ab);
-  }catch(e){res.status(502).end()}
+app.use("/api/public/watch/:token/hls",async(req,res)=>{
+  const tokenValue=String(req.params.token||"");
+  await proxyTvHlsStream(req,res,{token:tokenValue,cookieName:"fbi_public_hls_session",proxyBase:"/api/public/watch/"+encodeURIComponent(tokenValue)+"/hls/"});
 });
 
 app.post("/api/public/watch/:token/heartbeat",async(req,res)=>{
@@ -474,41 +601,18 @@ app.get("/api/public/program/status",async(req,res)=>{
     res.json({live:fresh.status==="live",program:{id:fresh.id,name:fresh.name,title:fresh.title,current_viewers:Number(fresh.current_viewers||0)},hls_url:"/api/public/program/hls/index.m3u8"});
   }catch(e){res.status(500).json({error:"Program status unavailable"});}
 });
-app.get("/api/public/program/hls/:file",async(req,res)=>{
+
+app.use("/api/public/program/hls",async(req,res)=>{
   try{
-    const s=await selectedProgram();
-    if(!s||!MEDIA_BASE)return res.status(404).end();
-    const target=MEDIA_BASE+"/live/"+encodeURIComponent(s.stream_key)+"/"+req.params.file;
-    const upstream=await fetch(target);
-    if(!upstream.ok)return res.status(upstream.status).end();
-    const type=upstream.headers.get("content-type")||"application/octet-stream";
-    const body=await upstream.text();
-    if(/mpegurl|vnd\\.apple\\.mpegurl/i.test(type)){
-      const base="/api/public/program/hls/";
-      const rewritten=body.split("\\n").map(line=>{
-        const t=line.trim();
-        if(!t||t.startsWith("#"))return line;
-        if(/^https?:\/\//i.test(t))return base+t.replace(MEDIA_BASE,"");
-        return base+t;
-      }).join("\\n");
-      res.setHeader("Content-Type",type);return res.send(rewritten);
-    }
-    res.setHeader("Content-Type",type);return res.send(body);
-  }catch(e){res.status(502).end();}
+    const row=await selectedProgram();
+    if(!row)return res.status(404).end();
+    await proxyTvHlsStream(req,res,{id:row.id,cookieName:"fbi_program_hls_session",proxyBase:"/api/public/program/hls/"});
+  }catch(e){
+    console.error("Program HLS proxy failed:",e?.stack||e);
+    res.status(502).end();
+  }
 });
-app.get("/api/public/program/hls/*asset",async(req,res)=>{
-  try{
-    const s=await selectedProgram();
-    if(!s||!MEDIA_BASE)return res.status(404).end();
-    const asset=Array.isArray(req.params.asset)?req.params.asset.join("/") : String(req.params.asset||"");
-    const target=MEDIA_BASE+"/live/"+encodeURIComponent(s.stream_key)+"/"+asset;
-    const upstream=await fetch(target);
-    if(!upstream.ok)return res.status(upstream.status).end();
-    const ab=Buffer.from(await upstream.arrayBuffer());
-    res.setHeader("Content-Type",upstream.headers.get("content-type")||"application/octet-stream");
-    res.send(ab);
-  }catch(e){res.status(502).end();}
-});
+
 app.get("/watch/program",async(req,res)=>{
   res.type("html").send("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>FBI TV Program</title><script src=\"https://cdn.jsdelivr.net/npm/hls.js@latest\"></script><style>body{margin:0;background:#08090b;color:#f5f5f7;font-family:Inter,system-ui,sans-serif}.wrap{max-width:1400px;margin:auto;padding:24px}.brand{color:#e8c448;font-size:12px;letter-spacing:.16em;text-transform:uppercase}.title{font-size:28px;font-weight:900;margin-top:8px}.meta{color:#9b9ba4;font-size:12px;margin:6px 0 18px}.player{background:#000;border:1px solid #2a2a2d;border-radius:18px;overflow:hidden}.player video{width:100%;display:block;aspect-ratio:16/9;background:#000}.offline{min-height:460px;display:grid;place-items:center;color:#aaa;font-size:14px;text-align:center}.foot{color:#666;font-size:10px;text-align:center;padding:18px}</style></head><body><div class=\"wrap\"><div class=\"brand\">FILM BEYOND IMAGINATION • FBI TV</div><div class=\"title\">PROGRAM</div><div class=\"meta\" id=\"meta\">Connecting…</div><div class=\"player\"><video id=\"video\" controls autoplay muted playsinline></video><div id=\"offline\" class=\"offline\" style=\"display:none\">No program source is currently selected.</div></div><div class=\"foot\">FBI TV • Official Program Output</div></div><script>const video=document.getElementById('video'),offline=document.getElementById('offline'),meta=document.getElementById('meta');let hls=null,current='';function stop(){if(hls){try{hls.destroy()}catch{}hls=null}video.pause();video.removeAttribute('src');video.load()}function start(url){stop();video.style.display='block';offline.style.display='none';if(window.Hls&&Hls.isSupported()){hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:6,maxBufferLength:30,maxMaxBufferLength:60,backBufferLength:90});hls.loadSource(url);hls.attachMedia(video);hls.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));hls.on(Hls.Events.ERROR,(_,d)=>{if(d&&d.fatal){setTimeout(()=>{if(current)start(url)},1500)}})}else{video.src=url;video.play().catch(()=>{})}}async function refresh(){try{const r=await fetch('/api/public/program/status',{cache:'no-store'}),d=await r.json();meta.textContent=d.program?(d.live?'● LIVE • '+d.program.title:'OFFLINE • '+d.program.title):'NO PROGRAM SOURCE';if(d.live){if(current!==d.program.id){current=d.program.id;start(d.hls_url)}}else{if(current){current='';stop()}video.style.display='none';offline.style.display='grid'}}catch(e){meta.textContent='PROGRAM UNAVAILABLE'}}refresh();setInterval(refresh,5000)</script></body></html>");
 });app.get("/live/:id",admin,async(req,res)=>{
