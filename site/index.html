@@ -502,7 +502,7 @@ async function uploadMultipart(item,session){
       if(signed.checksum)headers["x-amz-checksum-sha256"]=signed.checksum;
       var out=await retry(function(){
         lastLoaded=0;
-        return xhrPut(signed.url,blob,headers,item,function(n){item.partLoaded.set(partNumber,n);item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(a,b){return a+b},0);scheduleUploadQueueRender()});
+        return xhrPut(signed.url,blob,headers,item,function(n){var previous=item.partLoaded.get(partNumber)||0;item.partLoaded.set(partNumber,Math.max(previous,n));item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(a,b){return a+b},0);scheduleUploadQueueRender()});
       },3);
       var idx=parts.findIndex(function(p){return p.partNumber===partNumber});
       if(idx>=0)parts[idx]={partNumber:partNumber,etag:out.etag};else parts.push({partNumber:partNumber,etag:out.etag});
