@@ -429,24 +429,37 @@ app.post("/api/mediamtx/auth",async(req,res)=>{
   try{
     const action=String(req.body.action||"");
     const pathValue=String(req.body.path||"").replace(/^\/+|\/+$/g,"");
-    const parts=pathValue.split("/").filter(Boolean);
-    const key=(parts[0]==="live"||parts[0]==="encoded")?String(parts[1]||""):"";
-    if(!key)return res.status(401).end();
-    const q=await pool.query("SELECT * FROM tv_streams WHERE stream_key=$1 AND enabled=true LIMIT 1",[key]);
+    const presentedToken=String(req.body.token||"");
+    const presentedPassword=String(req.body.password||"");
+    if(!pathValue)return res.status(401).end();
+
+    // Match the proven Client File Studio authentication behavior:
+    // resolve the parent stream path and allow the exact publish path
+    // without requiring OBS/vMix to send a separate password.
+    const q=await pool.query(
+      "SELECT * FROM tv_streams WHERE stream_key=$1 LIMIT 1",
+      [pathValue.replace(/^live\//,"").split("/")[0]]
+    );
     if(!q.rowCount)return res.status(403).end();
     const stream=q.rows[0];
+    const parentPath="live/"+stream.stream_key;
+    const isExactPublishPath=pathValue===parentPath;
+    const isStreamDescendant=pathValue.startsWith(parentPath+"/");
+
     if(action==="publish"){
-      const exactLivePath=pathValue==="live/"+stream.stream_key;
-      const presentedPassword=String(req.body.password||"");
-      const presentedToken=String(req.body.token||"");
-      if(!exactLivePath || (!stream.enabled && !stream.shared) || (presentedPassword!==stream.stream_key && presentedToken!==stream.stream_key))return res.status(403).end();
+      if(!stream.enabled)return res.status(403).end();
+      if(!isExactPublishPath && !(isStreamDescendant && (presentedPassword===stream.stream_key || presentedToken===stream.stream_key))) {
+        return res.status(403).end();
+      }
       await pool.query("UPDATE tv_streams SET status='live',updated_at=now() WHERE id=$1",[stream.id]);
       return res.status(200).end();
     }
+
     if(action==="read"||action==="playback"){
       if(!stream.enabled||!stream.shared)return res.status(403).end();
       return res.status(200).end();
     }
+
     if(action==="api"||action==="metrics"||action==="pprof")return res.status(200).end();
     return res.status(403).end();
   }catch(e){
