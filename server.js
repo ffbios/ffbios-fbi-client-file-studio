@@ -1110,52 +1110,50 @@ app.get("/api/public/stream/:token/master.m3u8",async(req,res)=>{
     if(!r.rowCount)return res.status(404).end();
     const s=r.rows[0];
     const internal=(process.env.STREAM_HLS_INTERNAL||"http://fbi-live-ingest:8888").replace(/\/+$/,"");
-    const available=[];
-    for(const p of STREAM_QUALITY_PRESETS){
+    const results=await Promise.all(STREAM_QUALITY_PRESETS.map(async p=>{
       const u=internal+"/quality/"+p.q+"/"+encodeURIComponent(String(s.stream_key))+"/index.m3u8";
       try{
         const x=await fetch(u,{cache:"no-store"});
-        if(x.ok){const t=await x.text();if(/#EXTM3U/.test(t))available.push(p);}
-      }catch{}
-    }
-    if(!available.length){
-      available.push({q:"main",label:"Auto",width:1920,height:1080,bandwidth:6000000});
-    }
+        if(!x.ok)return null;
+        const t=await x.text();
+        return /#EXTM3U/.test(t)?p:null;
+      }catch{return null}
+    }));
+    const available=results.filter(Boolean);
     let body="#EXTM3U\n#EXT-X-VERSION:3\n";
     for(const p of available){
       body+="#EXT-X-STREAM-INF:BANDWIDTH="+p.bandwidth+",AVERAGE-BANDWIDTH="+Math.round(p.bandwidth*.82)+",RESOLUTION="+p.width+"x"+p.height+",CODECS=\"avc1.4d401f,mp4a.40.2\"\n";
-      body+=p.q==="main"
-        ? ("/api/streams/"+encodeURIComponent(String(s.id))+"/hls/index.m3u8")
-        : streamQualityPublicUrl(req.params.token,p.q,"index.m3u8");
-      body+="\n";
+      body+=streamQualityPublicUrl(req.params.token,p.q,"index.m3u8")+"\n";
+    }
+    if(!available.length){
+      body+="#EXT-X-STREAM-INF:BANDWIDTH=6000000,AVERAGE-BANDWIDTH=4920000,RESOLUTION=1920x1080,CODECS=\"avc1.4d401f,mp4a.40.2\"\n";
+      body+="/api/public/stream/"+encodeURIComponent(req.params.token)+"/main/index.m3u8\n";
     }
     res.status(200).set("Cache-Control","no-store, no-cache, must-revalidate").type("application/vnd.apple.mpegurl").send(body);
   }catch(e){console.error("Quality master error:",e?.stack||e);res.status(500).end();}
 });
-app.use("/api/public/stream/:token/quality/:quality",async(req,res)=>{
+
+app.use("/api/public/stream/:token/main",async(req,res)=>{
   try{
     const r=await publicStreamByToken(req.params.token);
     if(!r.rowCount)return res.status(404).end();
-    const p=STREAM_QUALITY_PRESETS.find(x=>x.q===String(req.params.quality));
-    if(!p)return res.status(404).end();
     const raw=String(req.path||"").replace(/^\/+/, "");
     if(!raw||raw.includes("..")||raw.includes("/")||!/^[A-Za-z0-9._-]+$/.test(raw))return res.status(400).end();
     const internal=(process.env.STREAM_HLS_INTERNAL||"http://fbi-live-ingest:8888").replace(/\/+$/,"");
-    const upstream=internal+"/quality/"+p.q+"/"+encodeURIComponent(String(r.rows[0].stream_key))+"/"+raw;
-    const x=await fetch(upstream,{cache:"no-store"});
+    const key=String(r.rows[0].stream_key);
+    const x=await fetch(internal+"/encoded/"+encodeURIComponent(key)+"/"+raw,{cache:"no-store"});
     const type=x.headers.get("content-type")||"application/octet-stream";
     let body=Buffer.from(await x.arrayBuffer());
     if(!x.ok)return res.status(x.status).type(type).send(body);
     if(type.toLowerCase().includes("mpegurl")){
-      let txt=body.toString("utf8").split(/\r?\n/).map(line=>{
-        const t=line.trim();
-        if(!t||t[0]==="#")return line;
-        return streamQualityPublicUrl(req.params.token,p.q,t);
+      const txt=body.toString("utf8").split(/\r?\n/).map(line=>{
+        const t=line.trim(); if(!t||t[0]==="#")return line;
+        return "/api/public/stream/"+encodeURIComponent(req.params.token)+"/main/"+t;
       }).join("\n");
       body=Buffer.from(txt,"utf8");
     }
     res.status(200).set("Cache-Control",type.toLowerCase().includes("mpegurl")?"no-store":"public, max-age=2").type(type).send(body);
-  }catch(e){console.error("Quality proxy error:",e?.stack||e);res.status(502).end();}
+  }catch(e){console.error("Main HLS proxy error:",e?.stack||e);res.status(502).end();}
 });
 
 app.get("/api/public/stream/:token/comments",async(req,res)=>{
