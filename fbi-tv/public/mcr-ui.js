@@ -10,8 +10,84 @@ async function ensureHls(){if(window.Hls)return window.Hls;if(window.__mcrHls)re
 async function attach(video,url){
   if(!video||!url)return;
   const old=video.__mcrPlayer;if(old){try{old.destroy()}catch{}video.__mcrPlayer=null}
-  if(video.canPlayType("application/vnd.apple.mpegurl")){video.src=url;video.play().catch(()=>{});return}
-  try{const H=await ensureHls();if(!H||!H.isSupported())throw new Error("HLS not supported");const h=new H({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:6,maxLiveSyncPlaybackRate:1.15,maxBufferLength:20,maxMaxBufferLength:40,backBufferLength:30,capLevelToPlayerSize:true,startLevel:-1});video.__mcrPlayer=h;h.on(H.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));h.on(H.Events.ERROR,(_,d)=>{if(d&&d.fatal){try{h.destroy()}catch{}video.__mcrPlayer=null;setTimeout(()=>attach(video,url),1500)}});h.loadSource(url);h.attachMedia(video)}catch(e){const note=video.parentElement?.querySelector(".mcr-video-status");if(note)note.textContent="Preview unavailable"}}
+  video.muted=true;video.autoplay=true;video.playsInline=true;
+  const setState=(msg)=>{
+    const box=video.closest(".mcr-tile-screen,.mcr-big-monitor,.mcr-preview-monitor");
+    if(box){
+      let n=box.querySelector(".mcr-video-status");
+      if(!n){n=document.createElement("div");n.className="mcr-video-status";box.appendChild(n)}
+      n.textContent=msg||"";
+    }
+  };
+  if(video.canPlayType("application/vnd.apple.mpegurl")){
+    video.src=url;
+    video.load();
+    video.play().catch(()=>{});
+    return;
+  }
+  try{
+    const H=await ensureHls();
+    if(!H||!H.isSupported())throw new Error("HLS not supported");
+    const h=new H({
+      enableWorker:true,
+      lowLatencyMode:false,
+      liveSyncDurationCount:3,
+      liveMaxLatencyDurationCount:6,
+      maxLiveSyncPlaybackRate:1.15,
+      maxBufferLength:30,
+      maxMaxBufferLength:60,
+      backBufferLength:90,
+      capLevelToPlayerSize:true,
+      startLevel:-1,
+      xhrSetup:function(xhr){xhr.withCredentials=true}
+    });
+    video.__mcrPlayer=h;
+    let lastMediaError=0;
+    h.on(H.Events.MEDIA_ATTACHED,()=>setState("Buffering live video…"));
+    h.on(H.Events.MANIFEST_PARSED,()=>{
+      setState("Live playback");
+      video.play().catch(()=>{});
+    });
+    h.on(H.Events.FRAG_BUFFERED,()=>{
+      if(video.readyState>=2)setState("");
+    });
+    video.addEventListener("error",()=>{
+      const err=video.error;
+      if(err&&err.code===3){
+        setState("Recovering video decoder…");
+        const now=Date.now();
+        if(now-lastMediaError>5000){
+          lastMediaError=now;
+          try{h.recoverMediaError()}catch{}
+        }
+      }
+    });
+    h.on(H.Events.ERROR,(_,d)=>{
+      if(!d)return;
+      if(d.fatal){
+        if(d.type===H.ErrorTypes.MEDIA_ERROR){
+          setState("Recovering video…");
+          const now=Date.now();
+          if(now-lastMediaError>5000){
+            lastMediaError=now;
+            try{h.recoverMediaError();return}catch{}
+          }
+        }else if(d.type===H.ErrorTypes.NETWORK_ERROR){
+          setState("Reconnecting…");
+          try{h.startLoad();return}catch{}
+        }
+        setState("Reconnecting…");
+        try{h.destroy()}catch{}
+        video.__mcrPlayer=null;
+        setTimeout(()=>attach(video,url),1800);
+      }
+    });
+    h.loadSource(url);
+    h.attachMedia(video);
+  }catch(e){
+    setState(e.message||"Playback unavailable");
+  }
+}
 
 function sourceById(id){return state.sources.find(s=>s.id===id)||null}
 function stopPlayers(){state.players.forEach(v=>{try{v.__mcrPlayer?.destroy()}catch{}v.__mcrPlayer=null;v.removeAttribute("src");v.load()});state.players.clear()}
@@ -20,7 +96,7 @@ function sourceTile(s,i){
   const live=s.status==="live";
   return '<div class="mcr-tile '+(s.is_program?"program":"")+' '+(s.is_preview?"preview":"")+'" data-source="'+esc(s.id)+'">'+
     '<div class="mcr-tile-screen">'+
-      (live?'<video class="mcr-source-video" muted playsinline autoplay crossorigin="anonymous"></video>':'<div class="mcr-no-signal"><b>NO SIGNAL</b><span>RTMP input offline</span></div>')+
+      (live?'<video class="mcr-source-video" muted playsinline autoplay></video>':'<div class="mcr-no-signal"><b>NO SIGNAL</b><span>RTMP input offline</span></div>')+
       '<div class="mcr-tile-top"><span class="mcr-chan">IN '+String(i+1).padStart(2,"0")+'</span><span class="mcr-live '+(live?"on":"")+'">'+(live?"● LIVE":"OFF")+'</span></div>'+
       '<div class="mcr-tile-bottom"><div><b>'+esc(s.name)+'</b><span>'+esc(s.title||"FBI TV input")+'</span></div><div class="mcr-route-tags">'+(s.is_preview?"PREVIEW ":"")+(s.is_program?"PROGRAM":"")+'</div></div>'+
     '</div>'+
@@ -46,8 +122,8 @@ function render(){
           '<div class="mcr-multiview">'+(state.sources.length?state.sources.slice(0,MAX_TILES).map(sourceTile).join(""):'<div class="mcr-empty"><b>NO ENCODERS CONFIGURED</b><span>Create an encoder channel to receive the first RTMP input.</span><button class="mcr-btn gold" id="newInputEmpty">＋ CREATE ENCODER</button></div>')+'</div>'+
         '</section>'+
         '<aside class="mcr-side-panel">'+
-          '<div class="mcr-bus-card"><div class="mcr-bus-head"><span class="mcr-bus-label">PROGRAM</span><span class="mcr-onair '+(program?"on":"")+'">'+(program?"● ON AIR":"STANDBY")+'</span></div><div class="mcr-big-monitor">'+(program&&program.status==="live"?'<video id="mcrProgramVideo" muted playsinline autoplay crossorigin="anonymous"></video>':'<div class="mcr-monitor-empty"><b>'+(!program?"NO PROGRAM SOURCE":"WAITING FOR PROGRAM INPUT")+'</b><span>Select a live source and press TAKE.</span></div>')+'</div><div class="mcr-bus-source">'+(program?'<b>'+esc(program.name)+'</b><span>'+esc(program.title||"")+'</span>':'<b>No source selected</b><span>The public program output is idle.</span>')+'</div></div>'+
-          '<div class="mcr-bus-card preview-bus"><div class="mcr-bus-head"><span class="mcr-bus-label">PREVIEW</span><span class="mcr-preview-state">'+(preview?"READY":"SELECT SOURCE")+'</span></div><div class="mcr-preview-monitor">'+(preview&&preview.status==="live"?'<video id="mcrPreviewVideo" muted playsinline autoplay crossorigin="anonymous"></video>':'<div class="mcr-monitor-empty"><b>'+(!preview?"NO PREVIEW":"SOURCE OFFLINE")+'</b><span>Select a source from the multiview.</span></div>')+'</div><div class="mcr-bus-source">'+(preview?'<b>'+esc(preview.name)+'</b><span>'+esc(preview.title||"")+'</span>':'<b>No source selected</b><span>Preview bus is waiting.</span>')+'</div></div>'+
+          '<div class="mcr-bus-card"><div class="mcr-bus-head"><span class="mcr-bus-label">PROGRAM</span><span class="mcr-onair '+(program?"on":"")+'">'+(program?"● ON AIR":"STANDBY")+'</span></div><div class="mcr-big-monitor">'+(program&&program.status==="live"?'<video id="mcrProgramVideo" muted playsinline autoplay></video>':'<div class="mcr-monitor-empty"><b>'+(!program?"NO PROGRAM SOURCE":"WAITING FOR PROGRAM INPUT")+'</b><span>Select a live source and press TAKE.</span></div>')+'</div><div class="mcr-bus-source">'+(program?'<b>'+esc(program.name)+'</b><span>'+esc(program.title||"")+'</span>':'<b>No source selected</b><span>The public program output is idle.</span>')+'</div></div>'+
+          '<div class="mcr-bus-card preview-bus"><div class="mcr-bus-head"><span class="mcr-bus-label">PREVIEW</span><span class="mcr-preview-state">'+(preview?"READY":"SELECT SOURCE")+'</span></div><div class="mcr-preview-monitor">'+(preview&&preview.status==="live"?'<video id="mcrPreviewVideo" muted playsinline autoplay></video>':'<div class="mcr-monitor-empty"><b>'+(!preview?"NO PREVIEW":"SOURCE OFFLINE")+'</b><span>Select a source from the multiview.</span></div>')+'</div><div class="mcr-bus-source">'+(preview?'<b>'+esc(preview.name)+'</b><span>'+esc(preview.title||"")+'</span>':'<b>No source selected</b><span>Preview bus is waiting.</span>')+'</div></div>'+
           '<div class="mcr-take-deck"><div class="mcr-take-title">PROGRAM ROUTER</div><div class="mcr-route-info"><div><span>PREVIEW</span><b>'+(preview?esc(preview.name):"—")+'</b></div><div class="arrow">→</div><div><span>PROGRAM</span><b>'+(program?esc(program.name):"—")+'</b></div></div><div class="mcr-route-buttons"><button class="mcr-btn gold wide" id="takePreview" '+(preview?"":"disabled")+'>TAKE PREVIEW TO PROGRAM</button><button class="mcr-btn red wide" id="clearProgram" '+(program?"":"disabled")+'>CLEAR PROGRAM</button></div></div>'+
           '<div class="mcr-program-link"><span>PUBLIC PROGRAM OUTPUT</span><div><input readonly value="'+esc(location.origin+"/watch/program")+'"><button class="mcr-small" id="copyProgram">COPY</button></div></div>'+
         '</aside>'+
