@@ -1,0 +1,37 @@
+logLevel: info
+logDestinations: [stdout]
+
+rtmp: true
+rtmpAddress: :1935
+
+rtsp: true
+rtspAddress: :8554
+
+hls: true
+hlsAddress: :8888
+hlsAllowOrigins: ["*"]
+hlsAlwaysRemux: true
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+
+# Normalize incoming RTMP feeds to a browser-safe H.264/AAC stream.
+# MediaMTX starts this encoder when a live input becomes available.
+paths:
+  ~^live/(.+)$:
+    runOnAvailable: >
+      ffmpeg -hide_banner -loglevel warning
+      -rtsp_transport tcp
+      -i rtsp://127.0.0.1:8554/$MTX_PATH
+      -map 0:v:0
+      -map 0:a:0?
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -pix_fmt yuv420p -profile:v main -level 4.1
+      -r 30 -g 60 -keyint_min 60 -sc_threshold 0
+      -b:v 5M -maxrate 6M -bufsize 10M
+      -c:a aac -b:a 128k -ar 48000 -ac 2
+      -f rtsp rtsp://127.0.0.1:8554/encoded/$G1
+    runOnAvailableRestart: yes
+
+  all_others:
