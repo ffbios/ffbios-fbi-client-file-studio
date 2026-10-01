@@ -1083,7 +1083,10 @@ async function proxyPublicHlsStream(req,res){
           pathname=pathname.replace(/^\/+/,"");
           const base="/api/public/stream/"+encodeURIComponent(token)+"/hls/";
           const url=base+pathname,sp=new URLSearchParams(query.replace(/^\?/,""));
-          if(session&&!sp.has("session"))sp.set("session",session);
+          // Keep MediaMTX session state in the HttpOnly cookie. Do not expose the
+          // session in client segment URLs, so identical HLS segments can share
+          // the CDN cache across independent viewers.
+          sp.delete("session");sp.delete("cookieCheck");
           const suffix=sp.toString(); return url+(suffix?"?"+suffix:"");
         }catch{return value}
       }
