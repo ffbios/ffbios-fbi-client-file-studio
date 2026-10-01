@@ -13,7 +13,7 @@ const SESSION_SECRET=process.env.SESSION_SECRET||crypto.randomBytes(32).toString
 const MEDIA_BASE=(process.env.MEDIA_BASE_URL||"").replace(/\/+$/,"");
 const RTMP_HOST=process.env.RTMP_HOST||"";
 const RTMP_PORT=Number(process.env.RTMP_PORT||1935);
-const pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_URL?{rejectUnauthorized:false}:false});
+const pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:false});
 
 function uid(){return crypto.randomUUID()}
 function token(n=24){return crypto.randomBytes(n).toString("base64url")}
