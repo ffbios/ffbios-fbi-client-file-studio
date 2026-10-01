@@ -790,10 +790,13 @@ let renderedStreamSignature="";
 async function loadStreams(){
   const d=await api('/api/streams');
   window.__streams=d.streams||[];
+  if(selectedStreamId && !selectedStream())selectedStreamId=null;
   renderStreamsList();
+  const count=document.querySelector('#streamChannelCount');
+  if(count)count.textContent=String(window.__streams.length)+' channel'+(window.__streams.length===1?'':'s');
 
   const s=selectedStream();
-  const signature=s ? [s.id,s.status,s.viewer_url||""] .join("|") : "";
+  const signature=s ? [s.id,s.status,s.viewer_url||""] .join("|") : "none";
   // The main-portal poller runs every 5 seconds. Do not rebuild the player
   // while the same live stream is still active, because replacing the iframe
   // interrupts playback. Re-render only when the selected stream changes
@@ -817,7 +820,10 @@ function renderStreamsList(){
   const total=streams.reduce((a,s)=>a+Number(s.total_viewers||0),0);
   const a=document.querySelector('#streamCount'),b=document.querySelector('#liveCount'),c=document.querySelector('#viewerCount'),d=document.querySelector('#streamHistoryCount');
   if(a)a.textContent=streams.length;b&&(b.textContent=live);c&&(c.textContent=viewers);d&&(d.textContent=total);
-  if(!streams.length){list.innerHTML='<div class="empty">No live streams created yet.</div>';return}
+  if(!streams.length){
+    list.innerHTML='<div class="empty"><b>No live channels yet.</b><br><span>Create a new stream only when you need another channel.</span></div>';
+    return;
+  }
   list.innerHTML=streams.map(function(s){
     return '<div class="streamrow '+(selectedStreamId===s.id?'sel':'')+'" data-stream-id="'+s.id+'"><div class="row"><div class="stitle">'+esc(s.name)+'</div><div class="streamrow-actions">'+streamStatusBadge(s)+'<button type="button" class="mini stream-delete-btn" data-delete-stream="'+esc(s.id)+'" title="Delete stream">🗑️</button></div></div><div class="smeta">'+esc(s.title||'')+'<br>'+Number(s.current_viewers||0)+' watching now</div></div>';
   }).join('');
@@ -857,12 +863,7 @@ function renderSelectedStream(){
       '<div class="streamstudio-top-actions"><button class="btn" id="copyAllStream">Copy Setup</button><button class="btn primary" id="openWatch">Open Watch Page</button></div>'+
     '</div>'+
     '<div class="streamstudio-layout">'+
-      '<aside class="stream-channel-card">'+
-        '<div class="stream-channel-head"><div><h2>Live Channels</h2><p>Select a channel to manage its broadcast.</p></div><span class="stream-channel-count">'+Number((window.__streams||[]).length)+' channels</span></div>'+
-        '<div class="stream-channel-actions"><button class="btn" id="newStream">＋ New Stream</button></div>'+
-        '<div id="streamList" class="streamlist"></div>'+
-      '</aside>'+
-      '<section class="stream-stage">'+
+      '<div class="stream-stage">'+
         '<div class="streamhero">'+
           '<div class="streamhero-top">'+
             '<div><div class="streamhero-title">'+esc(s.name)+'</div><div class="streamhero-meta">'+esc(s.title||'FBI Live Channel')+' • '+Number(s.current_viewers||0)+' watching</div></div>'+
@@ -894,7 +895,6 @@ function renderSelectedStream(){
           '<label class="toggle"><input id="streamRecordEdit" type="checkbox" '+(s.record_enabled?'checked':'')+'><span><b>Record every live session</b><br><small class="muted">Save a playable MP4 automatically when streaming ends.</small></span></label></div></div></div>'+
         '</div>'+
         '<div class="stream-danger"><div><b>Stream Key Management</b><span>Regenerating the key changes the publishing address for this channel.</span></div><div><button class="btn" id="regenStreamKey">Regenerate Key</button> <button class="btn danger" id="deleteStream">Delete Stream</button></div></div>'+
-      '</section>'+
     '</div>';
 
   renderStreamsList();
@@ -906,8 +906,6 @@ function renderSelectedStream(){
   document.querySelector('#toggleKey').onclick=function(){const i=document.querySelector('#streamKey');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'Show':'Hide'};
   document.querySelector('#openWatch').onclick=function(){window.open(s.viewer_url,'_blank','noopener')};
   document.querySelector('#openWatchHero').onclick=function(){window.open(s.viewer_url,'_blank','noopener')};
-  document.querySelector('#newStream').onclick=function(){document.querySelector('#streamModal').classList.add('show');document.querySelector('#streamName').focus()};
-
   document.querySelector('#saveStream').onclick=async function(){
     try{
       const r=await api('/api/streams/'+s.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({
@@ -1061,13 +1059,22 @@ function renderStreamsPage(){
   if(!content)return;
   content.innerHTML=
     '<div class="streamstudio">'+
-      '<div class="streamstudio-top"><div class="streamstudio-top-main"><div class="streamstudio-kicker">FBI Live Broadcast Studio</div><h1>Live Streaming</h1><p>Manage your live channels, monitor the broadcast and access recorded sessions.</p></div><div class="streamstudio-top-actions"><button class="btn primary" id="newStreamTop">＋ New Stream</button></div></div>'+
-      '<div id="streamDetail"><div class="empty">Select a live channel or create a new stream.</div></div>'+
+      '<div class="streamstudio-top"><div class="streamstudio-top-main"><div class="streamstudio-kicker">FBI Live Broadcast Studio</div><h1>Live Streaming</h1><p>All your existing live channels are available here. Select one to manage it, or create a new channel when needed.</p></div><div class="streamstudio-top-actions"><button class="btn primary" id="newStreamTop">＋ New Stream</button></div></div>'+
+      '<div class="streamgrid">'+
+        '<aside class="stream-channel-card">'+
+          '<div class="stream-channel-head"><div><h2>Live Channels</h2><p>Select a channel to manage its broadcast.</p></div><span class="stream-channel-count" id="streamChannelCount">0 channels</span></div>'+
+          '<div class="stream-channel-actions"><button class="btn primary" id="newStreamLibrary">＋ New Stream</button></div>'+
+          '<div id="streamList" class="streamlist"></div>'+
+        '</aside>'+
+        '<section class="stream-stage" id="streamDetail"><div class="empty">Select a live channel from the list.</div></section>'+
+      '</div>'+
     '</div>';
-  document.querySelector('#newStreamTop').onclick=function(){
+  const openStreamCreator=function(){
     document.querySelector('#streamModal').classList.add('show');
-    document.querySelector('#streamName').focus();
+    setTimeout(function(){document.querySelector('#streamName').focus()},50);
   };
+  document.querySelector('#newStreamTop').onclick=openStreamCreator;
+  document.querySelector('#newStreamLibrary').onclick=openStreamCreator;
   renderedStreamSignature='';
   loadStreams();
   clearInterval(streamPoller);
