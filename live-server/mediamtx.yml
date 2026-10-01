@@ -22,7 +22,7 @@ rtspAddress: :8554
 
 hls: true
 hlsAddress: :8888
-hlsAllowOrigins: ["*"]
+hlsAllowOrigins: ["https://fbi-client-file-studio-production.up.railway.app","https://files.fbigh.com"]
 hlsAlwaysRemux: true
 hlsVariant: mpegts
 hlsSegmentCount: 6
