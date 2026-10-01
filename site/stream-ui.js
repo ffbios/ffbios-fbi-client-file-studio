@@ -125,7 +125,7 @@
     const s=selectedStream();
     if(!s){pane.innerHTML="<div class='empty'>Select a stream or create a new live stream.</div>";return}
     const watch=String(s.viewer_url||""),rtmp=String(s.rtmp_server||""),key=String(s.stream_key||"");
-    const hls=s.hls_url?String(s.hls_url)+"/index.m3u8":"";
+    const hls=s.hls_url?String(s.hls_url):"";
     pane.innerHTML=
       "<div class='streamhero'>"+
         "<div class='streamhero-top'>"+
