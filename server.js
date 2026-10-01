@@ -1030,7 +1030,7 @@ async function proxyPublicHlsStream(req,res){
     if(!isPlaylist){
       const cacheKey=publicHlsCacheKey(token,sub,upstream.search);
       const cached=publicHlsCacheGet(cacheKey);
-      if(cached)return res.status(200).set("Cache-Control","public, max-age=2, stale-while-revalidate=4").set("X-FBI-HLS-Cache","HIT").type(cached.contentType).send(cached.body);
+      if(cached)return res.status(200).set("Cache-Control","public, max-age=2, s-maxage=6, stale-while-revalidate=4").set("CDN-Cache-Control","public, max-age=6, stale-while-revalidate=4").set("X-FBI-HLS-Cache","HIT").type(cached.contentType).send(cached.body);
       let pending=publicHlsSegmentPending.get(cacheKey);
       if(!pending){
         pending=(async()=>{
@@ -1045,7 +1045,7 @@ async function proxyPublicHlsStream(req,res){
         const out=await pending;
         if(out.status!==200)return res.status(out.status).type(out.type).send(out.body);
         const state=publicHlsCacheGet(cacheKey);
-        return res.status(200).set("Cache-Control","public, max-age=2, stale-while-revalidate=4").set("X-FBI-HLS-Cache",state&&state.body===out.body?"MISS":"DEDUP").type(out.type).send(out.body);
+        return res.status(200).set("Cache-Control","public, max-age=2, s-maxage=6, stale-while-revalidate=4").set("CDN-Cache-Control","public, max-age=6, stale-while-revalidate=4").set("X-FBI-HLS-Cache",state&&state.body===out.body?"MISS":"DEDUP").type(out.type).send(out.body);
       }finally{
         if(publicHlsSegmentPending.get(cacheKey)===pending)publicHlsSegmentPending.delete(cacheKey);
       }
