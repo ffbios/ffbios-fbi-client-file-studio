@@ -1436,7 +1436,6 @@ if(emojiOpen&&emojiPicker){
     if(emojiPopover&&!emojiPopover.contains(e.target))emojiPopover.classList.remove("open");
   });
 }
-function clearPlayer(){if(player){try{player.destroy()}catch{}player=null}try{video.pause();video.removeAttribute("src");video.load()}catch{}}
 function setQualityOptions(levels){
   if(!qualitySelect)return;
   const current=qualitySelect.value;
