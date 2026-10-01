@@ -1,7 +1,7 @@
 
 (function(){
   const css=[
-    ".streamstudio{display:grid;gap:18px;padding:2px 2px 24px;color:#171719}",
+    ".streamstudio{display:grid;gap:18px;padding:22px;border-radius:28px;min-height:calc(100vh - 160px);color:#171719;background:radial-gradient(circle at 75% 0%,#fffaf1 0,#f3eee5 58%,#ebe2d3 100%);border:1px solid rgba(28,27,25,.07);box-shadow:0 24px 70px rgba(57,45,25,.10)}",
     ".streamstudio *{box-sizing:border-box}",
     ".streamstudio-left,.streamstudio-right{min-width:0}",
     ".streamstudio-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:4px 2px}",
