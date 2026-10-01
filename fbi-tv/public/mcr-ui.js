@@ -1,5 +1,5 @@
 (function(){
-const state={sources:[],preview:null,program:null,players:new Map(),timer:null};
+const state={sources:[],preview:null,program:null,players:new Map(),timer:null,signature:null};
 const MAX_TILES=12;
 
 function fmtTime(){return new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"})}
@@ -64,10 +64,10 @@ function render(){
   state.sources.forEach((s,i)=>{
     if(s.status!=="live")return;
     const v=document.querySelector('[data-source="'+CSS.escape(String(s.id))+'"] .mcr-source-video');
-    if(v)attach(v,s.public_hls_url||s.hls_url);
+    if(v)attach(v,s.hls_url||s.public_hls_url);
   });
-  if(preview?.status==="live")attach(document.getElementById("mcrPreviewVideo"),preview.public_hls_url||preview.hls_url);
-  if(program?.status==="live")attach(document.getElementById("mcrProgramVideo"),program.public_hls_url||program.hls_url);
+  if(preview?.status==="live")attach(document.getElementById("mcrPreviewVideo"),preview.hls_url||preview.public_hls_url);
+  if(program?.status==="live")attach(document.getElementById("mcrProgramVideo"),program.hls_url||program.public_hls_url);
   document.getElementById("mcrClock").textContent=fmtTime();
 }
 function bind(){
@@ -133,8 +133,20 @@ async function setupModal(id){
 async function refresh(){
   try{
     const d=await api("/api/mcr/overview");
-    state.sources=d.sources||[];state.preview=d.preview||null;state.program=d.program||null;
-    render();
+    const sources=d.sources||[], preview=d.preview||null, program=d.program||null;
+    const signature=JSON.stringify({
+      sources:sources.map(s=>[s.id,s.status,s.is_preview,s.is_program,s.stream_key,s.hls_url]),
+      preview:preview?[preview.id,preview.status,preview.hls_url]:null,
+      program:program?[program.id,program.status,program.hls_url]:null
+    });
+    state.sources=sources;state.preview=preview;state.program=program;
+    if(state.signature!==signature){
+      state.signature=signature;
+      render();
+    }else{
+      const clock=document.getElementById("mcrClock");
+      if(clock)clock.textContent=fmtTime();
+    }
   }catch(e){const root=document.getElementById("mcrRoot");root.innerHTML='<div class="mcr-error">'+esc(e.message||"MCR unavailable")+'</div>'}
 }
 window.renderMcr=refresh;
