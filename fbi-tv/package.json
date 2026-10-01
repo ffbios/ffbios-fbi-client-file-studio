@@ -1,0 +1,9 @@
+{
+  "name":"fbi-tv",
+  "version":"1.0.0",
+  "private":true,
+  "description":"FBI TV standalone live streaming platform",
+  "scripts":{"start":"node server.js"},
+  "engines":{"node":">=22"},
+  "dependencies":{"express":"^5.1.0","pg":"^8.16.3"}
+}
