@@ -451,8 +451,9 @@ function escHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<"
 function streamPathForKey(key){return "live/"+key;}
 function streamPlaybackPathForRow(row){return "encoded/"+String(row?.stream_key||"");}
 function streamHlsUrl(row){
-  const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
-  return base+"/"+streamPlaybackPathForRow(row);
+  // Use the HLS path that MediaMTX is actually receiving from OBS/vMix.
+  // The /encoded path is only available when a separate transcoder is running.
+  return streamInputHlsUrl(row);
 }
 function streamInputHlsUrl(row){
   const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
@@ -469,7 +470,9 @@ function streamEncodedRtmpUrl(row){
 const activeStreamRecordings=new Map();
 async function startStreamRecording(row){
   if(activeStreamRecordings.has(row.id)||!row.record_enabled||!ffmpegPath||!s3Ready())return;
-  const input=streamEncodedRtmpUrl(row)||streamInputRtmpUrl(row);
+  // Record directly from the incoming RTMP feed instead of depending on
+  // an optional /encoded relay.
+  const input=streamInputRtmpUrl(row);
   if(!input)return;
   const id=uid();
   const filename=safeName((row.name||"live-stream")+"-"+new Date().toISOString().replace(/[:.]/g,"-")+".mp4");
