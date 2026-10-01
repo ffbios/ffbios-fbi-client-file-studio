@@ -355,7 +355,7 @@ async function saveProject(){
 
 let uploadQueue=[];
 let uploadTicker=null;
-const PART_CONCURRENCY=24;
+const PART_CONCURRENCY=16;
 const FILE_CONCURRENCY=2;
 const MIN_PART_SIZE=64*1024*1024;
 const MAX_HASH_BEFORE_UPLOAD=512*1000*1000;
@@ -489,14 +489,17 @@ async function uploadMultipart(item,session){
   item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(a,b){return a+b},0);
   var missing=[];for(var pn=1;pn<=totalParts;pn++)if(!completed.has(pn))missing.push(pn);
   renderUploadQueue();
-  while(missing.length){
-    if(item.paused)throw new Error("Upload paused");
-    var batch=missing.splice(0,Math.min(PART_CONCURRENCY,25));
-    var requests=batch.map(function(partNumber){return {partNumber:partNumber,checksum:((item.checksums||[])[partNumber-1]||"")};});
-    var signedParts=await retry(function(){return getPartUrls(item.sessionId,requests)},3);
-    await Promise.all(batch.map(async function(partNumber){
+  var cursor=0;
+  async function uploadPartWorker(){
+    while(true){
+      if(item.paused)throw new Error("Upload paused");
+      var pos=cursor++;
+      if(pos>=missing.length)return;
+      var partNumber=missing[pos];
+      var requests=[{partNumber:partNumber,checksum:((item.checksums||[])[partNumber-1]||"")}];
+      var signedParts=await retry(function(){return getPartUrls(item.sessionId,requests)},3);
       var start=(partNumber-1)*partSize,end=Math.min(item.file.size,start+partSize),blob=item.file.slice(start,end),lastLoaded=0;
-      var signed=signedParts.find(function(x){return Number(x.partNumber)===partNumber});
+      var signed=signedParts[0];
       if(!signed||!signed.url)throw new Error("Could not prepare upload part "+partNumber);
       var headers={};
       if(signed.checksum)headers["x-amz-checksum-sha256"]=signed.checksum;
@@ -504,10 +507,12 @@ async function uploadMultipart(item,session){
         lastLoaded=0;
         return xhrPut(signed.url,blob,headers,item,function(n){var previous=item.partLoaded.get(partNumber)||0;item.partLoaded.set(partNumber,Math.max(previous,n));item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(a,b){return a+b},0);scheduleUploadQueueRender()});
       },3);
-      var idx=parts.findIndex(function(p){return p.partNumber===partNumber});
-      if(idx>=0)parts[idx]={partNumber:partNumber,etag:out.etag};else parts.push({partNumber:partNumber,etag:out.etag});
-    }));
+      parts.push({partNumber:partNumber,etag:out.etag});
+    }
   }
+  var workerCount=Math.min(PART_CONCURRENCY,missing.length);
+  var workers=[];for(var wi=0;wi<workerCount;wi++)workers.push(uploadPartWorker());
+  await Promise.all(workers);
   if(item.paused)throw new Error("Upload paused");
   await api("/api/uploads/"+item.sessionId+"/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({parts:parts})});
   item.loadedBytes=item.totalBytes;
