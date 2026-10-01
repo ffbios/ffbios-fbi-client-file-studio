@@ -147,14 +147,14 @@
     const pane=document.querySelector("#streamDetail");if(!pane)return;
     const s=selectedStream();
     if(!s){pane.innerHTML="<div class='empty'>Select a stream or create a new live stream.</div>";return}
-    const watch=String(s.viewer_url||""),rtmp=String(s.rtmp_server||""),key=String(s.stream_key||"");
+    const liveUrl=String(s.live_url||location.origin+"/live/"+s.id),watch=String(s.viewer_url||""),rtmp=String(s.rtmp_server||""),key=String(s.stream_key||"");
     const rawHls=String(s.hls_url||"").trim();
     const hls=rawHls?(/\.m3u8(?:\?|$)/i.test(rawHls)?rawHls:rawHls.replace(/\/+$/,"")+"/index.m3u8"):"";
 
     pane.innerHTML=
       "<div class='streamstudio-top'>"+
         "<div class='streamstudio-top-main'><div class='streamstudio-kicker'>FBI Live Broadcast Studio</div><h1>"+esc(s.title||s.name)+"</h1><p>"+esc(s.name)+" • "+(s.status==="live"?"Live broadcast is on air":"Ready for broadcast")+"</p></div>"+
-        "<div class='streamstudio-top-actions'><button class='btn' id='copyAllStream'>Copy Setup</button><button class='btn primary' id='openWatch'>Open Watch Page</button></div>"+
+        "<div class='streamstudio-top-actions'><button class='btn' id='copyLive'>Copy Live Link</button><button class='btn' id='copyAllStream'>Copy Setup</button><button class='btn primary' id='openWatch'>Open Watch Page</button></div>"+
       "</div>"+
       "<div class='streamstudio-layout'>"+
         "<aside class='stream-channel-card'>"+
@@ -202,6 +202,7 @@
       "</div>";
 
     renderStreamsList();
+    document.querySelector("#copyLive").onclick=function(){copyText(liveUrl)};
     document.querySelector("#copyRtmp").onclick=function(){copyText(s.rtmp_server)};
     document.querySelector("#copyRtmp2").onclick=function(){copyText(s.rtmp_server)};
     document.querySelector("#copyKey").onclick=function(){copyText(s.stream_key)};
