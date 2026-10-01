@@ -975,87 +975,117 @@ app.use("/api/streams/:id/hls",admin,async(req,res)=>{
   await proxyHlsStream(req,res);
 });
 
+const publicHlsSegmentCache=new Map();
+const publicHlsSegmentPending=new Map();
+const PUBLIC_HLS_CACHE_TTL=6500;
+const PUBLIC_HLS_CACHE_MAX_BYTES=48*1024*1024;
+let publicHlsCacheBytes=0;
+function publicHlsCacheKey(token,pathname,query){
+  const q=new URLSearchParams(query||""); q.delete("session"); q.delete("cookieCheck");
+  return String(token)+"|"+String(pathname||"")+"|"+q.toString();
+}
+function publicHlsCacheGet(key){
+  const hit=publicHlsSegmentCache.get(key); if(!hit)return null;
+  if(hit.expiresAt<Date.now()){publicHlsSegmentCache.delete(key);publicHlsCacheBytes=Math.max(0,publicHlsCacheBytes-hit.body.length);return null;}
+  hit.lastUsed=Date.now(); return hit;
+}
+function publicHlsCacheSet(key,body,type){
+  const bytes=body.length; if(bytes>8*1024*1024)return;
+  const old=publicHlsSegmentCache.get(key); if(old)publicHlsCacheBytes=Math.max(0,publicHlsCacheBytes-old.body.length);
+  publicHlsSegmentCache.set(key,{body,contentType:type||"application/octet-stream",expiresAt:Date.now()+PUBLIC_HLS_CACHE_TTL,lastUsed:Date.now()});
+  publicHlsCacheBytes+=bytes;
+  while(publicHlsCacheBytes>PUBLIC_HLS_CACHE_MAX_BYTES&&publicHlsSegmentCache.size){
+    let oldestKey=null,oldest=Infinity;
+    for(const [k,v] of publicHlsSegmentCache)if(v.lastUsed<oldest){oldest=v.lastUsed;oldestKey=k;}
+    if(oldestKey===null)break;
+    const v=publicHlsSegmentCache.get(oldestKey); publicHlsSegmentCache.delete(oldestKey);
+    publicHlsCacheBytes=Math.max(0,publicHlsCacheBytes-v.body.length);
+  }
+}
+async function fetchPublicHlsBody(url){
+  const response=await fetch(url,{redirect:"follow",cache:"no-store"});
+  const type=response.headers.get("content-type")||"application/octet-stream";
+  const body=Buffer.from(await response.arrayBuffer());
+  return {response,type,body};
+}
 async function proxyPublicHlsStream(req,res){
   try{
     const token=String(req.params.token||"");
     const lookup=await publicStreamByToken(token);
     if(!lookup.rowCount)return res.status(404).end();
     const row=lookup.rows[0];
-
     const internalBase=(process.env.STREAM_HLS_INTERNAL||"http://fbi-live-ingest:8888").replace(/\/+$/,"");
     let sub=String(req.path||"/").replace(/^\/+/, "");
     if(/^index\.m3u8\/index\.m3u8$/i.test(sub))sub="index.m3u8";
     else if(/^index\.m3u8\//i.test(sub))sub=sub.slice("index.m3u8/".length);
-
     const upstreamPath="encoded/"+String(row.stream_key||"");
     const upstream=new URL(internalBase+"/"+upstreamPath+(sub?"/"+sub:""));
     for(const [k,v] of Object.entries(req.query||{}))upstream.searchParams.append(k,String(v));
-
     const incomingCookies=String(req.headers.cookie||"");
     const proxySession=(incomingCookies.match(/(?:^|;\s*)fbi_public_hls_session=([^;]+)/)||[])[1]||"";
     if(proxySession&&!upstream.searchParams.has("session"))upstream.searchParams.set("session",decodeURIComponent(proxySession));
     if(sub==="index.m3u8"&&!upstream.searchParams.has("session"))upstream.searchParams.set("cookieCheck","1");
 
-    const response=await fetch(upstream,{redirect:"follow",cache:"no-store"});
-    const type=response.headers.get("content-type")||"application/octet-stream";
-    let body=Buffer.from(await response.arrayBuffer());
-    if(!response.ok)return res.status(response.status).type(type).send(body);
-
-    if(type.toLowerCase().includes("mpegurl")){
-      let textBody=body.toString("utf8");
-      let session="";
-      const setCookies=typeof response.headers.getSetCookie==="function"
-        ? response.headers.getSetCookie()
-        : String(response.headers.get("set-cookie")||"").split(/,(?=\s*\w+=)/);
-      for(const sc of setCookies){
-        const m=String(sc).match(/(?:^|;\s*)hlsSession=([^;]+)/i);
-        if(m){session=m[1];break;}
+    const isPlaylist=/\.m3u8$/i.test(sub);
+    if(!isPlaylist){
+      const cacheKey=publicHlsCacheKey(token,sub,upstream.search);
+      const cached=publicHlsCacheGet(cacheKey);
+      if(cached)return res.status(200).set("Cache-Control","public, max-age=2, stale-while-revalidate=4").set("X-FBI-HLS-Cache","HIT").type(cached.contentType).send(cached.body);
+      let pending=publicHlsSegmentPending.get(cacheKey);
+      if(!pending){
+        pending=(async()=>{
+          const out=await fetchPublicHlsBody(upstream);
+          const result={status:out.response.status,type:out.type,body:out.body};
+          if(out.response.ok)publicHlsCacheSet(cacheKey,out.body,out.type);
+          return result;
+        })();
+        publicHlsSegmentPending.set(cacheKey,pending);
       }
-      session=session||upstream.searchParams.get("session")||"";
+      try{
+        const out=await pending;
+        if(out.status!==200)return res.status(out.status).type(out.type).send(out.body);
+        const state=publicHlsCacheGet(cacheKey);
+        return res.status(200).set("Cache-Control","public, max-age=2, stale-while-revalidate=4").set("X-FBI-HLS-Cache",state&&state.body===out.body?"MISS":"DEDUP").type(out.type).send(out.body);
+      }finally{
+        if(publicHlsSegmentPending.get(cacheKey)===pending)publicHlsSegmentPending.delete(cacheKey);
+      }
+    }
 
+    const out=await fetchPublicHlsBody(upstream);
+    const response=out.response,type=out.type;
+    let body=out.body;
+    if(!response.ok)return res.status(response.status).type(type).send(body);
+    if(type.toLowerCase().includes("mpegurl")){
+      let textBody=body.toString("utf8"),session="";
+      const setCookies=typeof response.headers.getSetCookie==="function"?response.headers.getSetCookie():String(response.headers.get("set-cookie")||"").split(/,(?=\s*\w+=)/);
+      for(const sc of setCookies){const m=String(sc).match(/(?:^|;\s*)hlsSession=([^;]+)/i);if(m){session=m[1];break;}}
+      session=session||upstream.searchParams.get("session")||"";
       function publicUri(raw){
-        const value=String(raw||"").trim();
-        if(!value)return value;
+        const value=String(raw||"").trim(); if(!value)return value;
         try{
           const absolute=/^https?:\/\//i.test(value)?new URL(value):null;
           let pathname=absolute?absolute.pathname:value.split("?")[0];
           let query=absolute?absolute.search:value.includes("?")?"?"+value.split("?").slice(1).join("?"):"";
-          const marker="/"+upstreamPath+"/";
-          const markerIndex=pathname.indexOf(marker);
+          const marker="/"+upstreamPath+"/",markerIndex=pathname.indexOf(marker);
           if(markerIndex>=0)pathname=pathname.slice(markerIndex+marker.length);
           pathname=pathname.replace(/^\/+/,"");
           const base="/api/public/stream/"+encodeURIComponent(token)+"/hls/";
-          const url=base+pathname;
-          const sp=new URLSearchParams(query.replace(/^\?/,""));
+          const url=base+pathname,sp=new URLSearchParams(query.replace(/^\?/,""));
           if(session&&!sp.has("session"))sp.set("session",session);
-          const suffix=sp.toString();
-          return url+(suffix?"?"+suffix:"");
+          const suffix=sp.toString(); return url+(suffix?"?"+suffix:"");
         }catch{return value}
       }
-
       textBody=textBody.split(/\r?\n/).map(line=>{
-        const trimmed=line.trim();
-        if(!trimmed)return line;
-        if(/^#EXT-X-(?:MEDIA|I-FRAME-STREAM-INF|MAP):/i.test(trimmed)){
-          return line.replace(/URI="([^"]+)"/gi,(_,uri)=>'URI="'+publicUri(uri)+'"');
-        }
+        const trimmed=line.trim(); if(!trimmed)return line;
+        if(/^#EXT-X-(?:MEDIA|I-FRAME-STREAM-INF|MAP):/i.test(trimmed))return line.replace(/URI="([^"]+)"/gi,(_,uri)=>'URI="'+publicUri(uri)+'"');
         if(trimmed[0]==="#")return line;
         return publicUri(trimmed);
       }).join("\n");
       body=Buffer.from(textBody,"utf8");
-      if(session){
-        res.setHeader("Set-Cookie","fbi_public_hls_session="+encodeURIComponent(session)+"; Path=/api/public/stream/"+encodeURIComponent(token)+"/hls; HttpOnly; Secure; SameSite=Lax; Max-Age=1800");
-      }
+      if(session)res.setHeader("Set-Cookie","fbi_public_hls_session="+encodeURIComponent(session)+"; Path=/api/public/stream/"+encodeURIComponent(token)+"/hls; HttpOnly; Secure; SameSite=Lax; Max-Age=1800");
     }
-
-    res.status(200)
-      .set("Cache-Control",type.toLowerCase().includes("mpegurl")?"no-store, no-cache, must-revalidate":"no-cache")
-      .type(type)
-      .send(body);
-  }catch(e){
-    console.error("Public HLS proxy error:",e?.stack||e);
-    res.status(502).json({error:"Live stream playback unavailable."});
-  }
+    res.status(200).set("Cache-Control","no-store, no-cache, must-revalidate").type(type).send(body);
+  }catch(e){console.error("Public HLS proxy error:",e?.stack||e);res.status(502).json({error:"Live stream playback unavailable."});}
 }
 
 app.use("/api/public/stream/:token/hls",async(req,res)=>{
