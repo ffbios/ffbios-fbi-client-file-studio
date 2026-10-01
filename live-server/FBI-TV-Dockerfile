@@ -1,0 +1,5 @@
+FROM bluenviron/mediamtx:1.19.2-ffmpeg
+
+COPY fbi-tv-mediamtx.yml /mediamtx.yml
+
+CMD ["/mediamtx.yml"]
