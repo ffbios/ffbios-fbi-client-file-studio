@@ -1105,10 +1105,13 @@ async function proxyPublicHlsStream(req,res){
           pathname=pathname.replace(/^\/+/,"");
           const base="/api/public/stream/"+encodeURIComponent(token)+"/hls/";
           const url=base+pathname,sp=new URLSearchParams(query.replace(/^\?/,""));
-          // Keep MediaMTX session state in the HttpOnly cookie. Do not expose the
-          // session in client segment URLs, so identical HLS segments can share
-          // the CDN cache across independent viewers.
-          sp.delete("session");sp.delete("cookieCheck");
+          // Keep each viewer's MediaMTX HLS session in the playlist URLs.
+          // This is required because HLS sessions are viewer-specific. The
+          // application cache still removes "session" from its cache key, so
+          // identical media segments can be deduplicated without sharing one
+          // MediaMTX session between different viewers.
+          if(session&&!sp.has("session"))sp.set("session",session);
+          sp.delete("cookieCheck");
           const suffix=sp.toString(); return url+(suffix?"?"+suffix:"");
         }catch{return value}
       }
