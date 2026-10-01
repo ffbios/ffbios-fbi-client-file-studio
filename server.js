@@ -1020,6 +1020,7 @@ function setPublicHlsCors(req,res){
 }
 
 async function proxyPublicHlsStream(req,res){
+  setPublicHlsCors(req,res);
   try{
     const token=String(req.params.token||"");
     const lookup=await publicStreamByToken(token);
