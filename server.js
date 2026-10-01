@@ -975,6 +975,93 @@ app.use("/api/streams/:id/hls",admin,async(req,res)=>{
   await proxyHlsStream(req,res);
 });
 
+async function proxyPublicHlsStream(req,res){
+  try{
+    const token=String(req.params.token||"");
+    const lookup=await publicStreamByToken(token);
+    if(!lookup.rowCount)return res.status(404).end();
+    const row=lookup.rows[0];
+
+    const internalBase=(process.env.STREAM_HLS_INTERNAL||"http://fbi-live-ingest:8888").replace(/\/+$/,"");
+    let sub=String(req.path||"/").replace(/^\/+/, "");
+    if(/^index\.m3u8\/index\.m3u8$/i.test(sub))sub="index.m3u8";
+    else if(/^index\.m3u8\//i.test(sub))sub=sub.slice("index.m3u8/".length);
+
+    const upstreamPath="encoded/"+String(row.stream_key||"");
+    const upstream=new URL(internalBase+"/"+upstreamPath+(sub?"/"+sub:""));
+    for(const [k,v] of Object.entries(req.query||{}))upstream.searchParams.append(k,String(v));
+
+    const incomingCookies=String(req.headers.cookie||"");
+    const proxySession=(incomingCookies.match(/(?:^|;\s*)fbi_public_hls_session=([^;]+)/)||[])[1]||"";
+    if(proxySession&&!upstream.searchParams.has("session"))upstream.searchParams.set("session",decodeURIComponent(proxySession));
+    if(sub==="index.m3u8"&&!upstream.searchParams.has("session"))upstream.searchParams.set("cookieCheck","1");
+
+    const response=await fetch(upstream,{redirect:"follow",cache:"no-store"});
+    const type=response.headers.get("content-type")||"application/octet-stream";
+    let body=Buffer.from(await response.arrayBuffer());
+    if(!response.ok)return res.status(response.status).type(type).send(body);
+
+    if(type.toLowerCase().includes("mpegurl")){
+      let textBody=body.toString("utf8");
+      let session="";
+      const setCookies=typeof response.headers.getSetCookie==="function"
+        ? response.headers.getSetCookie()
+        : String(response.headers.get("set-cookie")||"").split(/,(?=\s*\w+=)/);
+      for(const sc of setCookies){
+        const m=String(sc).match(/(?:^|;\s*)hlsSession=([^;]+)/i);
+        if(m){session=m[1];break;}
+      }
+      session=session||upstream.searchParams.get("session")||"";
+
+      function publicUri(raw){
+        const value=String(raw||"").trim();
+        if(!value)return value;
+        try{
+          const absolute=/^https?:\/\//i.test(value)?new URL(value):null;
+          let pathname=absolute?absolute.pathname:value.split("?")[0];
+          let query=absolute?absolute.search:value.includes("?")?"?"+value.split("?").slice(1).join("?"):"";
+          const marker="/"+upstreamPath+"/";
+          const markerIndex=pathname.indexOf(marker);
+          if(markerIndex>=0)pathname=pathname.slice(markerIndex+marker.length);
+          pathname=pathname.replace(/^\/+/,"");
+          const base="/api/public/stream/"+encodeURIComponent(token)+"/hls/";
+          const url=base+pathname;
+          const sp=new URLSearchParams(query.replace(/^\?/,""));
+          if(session&&!sp.has("session"))sp.set("session",session);
+          const suffix=sp.toString();
+          return url+(suffix?"?"+suffix:"");
+        }catch{return value}
+      }
+
+      textBody=textBody.split(/\r?\n/).map(line=>{
+        const trimmed=line.trim();
+        if(!trimmed)return line;
+        if(/^#EXT-X-(?:MEDIA|I-FRAME-STREAM-INF|MAP):/i.test(trimmed)){
+          return line.replace(/URI="([^"]+)"/gi,(_,uri)=>'URI="'+publicUri(uri)+'"');
+        }
+        if(trimmed[0]==="#")return line;
+        return publicUri(trimmed);
+      }).join("\n");
+      body=Buffer.from(textBody,"utf8");
+      if(session){
+        res.setHeader("Set-Cookie","fbi_public_hls_session="+encodeURIComponent(session)+"; Path=/api/public/stream/"+encodeURIComponent(token)+"/hls; HttpOnly; Secure; SameSite=Lax; Max-Age=1800");
+      }
+    }
+
+    res.status(200)
+      .set("Cache-Control",type.toLowerCase().includes("mpegurl")?"no-store, no-cache, must-revalidate":"no-cache")
+      .type(type)
+      .send(body);
+  }catch(e){
+    console.error("Public HLS proxy error:",e?.stack||e);
+    res.status(502).json({error:"Live stream playback unavailable."});
+  }
+}
+
+app.use("/api/public/stream/:token/hls",async(req,res)=>{
+  await proxyPublicHlsStream(req,res);
+});
+
 app.get("/api/streams/:id/recordings",admin,async(req,res)=>{
   try{
     const q=await pool.query("SELECT * FROM stream_recordings WHERE stream_id=$1 ORDER BY created_at DESC LIMIT 50",[req.params.id]);
@@ -1121,7 +1208,7 @@ app.get("/watch/:token",async(req,res)=>{
   try{
     const r=await publicStreamByToken(req.params.token);
     if(!r.rowCount)return res.status(404).send("Stream link is invalid or disabled.");
-    const s=r.rows[0],hls=streamHlsUrl(s);
+    const s=r.rows[0],hls="/api/public/stream/"+encodeURIComponent(req.params.token)+"/hls/index.m3u8";
     const title=escHtml(s.title||s.name),tokenJs=JSON.stringify(req.params.token);
     res.type("html").send(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} • FBI Live</title><script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script><script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1.29.1/index.js"></script><style>
 body{margin:0;background:#09090a;color:#f6f6f7;font-family:Inter,system-ui,sans-serif;min-height:100vh}.wrap{max-width:1380px;margin:auto;padding:18px}.head{padding:14px 5px 18px}.brand{font-size:9px;letter-spacing:.12em;color:#8f8f98;text-transform:uppercase}.head h1{font-size:26px;margin:7px 0 4px}.head p{color:#9b9ba4;margin:0;font-size:11px}.badge{display:inline-block;padding:5px 9px;border-radius:999px;border:1px solid #29292e;font-size:9px}.live{color:#4ade80;border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.05)}.error{color:#fb7185}.layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}.card{background:#101012;border:1px solid #29292e;border-radius:18px;box-shadow:0 20px 70px rgba(0,0,0,.25)}.player{overflow:hidden;position:relative}.player video{display:block;width:100%;aspect-ratio:16/9;background:#000}.playerbar{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:10px 12px;border-top:1px solid #29292e;background:#111114}.nowq{font-size:9px;color:#aaaab2}.comments{display:flex;flex-direction:column;max-height:calc(100vh - 180px);min-height:520px}.comments-head{padding:14px;border-bottom:1px solid #29292e;display:flex;align-items:center;justify-content:space-between}.comments-head h2{margin:0;font-size:13px}.comment-list{padding:10px 12px;overflow:auto;flex:1}.comment{padding:9px 0;border-bottom:1px solid #222226}.comment:last-child{border-bottom:0}.comment b{display:block;font-size:9px}.comment span{display:block;color:#9b9ba4;font-size:10px;line-height:1.45;margin-top:3px;word-break:break-word}.comment time{display:block;color:#66666e;font-size:7px;margin-top:4px}.comment-form{padding:12px;border-top:1px solid #29292e;display:grid;gap:7px}.comment-form input,.comment-form textarea{width:100%;box-sizing:border-box;background:#0b0b0d;color:#f5f5f6;border:1px solid #303036;border-radius:9px;padding:9px;font:inherit;font-size:9px}.comment-form textarea{min-height:66px;resize:vertical}.comment-form button{border:0;border-radius:9px;padding:10px;background:#e8c448;color:#171719;font-weight:800}.comment-tools{display:flex;gap:7px;align-items:center}.comment-tools .emoji-open{width:40px;flex:0 0 40px;padding:8px;background:#19191c;color:#f1c84a;border:1px solid #35353b;border-radius:9px}.emoji-popover{position:relative}.emoji-popover emoji-picker{position:absolute;right:0;bottom:46px;width:340px;height:380px;display:none;z-index:50;--background:#111114;--border-color:#34343a;--input-border-color:#34343a;--button-hover-background:#25252a;border:1px solid #34343a;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.55)}.emoji-popover.open emoji-picker{display:block}.statusline{font-size:9px;color:#8f8f98;margin-top:7px;min-height:13px}.foot{text-align:center;color:#66666e;font-size:9px;padding:18px}.offline{display:grid;place-items:center;min-height:360px;color:#9b9ba4;text-align:center;padding:20px}
