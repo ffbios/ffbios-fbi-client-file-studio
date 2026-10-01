@@ -6,29 +6,30 @@ function fmtTime(){return new Date().toLocaleTimeString([], {hour:"2-digit",minu
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 function toast(msg){const old=document.getElementById("mcrToast");if(old)old.remove();const t=document.createElement("div");t.id="mcrToast";t.className="mcr-toast";t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2200)}
 function copyText(v){if(!v)return;if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(v).then(()=>toast("Copied")).catch(()=>toast("Copy failed"))}else{const ta=document.createElement("textarea");ta.value=v;document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();toast("Copied")}}
-async function ensureHls(){if(window.Hls)return window.Hls;if(window.__mcrHls)return window.__mcrHls;window.__mcrHls=new Promise((resolve,reject)=>{const s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/hls.js@latest";s.onload=()=>resolve(window.Hls);s.onerror=reject;document.head.appendChild(s)});return window.__mcrHls}
+async function ensureHls(){
+  if(window.Hls)return window.Hls;
+  if(window.__mcrHls)return window.__mcrHls;
+  window.__mcrHls=new Promise(function(resolve,reject){
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/hls.js@latest";
+    s.onload=function(){resolve(window.Hls)};
+    s.onerror=reject;
+    document.head.appendChild(s);
+  });
+  return window.__mcrHls;
+}
 async function attach(video,url){
   if(!video||!url)return;
-  const old=video.__mcrPlayer;if(old){try{old.destroy()}catch{}video.__mcrPlayer=null}
-  video.muted=true;video.autoplay=true;video.playsInline=true;
-  const setState=(msg)=>{
-    const box=video.closest(".mcr-tile-screen,.mcr-big-monitor,.mcr-preview-monitor");
-    if(box){
-      let n=box.querySelector(".mcr-video-status");
-      if(!n){n=document.createElement("div");n.className="mcr-video-status";box.appendChild(n)}
-      n.textContent=msg||"";
-    }
-  };
-  if(video.canPlayType("application/vnd.apple.mpegurl")){
-    video.src=url;
-    video.load();
-    video.play().catch(()=>{});
-    return;
-  }
   try{
+    if(video.__hls){try{video.__hls.destroy()}catch{}video.__hls=null}
+    if(video.canPlayType("application/vnd.apple.mpegurl")){
+      video.src=url;
+      video.play().catch(function(){});
+      return;
+    }
     const H=await ensureHls();
-    if(!H||!H.isSupported())throw new Error("HLS not supported");
-    const h=new H({
+    if(!H||!H.isSupported())throw new Error("This browser does not support HLS playback.");
+    const hls=new H({
       enableWorker:true,
       lowLatencyMode:false,
       liveSyncDurationCount:3,
@@ -38,54 +39,23 @@ async function attach(video,url){
       maxMaxBufferLength:60,
       backBufferLength:90,
       capLevelToPlayerSize:true,
-      startLevel:-1,
-      xhrSetup:function(xhr){xhr.withCredentials=true}
+      startLevel:-1
     });
-    video.__mcrPlayer=h;
-    let lastMediaError=0;
-    h.on(H.Events.MEDIA_ATTACHED,()=>setState("Buffering live video…"));
-    h.on(H.Events.MANIFEST_PARSED,()=>{
-      setState("Live playback");
-      video.play().catch(()=>{});
+    video.__hls=hls;
+    hls.on(H.Events.ERROR,function(_,data){
+      if(!data||!data.fatal)return;
+      try{hls.destroy()}catch{}
+      video.__hls=null;
+      const note=video.closest(".mcr-tile-screen,.mcr-big-monitor,.mcr-preview-monitor")?.querySelector(".mcr-video-status");
+      if(note)note.textContent="Live playback reconnecting…";
+      setTimeout(function(){attach(video,url)},1800);
     });
-    h.on(H.Events.FRAG_BUFFERED,()=>{
-      if(video.readyState>=2)setState("");
-    });
-    video.addEventListener("error",()=>{
-      const err=video.error;
-      if(err&&err.code===3){
-        setState("Recovering video decoder…");
-        const now=Date.now();
-        if(now-lastMediaError>5000){
-          lastMediaError=now;
-          try{h.recoverMediaError()}catch{}
-        }
-      }
-    });
-    h.on(H.Events.ERROR,(_,d)=>{
-      if(!d)return;
-      if(d.fatal){
-        if(d.type===H.ErrorTypes.MEDIA_ERROR){
-          setState("Recovering video…");
-          const now=Date.now();
-          if(now-lastMediaError>5000){
-            lastMediaError=now;
-            try{h.recoverMediaError();return}catch{}
-          }
-        }else if(d.type===H.ErrorTypes.NETWORK_ERROR){
-          setState("Reconnecting…");
-          try{h.startLoad();return}catch{}
-        }
-        setState("Reconnecting…");
-        try{h.destroy()}catch{}
-        video.__mcrPlayer=null;
-        setTimeout(()=>attach(video,url),1800);
-      }
-    });
-    h.loadSource(url);
-    h.attachMedia(video);
+    hls.on(H.Events.MANIFEST_PARSED,function(){video.play().catch(function(){})});
+    hls.loadSource(url);
+    hls.attachMedia(video);
   }catch(e){
-    setState(e.message||"Playback unavailable");
+    const note=video.closest(".mcr-tile-screen,.mcr-big-monitor,.mcr-preview-monitor")?.querySelector(".mcr-video-status");
+    if(note)note.textContent=e.message||"Playback unavailable";
   }
 }
 
