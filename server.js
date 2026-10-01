@@ -451,11 +451,10 @@ function escHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<"
 function streamPathForKey(key){return "live/"+key;}
 function streamPlaybackPathForRow(row){return "encoded/"+String(row?.stream_key||"");}
 function streamHlsUrl(row){
-  // Return a complete HLS playlist URL. Priming cookieCheck=1 makes
-  // MediaMTX use query-based session IDs in child playlists, avoiding
-  // cross-origin cookie dependencies.
-  const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
-  return base+"/"+streamPlaybackPathForRow(row)+"/index.m3u8?cookieCheck=1";
+  // Serve HLS through the Client File Studio same-origin proxy so the browser
+  // never has to negotiate MediaMTX's cross-origin HLS session cookies.
+  const base=PUBLIC_BASE_URL||"";
+  return base+"/api/streams/"+encodeURIComponent(String(row.id))+"/hls/index.m3u8";
 }
 function streamInputHlsUrl(row){
   const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
@@ -872,6 +871,36 @@ app.patch("/api/streams/:id",admin,async(req,res)=>{
     if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
     res.json({stream:r.rows[0]});
   }catch(e){console.error(e);res.status(500).json({error:"Could not update stream"});}
+});
+
+async function proxyHlsStream(req,res){
+  try{
+    const id=String(req.params.id||"");
+    const q=await pool.query("SELECT * FROM streams WHERE id=$1 AND enabled=true",[id]);
+    if(!q.rowCount)return res.status(404).end();
+    const row=q.rows[0];
+    const internalBase=(process.env.STREAM_HLS_INTERNAL||"http://fbi-live-ingest:8888").replace(/\/+$/,"");
+    const sub=String(req.path||"/").replace(/^\/+/,"");
+    const upstreamPath="encoded/"+String(row.stream_key||"");
+    const upstream=new URL(internalBase+"/"+upstreamPath+(sub?"/"+sub:""));
+    for(const [k,v] of Object.entries(req.query||{}))upstream.searchParams.append(k,String(v));
+    // For the HLS multivariant playlist, prime MediaMTX's query-based
+    // session mode. Node's fetch does not persist Set-Cookie across requests,
+    // so MediaMTX places the session ID in the returned child playlist URLs.
+    if(!sub || sub==="index.m3u8")upstream.searchParams.set("cookieCheck","1");
+    const response=await fetch(upstream,{redirect:"follow",cache:"no-store"});
+    const type=response.headers.get("content-type")||"application/octet-stream";
+    const body=Buffer.from(await response.arrayBuffer());
+    if(!response.ok)return res.status(response.status).type(type).send(body);
+    res.status(200).set("Cache-Control",type.includes("mpegurl")?"no-store, no-cache, must-revalidate":"no-cache").type(type).send(body);
+  }catch(e){
+    console.error("HLS proxy error:",e?.stack||e);
+    res.status(502).json({error:"Live stream playback proxy unavailable."});
+  }
+}
+
+app.use("/api/streams/:id/hls",admin,async(req,res)=>{
+  await proxyHlsStream(req,res);
 });
 
 app.get("/api/streams/:id/recordings",admin,async(req,res)=>{
