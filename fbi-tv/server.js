@@ -138,9 +138,18 @@ app.post("/api/mediamtx/auth",async(req,res)=>{
 
 app.get("/api/public/watch/:token/status",async(req,res)=>{
   const s=await publicStream(req.params.token);if(!s)return res.status(404).json({error:"Watch link is invalid or disabled."});
-  const rtmpPath=s.stream_key;
-  const fresh=String(s.status||"offline");
-  res.json({live:fresh==="live",title:s.title,name:s.name,current_viewers:Number(s.current_viewers||0),hls_url:hlsProxyBase(req.params.token)});
+  let live=String(s.status||"offline")==="live";
+  if(MEDIA_BASE){
+    try{
+      const probe=await fetch(MEDIA_BASE+"/live/"+encodeURIComponent(s.stream_key)+"/index.m3u8",{cache:"no-store"});
+      const actual=probe.ok;
+      if(actual!==live){
+        await pool.query("UPDATE tv_streams SET status=$1,updated_at=now() WHERE id=$2",[actual?"live":"offline",s.id]);
+        live=actual;
+      }
+    }catch(_e){}
+  }
+  res.json({live,title:s.title,name:s.name,current_viewers:Number(s.current_viewers||0),hls_url:hlsProxyBase(req.params.token)});
 });
 app.get("/api/public/watch/:token/hls/:file",async(req,res)=>{
   const s=await publicStream(req.params.token);if(!s)return res.status(404).end();
@@ -182,6 +191,17 @@ app.post("/api/public/watch/:token/heartbeat",async(req,res)=>{
   const s=await publicStream(req.params.token);if(!s)return res.status(404).end();
   await pool.query("UPDATE tv_streams SET current_viewers=GREATEST(0,current_viewers+0),total_viewers=GREATEST(total_viewers,0),updated_at=now() WHERE id=$1",[s.id]);
   res.json({ok:true});
+});
+
+app.get("/live/:id",admin,async(req,res)=>{
+  try{
+    const q=await pool.query("SELECT id FROM tv_streams WHERE id=$1 AND enabled=true",[req.params.id]);
+    if(!q.rowCount)return res.status(404).send("Live stream not found.");
+    res.redirect(302,"/?stream="+encodeURIComponent(q.rows[0].id));
+  }catch(e){
+    console.error("Live studio route failed:",e);
+    res.status(500).send("Could not open live stream.");
+  }
 });
 
 app.get("/watch/:token",async(req,res)=>{
