@@ -132,6 +132,7 @@ const PUBLIC_BASE_URL=(process.env.PUBLIC_BASE_URL||"").replace(/\/+$/,"");
 const MAX_FILE_SIZE=5*1000*1000*1000*1000;
 const STORAGE_QUOTA_BYTES=Number(process.env.STORAGE_QUOTA_BYTES||100000000000000);
 const MIN_PART_SIZE=64*1024*1024;
+const TURBO_PART_SIZE=128*1024*1024;
 const MAX_PARTS=10000;
 const PRESIGN_SECONDS=1200;
 
@@ -213,7 +214,7 @@ const s3=s3Ready()?new S3Client({
 const bucket=()=>process.env.S3_BUCKET;
 
 function choosePartSize(size){
-  var part=MIN_PART_SIZE;
+  var part=Number(size||0)>=512*1000*1000?TURBO_PART_SIZE:MIN_PART_SIZE;
   while(Math.ceil(size/part)>MAX_PARTS) part*=2;
   return part;
 }
