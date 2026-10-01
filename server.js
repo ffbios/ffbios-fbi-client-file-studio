@@ -836,7 +836,7 @@ app.get("/api/streams",admin,async(req,res)=>{
       stream_path:s.stream_path,
       rtmp_server:rtmpHost&&rtmpPort?`rtmp://${rtmpHost}:${rtmpPort}/live`:"",
       hls_url:streamHlsUrl(s),
-      viewer_url:(PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`)+"/watch/"+s.viewer_token
+      live_url:(PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`)+"/live/"+s.id,viewer_url:(PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`)+"/watch/"+s.viewer_token
     }))});
   }catch(e){console.error(e);res.status(500).json({error:"Could not load live streams"});}
 });
@@ -860,7 +860,7 @@ app.get("/api/streams/:id",admin,async(req,res)=>{
     if(!r.rowCount)return res.status(404).json({error:"Stream not found."});
     const s=await refreshStreamStatus(r.rows[0]);
     const viewers=await pool.query("SELECT count(*)::int AS total,count(*) FILTER (WHERE last_seen>=now()-interval '45 seconds')::int AS current FROM stream_viewers WHERE stream_id=$1",[s.id]);
-    res.json({stream:{...s,rtmp_server:(process.env.STREAM_RTMP_HOST&&process.env.STREAM_RTMP_PORT)?`rtmp://${process.env.STREAM_RTMP_HOST}:${process.env.STREAM_RTMP_PORT}/live`:"",hls_url:streamHlsUrl(s),viewer_url:(PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`)+"/watch/"+s.viewer_token},viewers:viewers.rows[0]});
+    res.json({stream:{...s,rtmp_server:(process.env.STREAM_RTMP_HOST&&process.env.STREAM_RTMP_PORT)?`rtmp://${process.env.STREAM_RTMP_HOST}:${process.env.STREAM_RTMP_PORT}/live`:"",hls_url:streamHlsUrl(s),live_url:(PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`)+"/live/"+s.id,viewer_url:(PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`)+"/watch/"+s.viewer_token},viewers:viewers.rows[0]});
   }catch(e){console.error(e);res.status(500).json({error:"Could not load stream"});}
 });
 
@@ -1202,6 +1202,17 @@ app.post("/api/public/stream/:token/comments",async(req,res)=>{
     const q=await pool.query("INSERT INTO stream_comments(id,stream_id,display_name,comment) VALUES($1,$2,$3,$4) RETURNING id,display_name,comment,created_at",[uid(),r.rows[0].id,name,comment]);
     res.status(201).json({comment:q.rows[0]});
   }catch(e){console.error("Comment create failed:",e);res.status(500).json({error:"Could not post comment"});}
+});
+
+app.get("/live/:id",admin,async(req,res)=>{
+  try{
+    const r=await pool.query("SELECT id FROM streams WHERE id=$1 AND enabled=true",[req.params.id]);
+    if(!r.rowCount)return res.status(404).send("Live stream not found.");
+    res.redirect(302,"/?view=streams&stream="+encodeURIComponent(r.rows[0].id));
+  }catch(e){
+    console.error("Live studio route failed:",e);
+    res.status(500).send("Could not open live stream.");
+  }
 });
 
 app.get("/watch/:token",async(req,res)=>{
