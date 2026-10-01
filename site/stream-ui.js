@@ -69,10 +69,7 @@
         maxMaxBufferLength:60,
         backBufferLength:90,
         capLevelToPlayerSize:true,
-        startLevel:-1,
-        xhrSetup:function(xhr){xhr.withCredentials=true;},
-        fetchSetup:function(context,init){init.credentials="include";return new Request(context.url,init);}
-      });
+        startLevel:-1      });
       video.__hls=hls;
       hls.on(H.Events.ERROR,function(_,data){
         if(!data||!data.fatal)return;
