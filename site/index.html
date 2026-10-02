@@ -681,6 +681,8 @@ async function renderStoragePage(){
   c.innerHTML='<div class="empty">Loading storage...</div>';
   try{
     const d=await api('/api/storage'),s=d.storage||{};
+    let pendingData={uploads:[]};
+    try{pendingData=await api('/api/uploads/pending')}catch(e){}
     const pct=Number(s.usage_percent||0);
     c.innerHTML='<div class="storagehero">'+
       '<div class="storow"><div><div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:.08em">FBI Cloud Storage</div><div class="used">'+esc(s.format_used)+'</div></div>'+
@@ -694,6 +696,14 @@ async function renderStoragePage(){
       '<div class="metric"><small>Pending Uploads</small><strong>'+esc(s.format_reserved)+'</strong><span>Space reserved by active resumable uploads.</span></div>'+
       '<div class="metric"><small>Capacity</small><strong>'+esc(s.format_quota)+'</strong><span>Configured Studio storage capacity.</span></div></div>'+
       '<div style="height:14px"></div>'+
+      '<div style="height:14px"></div>'+
+      '<div class="panel"><div class="ph"><div><h2>Pending Uploads</h2><p>These are resumable uploads that have not yet been registered as completed files.</p></div><button class="btn primary" id="recoverPending">Check & Recover</button></div><div class="body" id="pendingUploads">'+
+      ((pendingData.uploads||[]).length?pendingData.uploads.map(function(u){
+        const pct=u.size_bytes?Math.min(100,u.uploaded_bytes/u.size_bytes*100):0;
+        return '<div class="smallnote" style="padding:10px 0;border-bottom:1px solid var(--line)"><b>'+esc(u.original_name)+'</b> • '+esc(u.project_name||'')+'<br>'+fmt(u.uploaded_bytes)+' / '+fmt(u.size_bytes)+' ('+pct.toFixed(1)+'%) • '+(u.complete?'Ready to recover into gallery':'Resumable partial upload')+'</div>';
+      }).join(''):'<div class="empty">No active pending uploads found.</div>')+
+      '</div></div>'+
+      '<div style="height:14px"></div>'+
       '<div class="viewgrid">'+
       '<div class="panel span8"><div class="ph"><div><h2>Storage Details</h2><p>Live storage accounting from the Studio database.</p></div><button class="btn" id="refreshStorage">Refresh</button></div><div class="body">'+
       '<div class="barline"><span>Used</span><div class="bar"><i style="width:'+Math.min(100,pct)+'%"></i></div><b style="text-align:right">'+pct.toFixed(2)+'%</b></div>'+
@@ -702,6 +712,16 @@ async function renderStoragePage(){
       '<div class="pillline"><span class="statusdot '+(s.storage_ready?'ok':'')+'"></span><b>'+(s.storage_ready?'Connected':'Not ready')+'</b></div><div style="height:10px"></div>'+
       '<div class="smallnote">Bucket: <b>'+esc(s.bucket_name||'Configured bucket')+'</b><br>Region: <b>'+esc(s.bucket_region||'Configured region')+'</b><br>Policy: <b>Lossless original bytes</b><br>Transfers: <b>Resumable and duplicate-aware</b></div></div></div></div>';
     document.querySelector('#refreshStorage').onclick=function(){renderStoragePage()};
+    const recover=document.querySelector('#recoverPending');
+    if(recover)recover.onclick=async function(){
+      this.disabled=true;this.textContent='Checking…';
+      try{
+        const r=await api('/api/uploads/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+        const n=(r.recovered||[]).length,p=(r.partial||[]).length;
+        toast(n?('Recovered '+n+' file'+(n===1?'':'s')+' into the gallery'+(p?' • '+p+' upload'+(p===1?'':'s')+' still partial':'')):('No completed pending file found'+(p?' • '+p+' partial upload'+(p===1?'':'s')+' remains resumable':'')));
+        await renderStoragePage();
+      }catch(e){toast(e.message)}finally{this.disabled=false;this.textContent='Check & Recover'}
+    };
   }catch(e){c.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}
 }
 async function renderDownloadsPage(){
