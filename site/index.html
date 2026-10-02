@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#0a0a0b"><meta name="fbi-live-ui-version" content="2026-10-02-video-fix-2">
+<meta name="theme-color" content="#0a0a0b"><meta name="fbi-live-ui-version" content="2026-10-02-video-fix-3">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -1201,15 +1201,31 @@ function renderSelectedStream(){
       if(video.__studioHls){try{video.__studioHls.destroy()}catch{}video.__studioHls=null}
       setVideoStatus(statusId,'CONNECTING TO LIVE FEED…');
       if(window.Hls&&window.Hls.isSupported()){
-        const hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:4,liveMaxLatencyDurationCount:10,maxBufferLength:30,maxMaxBufferLength:60,backBufferLength:45,capLevelToPlayerSize:true,startLevel:-1});
+        const hls=new Hls({
+          enableWorker:true,
+          lowLatencyMode:false,
+          liveSyncDurationCount:4,
+          liveMaxLatencyDurationCount:10,
+          maxBufferLength:30,
+          maxMaxBufferLength:60,
+          backBufferLength:45,
+          capLevelToPlayerSize:true,
+          startLevel:-1
+        });
         video.__studioHls=hls;
         let retry=0;
         const reconnect=function(){
           if(retry)return;
           retry=setTimeout(function(){retry=0;startStudioHls(video,url,statusId)},1500);
         };
-        hls.on(Hls.Events.MANIFEST_PARSED,function(){setVideoStatus(statusId,'LIVE');const p=video.play();if(p&&p.catch)p.catch(function(){});});
-        hls.on(Hls.Events.FRAG_BUFFERED,function(){setVideoStatus(statusId,'LIVE');const p=video.play();if(p&&p.catch)p.catch(function(){})});
+        hls.on(Hls.Events.MANIFEST_PARSED,function(){
+          setVideoStatus(statusId,'LIVE');
+          const p=video.play();if(p&&p.catch)p.catch(function(){});
+        });
+        hls.on(Hls.Events.FRAG_BUFFERED,function(){
+          setVideoStatus(statusId,'LIVE');
+          const p=video.play();if(p&&p.catch)p.catch(function(){});
+        });
         hls.on(Hls.Events.ERROR,function(_,data){
           if(!data)return;
           if(data.fatal){
@@ -1222,13 +1238,14 @@ function renderSelectedStream(){
         video.addEventListener('playing',function(){setVideoStatus(statusId,'LIVE')});
         video.addEventListener('stalled',function(){setVideoStatus(statusId,'BUFFERING…')});
         hls.loadSource(url);hls.attachMedia(video);
-        return;
+        return hls;
       }
       if(video.canPlayType('application/vnd.apple.mpegurl')){
         video.src=url;video.load();
         const play=function(){const p=video.play();if(p&&p.catch)p.catch(function(){});setVideoStatus(statusId,'LIVE')};
-        video.addEventListener('loadedmetadata',play,{once:true});video.addEventListener('stalled',function(){setVideoStatus(statusId,'BUFFERING…')});play();
-        return;
+        video.addEventListener('loadedmetadata',play,{once:true});
+        video.addEventListener('stalled',function(){setVideoStatus(statusId,'BUFFERING…')});
+        play();return null;
       }
       throw new Error('HLS playback is not supported in this browser.');
     }catch(e){
@@ -1241,9 +1258,33 @@ function renderSelectedStream(){
   const previewVideo=document.querySelector('#streamPreviewVideo');
   const programVideo=document.querySelector('#streamProgramVideo');
   if(previewVideo&&programVideo&&playbackUrl){
-    startStudioHls(previewVideo,playbackUrl,'previewVideoStatus');
+    // One HLS connection only. The Program monitor is the live decoder; Preview
+    // mirrors its decoded frames, avoiding two HLS sessions competing for the
+    // same public stream session.
     startStudioHls(programVideo,playbackUrl,'programVideoStatus');
-    setTimeout(function(){startStudioAudioMonitor(programVideo)},1200);
+    const mirrorPreview=function(){
+      try{
+        if(typeof programVideo.captureStream==='function'){
+          const ms=programVideo.captureStream();
+          previewVideo.srcObject=ms;
+          previewVideo.muted=true;
+          const p=previewVideo.play();if(p&&p.catch)p.catch(function(){});
+          setVideoStatus('previewVideoStatus','LIVE');
+          return true;
+        }
+      }catch(e){console.warn('Preview mirror:',e)}
+      return false;
+    };
+    programVideo.addEventListener('playing',function(){
+      setVideoStatus('programVideoStatus','LIVE');
+      mirrorPreview();
+      startStudioAudioMonitor(programVideo);
+    },{once:false});
+    programVideo.addEventListener('loadeddata',function(){
+      mirrorPreview();
+      startStudioAudioMonitor(programVideo);
+    },{once:true});
+    setTimeout(function(){mirrorPreview();startStudioAudioMonitor(programVideo)},1800);
   }
 
   let muted=true;
@@ -1257,7 +1298,7 @@ function renderSelectedStream(){
   if(addChannel)addChannel.onclick=openChannelCreator;
   document.querySelector('#openWatchHero').onclick=watchOpen;
   document.querySelector('#studioWatchBtn').onclick=watchOpen;
-  document.querySelector('#studioCopyBtn').onclick=function(){copyText('Server: '+s.rtmp_server+'\nStream Key: '+s.stream_key)};
+  document.querySelector('#studioCopyBtn').onclick=function(){copyText('Server: '+s.rtmp_server+'\\nStream Key: '+s.stream_key)};
   document.querySelector('#copyRtmp').onclick=function(){copyText(s.rtmp_server)};
   document.querySelector('#copyRtmp2').onclick=function(){copyText(s.rtmp_server)};
   document.querySelector('#copyKey').onclick=function(){copyText(s.stream_key)};
