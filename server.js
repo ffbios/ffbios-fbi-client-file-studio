@@ -1190,7 +1190,7 @@ app.get("/api/public/stream/:token/replay/file",async(req,res)=>{
       "Accept-Ranges":"bytes",
       "Cache-Control":"no-store",
       ...(partial?{"Content-Range":"bytes "+start+"-"+end+"/"+total}:{}),
-      "Content-Disposition":"inline; filename=\""+String(recording.filename||"replay.mp4").replace(/["\\]/g,"_")+"\"
+      "Content-Disposition":"inline; filename=\""+String(recording.filename||"replay.mp4").replace(/["\\]/g,"_")+"\""
     });
     res.setHeader("X-FBI-Replay-Recording",String(recording.id));
     res.setHeader("X-FBI-Replay-Bytes",String(total));
