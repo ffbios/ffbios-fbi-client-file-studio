@@ -1479,79 +1479,189 @@ app.get("/watch/:token",async(req,res)=>{
     const s=r.rows[0],viewerBase=String(process.env.PUBLIC_HLS_BASE_URL||"").replace(/\/+$/,"")||req.protocol+"://"+req.get("host"),hls=viewerBase+"/api/public/stream/"+encodeURIComponent(req.params.token)+"/hls/index.m3u8";
     const title=escHtml(s.title||s.name),tokenJs=JSON.stringify(req.params.token);
     res.type("html").send(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} • FBI Live</title><script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script><script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1.29.1/index.js"></script><style>
-body{margin:0;background:#09090a;color:#f6f6f7;font-family:Inter,system-ui,sans-serif;min-height:100vh}.wrap{max-width:1380px;margin:auto;padding:18px}.head{padding:14px 5px 18px}.brand{font-size:9px;letter-spacing:.12em;color:#8f8f98;text-transform:uppercase}.head h1{font-size:26px;margin:7px 0 4px}.head p{color:#9b9ba4;margin:0;font-size:11px}.badge{display:inline-block;padding:5px 9px;border-radius:999px;border:1px solid #29292e;font-size:9px}.live{color:#4ade80;border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.05)}.error{color:#fb7185}.layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}.card{background:#101012;border:1px solid #29292e;border-radius:18px;box-shadow:0 20px 70px rgba(0,0,0,.25)}.player{overflow:hidden;position:relative}.player video{display:block;width:100%;aspect-ratio:16/9;background:#000}.playerbar{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:10px 12px;border-top:1px solid #29292e;background:#111114}.nowq{font-size:9px;color:#aaaab2}.comments{display:flex;flex-direction:column;height:min(620px,calc(100vh - 170px));min-height:420px;overflow:hidden}.comments-head{padding:14px;border-bottom:1px solid #29292e;display:flex;align-items:center;justify-content:space-between}.comments-head h2{margin:0;font-size:13px}.comment-list{padding:10px 12px;overflow-y:auto;overflow-x:hidden;flex:1;min-height:0;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}.comment{padding:9px 0;border-bottom:1px solid #222226}.comment:last-child{border-bottom:0}.comment b{display:block;font-size:9px}.comment span{display:block;color:#9b9ba4;font-size:10px;line-height:1.45;margin-top:3px;word-break:break-word}.comment time{display:block;color:#66666e;font-size:7px;margin-top:4px}.comment-form{padding:12px;border-top:1px solid #29292e;display:grid;gap:7px;flex:none;background:#101012}.comment-form input,.comment-form textarea{width:100%;box-sizing:border-box;background:#0b0b0d;color:#f5f5f6;border:1px solid #303036;border-radius:9px;padding:9px;font:inherit;font-size:9px}.comment-form textarea{min-height:66px;resize:vertical}.comment-form button{border:0;border-radius:9px;padding:10px;background:#e8c448;color:#171719;font-weight:800}.comment-tools{display:flex;gap:7px;align-items:center}.comment-tools .emoji-open{width:40px;flex:0 0 40px;padding:8px;background:#19191c;color:#f1c84a;border:1px solid #35353b;border-radius:9px}.emoji-popover{position:static}.emoji-popover emoji-picker{position:fixed;left:50%;right:auto;bottom:78px;transform:translateX(-50%);width:min(92vw,340px);height:min(52vh,380px);display:none;z-index:9999;--background:#111114;--border-color:#34343a;--input-border-color:#34343a;--button-hover-background:#25252a;border:1px solid #34343a;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.55)}.emoji-popover.open emoji-picker{display:block}.statusline{font-size:9px;color:#8f8f98;margin-top:7px;min-height:13px}.foot{text-align:center;color:#66666e;font-size:9px;padding:18px}.offline{display:grid;place-items:center;min-height:360px;color:#9b9ba4;text-align:center;padding:20px}
-@media(max-width:950px){.layout{grid-template-columns:1fr}.comments{height:min(560px,62vh);min-height:420px}}@media(max-width:480px){.wrap{padding:10px}.head h1{font-size:21px}.comments{height:520px;min-height:0}.comment-form textarea{min-height:58px}.emoji-popover emoji-picker{bottom:72px;width:min(94vw,340px);height:min(56vh,360px)}}
-/* Mobile viewer interface only. Playback/HLS/replay engine remains unchanged. */
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:#070708;color:#f5f5f7;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{min-height:100vh;background:radial-gradient(900px 420px at 18% -8%,rgba(215,175,65,.10),transparent 55%),radial-gradient(760px 380px at 98% 4%,rgba(93,103,255,.08),transparent 58%),#070708}
+button,input,textarea,select{font:inherit}
+.wrap{max-width:1480px;margin:0 auto;padding:22px 22px 34px}
+.head{display:flex;align-items:center;gap:18px;padding:4px 4px 18px;border-bottom:1px solid rgba(255,255,255,.07);margin-bottom:18px}
+.head-brand{display:flex;align-items:center;gap:12px;min-width:0}
+.head-brand img{width:38px;height:38px;object-fit:contain;filter:drop-shadow(0 6px 16px rgba(0,0,0,.35))}
+.brand-block{min-width:0}
+.brand{font-size:10px;letter-spacing:.16em;color:#8c8c96;text-transform:uppercase;white-space:nowrap}
+.head h1{margin:4px 0 0;font-size:24px;line-height:1.12;font-weight:760;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.head-info{margin-left:auto;display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.stream-badge{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid rgba(255,255,255,.10);border-radius:999px;background:rgba(255,255,255,.035);font-size:10px;font-weight:800;letter-spacing:.08em}
+.stream-badge.live{color:#70ee92;border-color:rgba(112,238,146,.26);background:rgba(112,238,146,.07)}
+.stream-badge.error{color:#fb7185;border-color:rgba(251,113,133,.26);background:rgba(251,113,133,.06)}
+.stream-badge::before{content:"";width:7px;height:7px;border-radius:50%;background:#66666e;box-shadow:0 0 0 4px rgba(255,255,255,.03)}
+.stream-badge.live::before{background:#70ee92;box-shadow:0 0 0 4px rgba(112,238,146,.10)}
+.viewer-pill{display:flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid rgba(255,255,255,.08);border-radius:999px;background:rgba(255,255,255,.025);color:#9e9ea7;font-size:10px}
+.viewer-pill strong{color:#f1f1f4;font-size:10px}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:18px;align-items:stretch}
+.card{background:linear-gradient(180deg,rgba(18,18,21,.98),rgba(13,13,15,.98));border:1px solid #26262c;border-radius:22px;box-shadow:0 26px 80px rgba(0,0,0,.34)}
+.player{overflow:hidden;position:relative;min-width:0}
+.video-shell{position:relative;background:#000;aspect-ratio:16/9;overflow:hidden}
+.player video{display:block;width:100%;height:100%;object-fit:contain;background:#000}
+.video-topbar,.video-bottombar{position:absolute;left:0;right:0;z-index:5;display:flex;align-items:center;justify-content:space-between;pointer-events:none}
+.video-topbar{top:0;padding:14px;background:linear-gradient(180deg,rgba(0,0,0,.72),transparent)}
+.video-bottombar{bottom:0;padding:44px 16px 16px;background:linear-gradient(0deg,rgba(0,0,0,.82),transparent)}
+.video-title{min-width:0}
+.video-title strong{display:block;font-size:13px;font-weight:780;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.video-title span{display:block;margin-top:3px;color:#b1b1b8;font-size:10px}
+.video-viewers{display:flex;align-items:center;gap:8px;padding:7px 10px;background:rgba(4,4,6,.54);border:1px solid rgba(255,255,255,.11);backdrop-filter:blur(14px);border-radius:999px;font-size:10px;color:#ededf1}
+.video-viewers strong{font-size:10px}
+.video-badge{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;background:rgba(4,4,6,.54);border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(14px);border-radius:999px;font-size:9px;font-weight:850;letter-spacing:.08em}
+.video-badge::before{content:"";width:7px;height:7px;border-radius:50%;background:#666}
+.video-badge.live{color:#78ef98}
+.video-badge.live::before{background:#70ee92;box-shadow:0 0 12px rgba(112,238,146,.62)}
+.playerbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;background:#101014;border-top:1px solid #27272d}
+.nowq{font-size:10px;color:#b5b5bd;min-height:14px}
+.playerbar-brand{font-size:9px;letter-spacing:.14em;color:#67676f;text-transform:uppercase}
+.offline{display:grid;place-items:center;position:absolute;inset:0;min-height:0;padding:24px;text-align:center;color:#a9a9b1;background:radial-gradient(420px 220px at 50% 42%,rgba(215,175,65,.07),transparent 60%),linear-gradient(180deg,rgba(6,6,8,.42),rgba(6,6,8,.70))}
+.offline::before{content:"";width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,.12);border-top-color:#e5c85d;margin-bottom:13px;animation:offlineSpin 1.1s linear infinite}
+@keyframes offlineSpin{to{transform:rotate(360deg)}}
+.comments{display:flex;flex-direction:column;height:100%;min-height:580px;overflow:hidden}
+.comments-head{display:flex;align-items:center;justify-content:space-between;padding:16px 17px;border-bottom:1px solid #28282e}
+.comments-head-left{display:flex;align-items:center;gap:9px}
+.comments-head h2{margin:0;font-size:14px;font-weight:780}
+.comments-live-dot{width:7px;height:7px;border-radius:50%;background:#70ee92;box-shadow:0 0 12px rgba(112,238,146,.5)}
+.comments-count{min-width:25px;height:25px;padding:0 7px;display:grid;place-items:center;border-radius:999px;border:1px solid #313138;color:#c6c6cc;background:#101014;font-size:9px;font-weight:800}
+.comment-list{padding:12px 14px;overflow-y:auto;overflow-x:hidden;flex:1;min-height:0;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.comment{padding:12px 11px;border:1px solid rgba(255,255,255,.065);background:rgba(255,255,255,.022);border-radius:14px;margin-bottom:9px}
+.comment:last-child{margin-bottom:0}
+.comment b{display:block;font-size:10px;color:#f2f2f5}
+.comment span{display:block;color:#aaaab3;font-size:11px;line-height:1.45;margin-top:5px;word-break:break-word}
+.comment time{display:block;color:#65656e;font-size:8px;margin-top:7px}
+.comment-form{padding:13px;border-top:1px solid #28282e;background:#101014;display:grid;gap:8px}
+.comment-form input,.comment-form textarea{width:100%;background:#0a0a0d;color:#f4f4f6;border:1px solid #303039;border-radius:12px;padding:11px 12px;font-size:10px;outline:none;transition:border-color .18s,box-shadow .18s}
+.comment-form input:focus,.comment-form textarea:focus{border-color:rgba(229,200,93,.55);box-shadow:0 0 0 3px rgba(229,200,93,.08)}
+.comment-form textarea{min-height:82px;resize:vertical}
+.comment-form button{border:0;border-radius:11px;padding:11px 14px;background:linear-gradient(180deg,#edd66f,#d7b842);color:#17170f;font-weight:850;cursor:pointer}
+.comment-tools{display:flex;align-items:center;gap:8px}
+.comment-tools>button[type=submit]{flex:1}
+.comment-tools .emoji-open{width:44px;flex:0 0 44px;padding:10px;background:#19191d;color:#f0ce5c;border:1px solid #34343b;border-radius:11px;cursor:pointer}
+.emoji-popover{position:relative}
+.emoji-popover emoji-picker{position:fixed;left:50%;right:auto;bottom:90px;transform:translateX(-50%);width:min(94vw,360px);height:min(54vh,390px);display:none;z-index:9999;--background:#111114;--border-color:#34343a;--input-border-color:#34343a;--button-hover-background:#25252a;border:1px solid #34343a;border-radius:16px;box-shadow:0 25px 70px rgba(0,0,0,.62)}
+.emoji-popover.open emoji-picker{display:block}
+.statusline{font-size:9px;color:#8f8f98;min-height:13px}
+.foot{text-align:center;color:#5f5f67;font-size:9px;padding:19px 0 0}
 .mobile-live-ui{display:none}
+@media(max-width:1100px){.wrap{padding:18px}.layout{grid-template-columns:minmax(0,1fr) 330px;gap:14px}}
+@media(max-width:900px){.head{gap:11px;padding-bottom:13px;margin-bottom:13px}.head h1{font-size:18px}.head-info{gap:7px}.viewer-pill{display:none}.layout{grid-template-columns:1fr;gap:12px}.comments{min-height:440px}.comments-head{padding:13px 14px}.comment-form{padding:11px}}
 @media(max-width:600px){
-  .mobile-live-ui{display:block;position:absolute;inset:0;z-index:4;pointer-events:none}
-  .mobile-viewer-badge{position:absolute;right:10px;top:10px;display:flex;gap:6px;align-items:center;padding:6px 8px;border-radius:999px;background:rgba(0,0,0,.48);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(12px);color:#f5f5f7;font-size:7px}
-  .mobile-viewer-badge b{font-size:8px}
-  .mobile-floating-comments{position:absolute;left:9px;right:66px;bottom:58px;display:flex;flex-direction:column;justify-content:flex-end;gap:5px;max-height:56%;overflow:hidden;mask-image:linear-gradient(to bottom,transparent 0,#000 17%,#000 100%)}
-  .mobile-floating-comment{align-self:flex-start;max-width:92%;padding:6px 9px;border-radius:13px 13px 13px 5px;background:rgba(8,8,10,.58);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px);box-shadow:0 7px 22px rgba(0,0,0,.24);animation:mobileCommentRise .38s cubic-bezier(.2,.75,.25,1) both}
-  .mobile-floating-comment b{font-size:7px;color:#fff;margin-right:5px}
-  .mobile-floating-comment span{font-size:8px;line-height:1.3;color:#ededf1;word-break:break-word}
-  .mobile-floating-comment time{font-size:6px;color:#8f8f98;margin-left:5px}
-  .mobile-live-ui .mobile-reaction-rail{opacity:0;transform:translateY(8px) scale(.96);transition:opacity .2s ease,transform .2s ease;pointer-events:none}.mobile-live-ui.show-reactions .mobile-reaction-rail{opacity:1;transform:none;pointer-events:auto}.mobile-reaction-rail{position:absolute;right:8px;bottom:8px;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:auto}
-  .mobile-reaction-btn{width:38px;height:38px;padding:0;border-radius:50%;border:1px solid rgba(255,255,255,.15);background:rgba(18,18,21,.68);backdrop-filter:blur(12px);color:#fff;display:grid;place-items:center;font-size:17px;box-shadow:0 8px 25px rgba(0,0,0,.3);touch-action:manipulation}
-  .mobile-reaction-btn.heart{width:46px;height:46px;font-size:23px;background:rgba(170,32,55,.3)}
-  .mobile-reaction-btn:active{transform:scale(.9)}
-  .mobile-reaction-floaters{position:absolute;right:16px;bottom:68px;width:42px;height:56%;overflow:visible}
-  .mobile-reaction-floater{position:absolute;right:0;bottom:0;font-size:27px;line-height:1;filter:drop-shadow(0 4px 9px rgba(0,0,0,.38));animation:mobileReactionUp 2.2s ease-out both}
-  .player{position:relative}
-  .comments{height:0!important;min-height:0!important;display:block;overflow:visible;background:transparent;border:0;box-shadow:none}
-  .comments-head,.comment-list{display:none!important}
-  .comment-form{position:fixed;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));z-index:50;padding:8px;border:1px solid rgba(255,255,255,.1);border-radius:15px;background:rgba(13,13,16,.88);backdrop-filter:blur(18px);box-shadow:0 15px 45px rgba(0,0,0,.46)}
-  .comment-form input{height:33px;font-size:8px;padding:8px 10px}
-  .comment-form textarea{min-height:45px;max-height:92px;font-size:8px;padding:8px 10px}
-  .comment-tools{display:flex;gap:6px;align-items:center}
-  .comment-tools .emoji-open{width:39px!important;height:36px!important;flex:0 0 39px!important;padding:0!important;display:grid!important;place-items:center!important;visibility:visible!important;opacity:1!important;font-size:18px!important;border-radius:10px!important}
-  .comment-tools>button[type=submit]{height:36px!important;flex:1!important;padding:8px!important;font-size:8px!important}
-  .emoji-popover{position:relative}
-  .emoji-popover emoji-picker{bottom:calc(118px + env(safe-area-inset-bottom));width:min(94vw,360px);height:min(55vh,380px);z-index:99999}
-  .mobile-live-status{position:absolute;left:10px;top:10px;padding:5px 8px;border-radius:999px;background:rgba(0,0,0,.48);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(12px);font-size:7px;color:#ddd}
-  .mobile-live-status.live{color:#69ef8d}
-  .foot{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
-  @keyframes mobileCommentRise{0%{opacity:0;transform:translateY(12px) scale(.98)}100%{opacity:1;transform:translateY(0) scale(1)}}
-  @keyframes mobileReactionUp{0%{opacity:0;transform:translateY(18px) scale(.72)}12%{opacity:1}100%{opacity:0;transform:translateY(-185px) scale(1.25)}}
+ .wrap{padding:8px 8px 88px}.head{padding:3px 2px 11px;margin-bottom:9px;border-bottom-color:rgba(255,255,255,.05)}
+ .head-brand{gap:9px}.head-brand img{width:30px;height:30px}.brand{font-size:8px;letter-spacing:.12em}.head h1{font-size:16px;margin-top:3px}.head-info{margin-left:auto}
+ .stream-badge{padding:6px 8px;font-size:8px}.stream-badge::before{width:6px;height:6px}.card{border-radius:16px}.player{border-color:#222228}.video-shell{aspect-ratio:16/9}
+ .video-topbar{padding:10px}.video-bottombar{padding:34px 10px 10px}.video-title strong{font-size:11px}.video-title span{font-size:8px}.video-badge,.video-viewers{font-size:8px;padding:6px 8px}
+ .playerbar{padding:9px 11px}.playerbar-brand{font-size:8px}.nowq{font-size:8px}
+ .comments{height:0!important;min-height:0!important;display:block;overflow:visible;background:transparent;border:0;box-shadow:none}.comments-head,.comment-list{display:none!important}
+ .mobile-live-ui{display:block;position:absolute;inset:0;z-index:6;pointer-events:none}
+ .mobile-viewer-badge{position:absolute;right:9px;top:9px;display:flex;gap:6px;align-items:center;padding:6px 8px;border-radius:999px;background:rgba(4,4,6,.54);border:1px solid rgba(255,255,255,.11);backdrop-filter:blur(12px);color:#f5f5f7;font-size:8px}
+ .mobile-viewer-badge b{font-size:9px}
+ .mobile-floating-comments{position:absolute;left:9px;right:63px;bottom:58px;display:flex;flex-direction:column;justify-content:flex-end;gap:5px;max-height:55%;overflow:hidden;mask-image:linear-gradient(to bottom,transparent 0,#000 18%,#000 100%)}
+ .mobile-floating-comment{align-self:flex-start;max-width:92%;padding:6px 9px;border-radius:13px 13px 13px 5px;background:rgba(8,8,10,.58);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px);box-shadow:0 7px 22px rgba(0,0,0,.24);animation:mobileCommentRise .38s cubic-bezier(.2,.75,.25,1) both}
+ .mobile-floating-comment b{font-size:7px;color:#fff;margin-right:5px}.mobile-floating-comment span{font-size:8px;line-height:1.3;color:#ededf1;word-break:break-word}.mobile-floating-comment time{font-size:6px;color:#8f8f98;margin-left:5px}
+ .mobile-live-ui .mobile-reaction-rail{opacity:0;transform:translateY(8px) scale(.96);transition:opacity .2s ease,transform .2s ease;pointer-events:none}.mobile-live-ui.show-reactions .mobile-reaction-rail{opacity:1;transform:none;pointer-events:auto}
+ .mobile-reaction-rail{position:absolute;right:8px;bottom:8px;display:flex;flex-direction:column;align-items:center;gap:6px}
+ .mobile-reaction-btn{width:38px;height:38px;padding:0;border-radius:50%;border:1px solid rgba(255,255,255,.15);background:rgba(18,18,21,.68);backdrop-filter:blur(12px);color:#fff;display:grid;place-items:center;font-size:17px;box-shadow:0 8px 25px rgba(0,0,0,.3);touch-action:manipulation}
+ .mobile-reaction-btn.heart{width:46px;height:46px;font-size:23px;background:rgba(170,32,55,.3)}.mobile-reaction-btn:active{transform:scale(.9)}
+ .mobile-reaction-floaters{position:absolute;right:16px;bottom:68px;width:42px;height:56%;overflow:visible}.mobile-reaction-floater{position:absolute;right:0;bottom:0;font-size:27px;line-height:1;filter:drop-shadow(0 4px 9px rgba(0,0,0,.38));animation:mobileReactionUp 2.2s ease-out both}
+ .comment-form{position:fixed;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));z-index:50;padding:8px;border:1px solid rgba(255,255,255,.1);border-radius:15px;background:rgba(13,13,16,.90);backdrop-filter:blur(18px);box-shadow:0 15px 45px rgba(0,0,0,.48)}
+ .comment-form input{height:34px;font-size:8px;padding:8px 10px}.comment-form textarea{min-height:45px;max-height:92px;font-size:8px;padding:8px 10px}
+ .comment-tools{display:flex;gap:6px;align-items:center}.comment-tools .emoji-open{width:39px!important;height:36px!important;flex:0 0 39px!important;padding:0!important;display:grid!important;place-items:center!important;font-size:18px!important;border-radius:10px!important}
+ .comment-tools>button[type=submit]{height:36px!important;flex:1!important;padding:8px!important;font-size:8px!important}.emoji-popover{position:relative}.emoji-popover emoji-picker{bottom:calc(118px + env(safe-area-inset-bottom));width:min(94vw,360px);height:min(55vh,380px);z-index:99999}
+ .mobile-live-status{position:absolute;left:10px;top:10px;padding:5px 8px;border-radius:999px;background:rgba(0,0,0,.48);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(12px);font-size:7px;color:#ddd}.mobile-live-status.live{color:#69ef8d}.foot{padding-bottom:0}
+ @keyframes mobileCommentRise{0%{opacity:0;transform:translateY(12px) scale(.98)}100%{opacity:1;transform:translateY(0) scale(1)}}@keyframes mobileReactionUp{0%{opacity:0;transform:translateY(18px) scale(.72)}12%{opacity:1}100%{opacity:0;transform:translateY(-185px) scale(1.25)}}
 }
-@media(max-width:380px){
-  .mobile-floating-comments{right:60px;bottom:55px}
-  .mobile-reaction-rail{right:6px}
-  .mobile-reaction-btn{width:35px;height:35px}
-  .mobile-reaction-btn.heart{width:43px;height:43px}
-  .comment-form{left:6px;right:6px}
-}/* Phone landscape: keep the same mobile viewing controls when the handset rotates. */
-@media (max-width:900px) and (orientation:landscape) and (pointer:coarse){
-  .mobile-live-ui{display:block;position:absolute;inset:0;z-index:4;pointer-events:none}
-  .mobile-viewer-badge{position:absolute;right:10px;top:10px;display:flex;gap:6px;align-items:center;padding:6px 8px;border-radius:999px;background:rgba(0,0,0,.48);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(12px);color:#f5f5f7;font-size:7px}
-  .mobile-viewer-badge b{font-size:8px}
-  .mobile-floating-comments{position:absolute;left:9px;right:66px;bottom:58px;display:flex;flex-direction:column;justify-content:flex-end;gap:5px;max-height:58%;overflow:hidden;mask-image:linear-gradient(to bottom,transparent 0,#000 17%,#000 100%)}
-  .mobile-floating-comment{align-self:flex-start;max-width:70%;padding:6px 9px;border-radius:13px 13px 13px 5px;background:rgba(8,8,10,.58);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px);box-shadow:0 7px 22px rgba(0,0,0,.24);animation:mobileCommentRise .38s cubic-bezier(.2,.75,.25,1) both}
-  .mobile-floating-comment b{font-size:7px;color:#fff;margin-right:5px}
-  .mobile-floating-comment span{font-size:8px;line-height:1.3;color:#ededf1;word-break:break-word}
-  .mobile-floating-comment time{font-size:6px;color:#8f8f98;margin-left:5px}
-  .mobile-reaction-rail{position:absolute;right:8px;bottom:8px;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:auto}
-  .mobile-reaction-btn{width:38px;height:38px;padding:0;border-radius:50%;border:1px solid rgba(255,255,255,.15);background:rgba(18,18,21,.68);backdrop-filter:blur(12px);color:#fff;display:grid;place-items:center;font-size:17px;box-shadow:0 8px 25px rgba(0,0,0,.3);touch-action:manipulation}
-  .mobile-reaction-btn.heart{width:46px;height:46px;font-size:23px;background:rgba(170,32,55,.3)}
-  .mobile-reaction-btn:active{transform:scale(.9)}
-  .mobile-reaction-floaters{position:absolute;right:16px;bottom:68px;width:42px;height:56%;overflow:visible}
-  .mobile-reaction-floater{position:absolute;right:0;bottom:0;font-size:27px;line-height:1;filter:drop-shadow(0 4px 9px rgba(0,0,0,.38));animation:mobileReactionUp 2.2s ease-out both}
-  .player{position:relative}
-  .comments{height:0!important;min-height:0!important;display:block;overflow:visible;background:transparent;border:0;box-shadow:none}
-  .comments-head,.comment-list{display:none!important}
-  .comment-form{position:fixed;left:10px;right:10px;bottom:calc(8px + env(safe-area-inset-bottom));z-index:50;padding:7px;display:grid;gap:6px;border:1px solid rgba(255,255,255,.1);border-radius:15px;background:rgba(13,13,16,.88);backdrop-filter:blur(18px);box-shadow:0 15px 45px rgba(0,0,0,.46)}
-  .comment-form input{height:32px;font-size:8px;padding:8px 10px}
-  .comment-form textarea{min-height:42px;max-height:78px;font-size:8px;padding:8px 10px}
-  .comment-tools{display:flex;gap:6px;align-items:center}
-  .comment-tools .emoji-open{width:39px!important;height:36px!important;flex:0 0 39px!important;padding:0!important;display:grid!important;place-items:center!important;visibility:visible!important;opacity:1!important;font-size:18px!important;border-radius:10px!important}
-  .comment-tools>button[type=submit]{height:36px!important;flex:1!important;padding:8px!important;font-size:8px!important}
-  .emoji-popover{position:relative}
-  .emoji-popover emoji-picker{bottom:calc(116px + env(safe-area-inset-bottom));width:min(70vw,360px);height:min(78vh,340px);z-index:99999}
-  .mobile-live-status{position:absolute;left:10px;top:10px;padding:5px 8px;border-radius:999px;background:rgba(0,0,0,.48);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(12px);font-size:7px;color:#ddd}
-  .mobile-live-status.live{color:#69ef8d}
-  .foot{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
-}</style></head><body><div class="wrap"><div class="head"><div class="brand">FILM BEYOND IMAGINATION • FBI Live</div><div style="margin-top:8px"><span class="badge" id="status">Checking live status…</span></div><h1>${title}</h1><p id="viewers">FBI Live Stream</p></div><div class="layout"><section><div class="card player"><video id="video" controls playsinline autoplay muted></video><div id="offline" class="offline" style="display:none"></div><div class="mobile-live-ui"><span class="mobile-live-status" id="mobileLiveStatus">CONNECTING…</span><span class="mobile-viewer-badge"><b id="mobileViewerCount">0</b> watching</span><div id="mobileFloatingComments" class="mobile-floating-comments"></div><div id="mobileReactionFloaters" class="mobile-reaction-floaters"></div><div class="mobile-reaction-rail"><button type="button" class="mobile-reaction-btn" data-mobile-reaction="👏" aria-label="Clap">👏</button><button type="button" class="mobile-reaction-btn" data-mobile-reaction="❤️" aria-label="Love">❤️</button><button type="button" class="mobile-reaction-btn heart" data-mobile-reaction="❤️" aria-label="Send heart">♥</button></div></div><div class="playerbar"><span class="nowq" id="streamState">Connecting…</span></div></div></section><aside class="card comments"><div class="comments-head"><h2>Live Comments</h2><span class="badge" id="commentCount">0</span></div><div id="commentList" class="comment-list"><div style="color:#777;font-size:9px;padding:10px 0">No comments yet.</div></div><form id="commentForm" class="comment-form"><input id="commentName" maxlength="60" placeholder="Your name"><textarea id="commentText" maxlength="500" placeholder="Write a comment…"></textarea><div class="comment-tools"><div class="emoji-popover" id="emojiPopover"><button type="button" class="emoji-open" id="emojiOpen" title="Add emoji">😊</button><emoji-picker id="emojiPicker" locale="en"></emoji-picker></div><button type="submit">Post Comment</button></div><div class="statusline" id="commentStatus"></div></form></aside></div><div class="foot">FBI Live • Live broadcast and viewer comments</div></div><script>
+@media(max-width:900px) and (orientation:landscape) and (pointer:coarse){
+ .mobile-live-ui{display:block;position:absolute;inset:0;z-index:6;pointer-events:none}.mobile-viewer-badge{position:absolute;right:10px;top:10px;display:flex;gap:6px;align-items:center;padding:6px 8px;border-radius:999px;background:rgba(0,0,0,.48);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(12px);color:#f5f5f7;font-size:7px}.mobile-viewer-badge b{font-size:8px}
+ .mobile-floating-comments{position:absolute;left:9px;right:66px;bottom:58px;display:flex;flex-direction:column;justify-content:flex-end;gap:5px;max-height:58%;overflow:hidden;mask-image:linear-gradient(to bottom,transparent 0,#000 17%,#000 100%)}
+ .mobile-floating-comment{align-self:flex-start;max-width:70%;padding:6px 9px;border-radius:13px 13px 13px 5px;background:rgba(8,8,10,.58);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px);box-shadow:0 7px 22px rgba(0,0,0,.24);animation:mobileCommentRise .38s cubic-bezier(.2,.75,.25,1) both}
+ .mobile-floating-comment b{font-size:7px;color:#fff;margin-right:5px}.mobile-floating-comment span{font-size:8px;line-height:1.3;color:#ededf1;word-break:break-word}.mobile-floating-comment time{font-size:6px;color:#8f8f98;margin-left:5px}
+ .mobile-live-ui .mobile-reaction-rail{opacity:0;transform:translateY(8px) scale(.96);transition:opacity .2s ease,transform .2s ease;pointer-events:none}.mobile-live-ui.show-reactions .mobile-reaction-rail{opacity:1;transform:none;pointer-events:auto}
+ .mobile-reaction-rail{position:absolute;right:8px;bottom:8px;display:flex;flex-direction:column;align-items:center;gap:6px}.mobile-reaction-btn{width:38px;height:38px;padding:0;border-radius:50%;border:1px solid rgba(255,255,255,.15);background:rgba(18,18,21,.68);backdrop-filter:blur(12px);color:#fff;display:grid;place-items:center;font-size:17px;box-shadow:0 8px 25px rgba(0,0,0,.3);touch-action:manipulation}.mobile-reaction-btn.heart{width:46px;height:46px;font-size:23px;background:rgba(170,32,55,.3)}.mobile-reaction-btn:active{transform:scale(.9)}
+ .mobile-reaction-floaters{position:absolute;right:16px;bottom:68px;width:42px;height:56%;overflow:visible}.mobile-reaction-floater{position:absolute;right:0;bottom:0;font-size:27px;line-height:1;filter:drop-shadow(0 4px 9px rgba(0,0,0,.38));animation:mobileReactionUp 2.2s ease-out both}
+ .comments{height:0!important;min-height:0!important;display:block;overflow:visible;background:transparent;border:0;box-shadow:none}.comments-head,.comment-list{display:none!important}
+ .comment-form{position:fixed;left:10px;right:10px;bottom:calc(8px + env(safe-area-inset-bottom));z-index:50;padding:7px;display:grid;gap:6px;border:1px solid rgba(255,255,255,.1);border-radius:15px;background:rgba(13,13,16,.88);backdrop-filter:blur(18px);box-shadow:0 15px 45px rgba(0,0,0,.46)}
+ .comment-form input{height:32px;font-size:8px;padding:8px 10px}.comment-form textarea{min-height:42px;max-height:78px;font-size:8px;padding:8px 10px}.comment-tools{display:flex;gap:6px;align-items:center}
+ .comment-tools .emoji-open{width:39px!important;height:36px!important;flex:0 0 39px!important;padding:0!important;display:grid!important;place-items:center!important;font-size:18px!important;border-radius:10px!important}.comment-tools>button[type=submit]{height:36px!important;flex:1!important;padding:8px!important;font-size:8px!important}
+ .emoji-popover emoji-picker{bottom:calc(116px + env(safe-area-inset-bottom));width:min(70vw,360px);height:min(78vh,340px);z-index:99999}.mobile-live-status{position:absolute;left:10px;top:10px;padding:5px 8px;border-radius:999px;background:rgba(0,0,0,.48);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(12px);font-size:7px;color:#ddd}.mobile-live-status.live{color:#69ef8d}.foot{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
+}
+</style></head><body><div class="wrap">
+  <header class="head">
+    <div class="head-brand">
+      <img src="/official-logo.png" alt="FBI">
+      <div class="brand-block">
+        <div class="brand">FILM BEYOND IMAGINATION • FBI LIVE</div>
+        <h1>\${title}</h1>
+      </div>
+    </div>
+    <div class="head-info">
+      <span class="stream-badge" id="status">CHECKING</span>
+      <span class="viewer-pill"><strong id="viewers">0</strong></span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="card player">
+      <div class="video-shell">
+        <video id="video" controls playsinline autoplay muted></video>
+        <div id="offline" class="offline" style="display:none"></div>
+        <div class="video-topbar">
+          <span class="video-badge" id="desktopVideoBadge">FBI LIVE</span>
+          <span class="video-viewers"><strong id="desktopViewerLabel">0</strong> watching</span>
+        </div>
+        <div class="video-bottombar">
+          <div class="video-title">
+            <strong>\${title}</strong>
+            <span>Film Beyond Imagination • Live broadcast</span>
+          </div>
+        </div>
+        <div class="mobile-live-ui">
+          <span class="mobile-live-status" id="mobileLiveStatus">CONNECTING…</span>
+          <span class="mobile-viewer-badge"><b id="mobileViewerCount">0</b> watching</span>
+          <div id="mobileFloatingComments" class="mobile-floating-comments"></div>
+          <div id="mobileReactionFloaters" class="mobile-reaction-floaters"></div>
+          <div class="mobile-reaction-rail">
+            <button type="button" class="mobile-reaction-btn" data-mobile-reaction="👏" aria-label="Clap">👏</button>
+            <button type="button" class="mobile-reaction-btn" data-mobile-reaction="❤️" aria-label="Love">❤️</button>
+            <button type="button" class="mobile-reaction-btn heart" data-mobile-reaction="❤️" aria-label="Send heart">♥</button>
+          </div>
+        </div>
+      </div>
+      <div class="playerbar">
+        <span class="nowq" id="streamState">Connecting…</span>
+        <span class="playerbar-brand">FBI LIVE • BROADCAST PLAYER</span>
+      </div>
+    </section>
+
+    <aside class="card comments">
+      <div class="comments-head">
+        <div class="comments-head-left">
+          <span class="comments-live-dot"></span>
+          <h2>Live chat</h2>
+        </div>
+        <span class="comments-count" id="commentCount">0</span>
+      </div>
+      <div id="commentList" class="comment-list"><div style="color:#777;font-size:9px;padding:10px 0">No comments yet.</div></div>
+      <form id="commentForm" class="comment-form">
+        <input id="commentName" maxlength="60" placeholder="Your name">
+        <textarea id="commentText" maxlength="500" placeholder="Write a comment…"></textarea>
+        <div class="comment-tools">
+          <div class="emoji-popover" id="emojiPopover">
+            <button type="button" class="emoji-open" id="emojiOpen" title="Add emoji">😊</button>
+            <emoji-picker id="emojiPicker" locale="en"></emoji-picker>
+          </div>
+          <button type="submit">Post Comment</button>
+        </div>
+        <div class="statusline" id="commentStatus"></div>
+      </form>
+    </aside>
+  </main>
+  <div class="foot">FBI Live • Live broadcast and viewer comments</div>
+</div><script>
 const token=${tokenJs},hlsUrl=${JSON.stringify(hls)};const video=document.getElementById("video"),emojiOpen=document.getElementById("emojiOpen"),emojiPopover=document.getElementById("emojiPopover"),emojiPicker=document.getElementById("emojiPicker"),offline=document.getElementById("offline"),statusEl=document.getElementById("status"),viewers=document.getElementById("viewers"),streamState=document.getElementById("streamState"),commentList=document.getElementById("commentList"),commentCount=document.getElementById("commentCount"),commentForm=document.getElementById("commentForm"),commentName=document.getElementById("commentName"),commentText=document.getElementById("commentText"),commentStatus=document.getElementById("commentStatus");const sessionKey=crypto.randomUUID();let player=null,live=false,replayMode=false,replayTimer=0;const mobileFloatingComments=document.getElementById("mobileFloatingComments"),mobileReactionFloaters=document.getElementById("mobileReactionFloaters"),mobileViewerCount=document.getElementById("mobileViewerCount"),mobileLiveStatus=document.getElementById("mobileLiveStatus");let mobileReactionIndex=0;const mobileLiveUi=document.querySelector(".mobile-live-ui");let mobileReactionHideTimer=0;function revealMobileReactions(){if(!mobileLiveUi)return;mobileLiveUi.classList.add("show-reactions");clearTimeout(mobileReactionHideTimer);mobileReactionHideTimer=setTimeout(function(){mobileLiveUi.classList.remove("show-reactions")},3200)}video.addEventListener("pointerup",revealMobileReactions);
 video.addEventListener("loadedmetadata",function(){if(replayMode)streamState.textContent="Replay ready"});
 video.addEventListener("error",function(){if(!replayMode)return;const err=video.error;streamState.textContent=err?"Replay playback error ("+String(err.code)+")":"Replay playback error"});
