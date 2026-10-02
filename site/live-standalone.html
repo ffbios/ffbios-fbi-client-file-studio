@@ -13,7 +13,7 @@ button,input{font:inherit}
 .app{height:100vh;display:grid;grid-template-columns:250px minmax(0,1fr)}
 .sidebar{background:#0d0d0f;border-right:1px solid #25252b;padding:14px;display:flex;flex-direction:column;min-height:0}
 .brand{padding:7px 8px 14px;border-bottom:1px solid #25252b;text-align:center}.brand img{width:92px;height:38px;object-fit:contain}.brand strong{display:block;font-size:11px;margin-top:3px}.brand span{display:block;color:#7d7d85;font-size:8px;margin-top:2px}
-.sidebar-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 4px 8px}.sidebar-head h2{margin:0;font-size:12px}.sidebar-head span{font-size:8px;color:#85858d}.add-channel-btn{border:1px solid #3a393f;background:#18181b;color:#f0e6bd;border-radius:7px;padding:5px 7px;font-size:6px;font-weight:850;cursor:pointer}.add-channel-btn:hover{background:#222227;border-color:#d3b13e}.channel-modal{position:fixed;inset:0;z-index:100;display:grid;place-items:center;background:rgba(0,0,0,.72);padding:18px}.channel-modal.hidden{display:none}.channel-box{width:min(520px,100%);border:1px solid #34343b;border-radius:14px;background:linear-gradient(180deg,#17171a,#101012);box-shadow:0 30px 90px rgba(0,0,0,.6);overflow:hidden}.channel-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #29292f}.channel-head b{font-size:11px}.channel-close{border:0;background:none;color:#aaaab2;font-size:18px;cursor:pointer}.channel-body{padding:14px}.channel-body .field{margin-bottom:11px}.channel-body textarea{width:100%;min-height:80px;background:#0a0a0d;border:1px solid #303037;color:#eee;border-radius:9px;padding:9px;font-size:9px;outline:none;resize:vertical}.channel-foot{display:flex;justify-content:flex-end;gap:6px;padding:10px 14px;border-top:1px solid #29292f}.channel-help{margin:0 0 12px;color:#888891;font-size:8px;line-height:1.5}.channel-result{margin-top:12px;padding:10px;border:1px solid rgba(236,204,91,.25);background:rgba(236,204,91,.04);border-radius:9px;font-size:8px;color:#d9d9df}.channel-result b{display:block;color:#f0e4ad;margin-bottom:5px}.channel-result code{font:700 8px ui-monospace,SFMono-Regular,Menlo,monospace;color:#ddd;word-break:break-all}
+.sidebar-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 4px 8px}.sidebar-head h2{margin:0;font-size:12px}.sidebar-head span{font-size:8px;color:#85858d}.sidebar-head-left{display:flex;flex-direction:column;gap:2px}.add-channel-btn{border:1px solid #3a393f;background:#18181b;color:#f0e6bd;border-radius:7px;padding:5px 7px;font-size:6px;font-weight:850;cursor:pointer;white-space:nowrap}.add-channel-btn:hover{background:#242428;border-color:#d3b13e}.channel-modal{position:fixed;inset:0;z-index:100;display:grid;place-items:center;background:rgba(0,0,0,.74);padding:18px}.channel-modal.hidden{display:none}.channel-box{width:min(520px,100%);border:1px solid #34343b;border-radius:14px;background:linear-gradient(180deg,#17171a,#101012);box-shadow:0 30px 90px rgba(0,0,0,.62);overflow:hidden}.channel-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #29292f}.channel-head b{font-size:11px}.channel-close{border:0;background:none;color:#aaaab2;font-size:18px;cursor:pointer}.channel-body{padding:14px}.channel-body .field{margin-bottom:11px}.channel-body textarea{width:100%;min-height:80px;background:#0a0a0d;border:1px solid #303037;color:#eee;border-radius:9px;padding:9px;font-size:9px;outline:none;resize:vertical}.channel-foot{display:flex;justify-content:flex-end;gap:6px;padding:10px 14px;border-top:1px solid #29292f}.channel-help{margin:0 0 12px;color:#888891;font-size:8px;line-height:1.5}.channel-result{margin-top:12px;padding:10px;border:1px solid rgba(236,204,91,.25);background:rgba(236,204,91,.04);border-radius:9px;font-size:8px;color:#d9d9df}.channel-result b{display:block;color:#f0e4ad;margin-bottom:5px}.channel-result code{font:700 8px ui-monospace,SFMono-Regular,Menlo,monospace;color:#ddd;word-break:break-all}.mcr-video-status{position:absolute;left:6px;bottom:6px;padding:4px 6px;border-radius:5px;background:rgba(0,0,0,.62);border:1px solid rgba(255,255,255,.1);font-size:6px;color:#d0d0d5;z-index:3}
 .channels{min-height:0;overflow:auto;display:grid;gap:8px;padding:0 1px}
 .channel{border:1px solid #2a2a30;background:#111113;border-radius:11px;padding:10px;cursor:pointer}.channel:hover{background:#161619}.channel.active{border-color:rgba(236,204,91,.75);box-shadow:inset 0 0 0 1px rgba(236,204,91,.12)}
 .channel-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.channel-name{font-size:10px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.channel-meta{margin-top:4px;color:#8b8b93;font-size:7px;line-height:1.45}
@@ -24,7 +24,7 @@ button,input{font:inherit}
 .statusbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;border:1px solid #28282e;border-radius:10px;background:#111113}.chips{display:flex;gap:5px;align-items:center;min-width:0}.chip{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border-radius:999px;border:1px solid #303036;background:#0e0e10;color:#9e9ea6;font-size:6px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}.chip.live{color:#70ee92;border-color:rgba(112,238,146,.28);background:rgba(112,238,146,.05)}.chip.gold{color:#efcf63;border-color:rgba(212,175,55,.28);background:rgba(212,175,55,.04)}
 .control{font:700 7px ui-monospace,SFMono-Regular,Menlo,monospace;color:#a9a9b1;white-space:nowrap}.viewers{font-size:7px;color:#f0f0f2}.viewers b{font-size:8px}
 .work{min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 160px;gap:7px}
-.primary{min-width:0;min-height:0;display:grid;grid-template-rows:minmax(0,1fr) 60px 102px 26px;gap:6px}
+.primary-area{min-width:0;min-height:0;display:grid;grid-template-rows:minmax(0,1fr) 60px 102px 26px;gap:6px}
 .views{min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .view{position:relative;min-width:0;min-height:0;border:1px solid #25252a;border-radius:9px;overflow:hidden;background:#000}
 .view-head{position:absolute;top:0;left:0;right:0;z-index:5;padding:7px;background:linear-gradient(180deg,rgba(0,0,0,.85),transparent);display:flex;justify-content:space-between;align-items:center;pointer-events:none}.view-head b{font-size:7px;letter-spacing:.08em}.preview-label{color:#d7d7dc}.program-label{color:#ff8d8d}.view-head span{font-size:6px;color:#8e8e97}
@@ -37,27 +37,84 @@ button,input{font:inherit}
 .rack{display:grid;gap:6px;min-height:0}.panel{border:1px solid #25252a;border-radius:9px;background:#111113;overflow:hidden}.ph{padding:7px 8px;border-bottom:1px solid #242428;font-size:6px;font-weight:900;letter-spacing:.08em;color:#9c9ca5}.pb{padding:7px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:5px}.rack-btn{width:100%;border:1px solid #303038;background:#18181b;color:#e4e4e8;border-radius:7px;padding:8px 4px;font-size:6px;font-weight:850;cursor:pointer;margin-bottom:5px}.rack-btn.primary{background:linear-gradient(180deg,#edd66f,#d6b542);border-color:#d3b13e;color:#15150f}.rack-row{display:flex;justify-content:space-between;gap:6px;font-size:6px;color:#86868f;padding:2px 0}.rack-row b{color:#ececf0;text-align:right}.rack-meter{display:grid;gap:5px}.rack-meter-line{display:grid;grid-template-columns:auto 1fr auto;gap:5px;align-items:center;font-size:6px;color:#777780}.rack-meter-segs{display:flex;gap:2px;height:7px}.rack-meter-segs i{flex:1;background:#29292e;border-radius:2px}.rack-meter-segs i.on{background:#4ade80}.rack-meter-segs i.hot{background:#e3c44d}.rack-meter-segs i.clip{background:#fb7185}
 .controls{display:flex;justify-content:space-between;align-items:center;gap:7px;border:1px solid #28282e;border-radius:9px;background:#111113;padding:5px 7px}.control-group{display:flex;gap:5px;align-items:center;flex-wrap:wrap}.smallbtn{border:1px solid #303038;background:#18181b;color:#dddde2;border-radius:7px;padding:6px 8px;font-size:6px;font-weight:850;cursor:pointer}.smallbtn.primary{background:linear-gradient(180deg,#edd66f,#d6b542);color:#15150f;border-color:#d3b13e}
 .footer{margin-top:6px;color:#62626a;font-size:7px}
-.login{height:100vh;display:grid;place-items:center;padding:24px}.loginbox{width:min(390px,100%);border:1px solid #2c2c32;border-radius:18px;background:linear-gradient(180deg,#151518,#101012);box-shadow:0 30px 80px rgba(0,0,0,.45);padding:22px}.loginbox img{width:105px;height:45px;object-fit:contain;display:block;margin:0 auto 10px}.loginbox h1{text-align:center;margin:0;font-size:18px}.loginbox p{text-align:center;color:#85858e;font-size:9px;margin:5px 0 18px}.field{display:grid;gap:5px;margin-bottom:10px}.field label{font-size:7px;text-transform:uppercase;letter-spacing:.08em;color:#8f8f98}.field input{width:100%;background:#0a0a0d;border:1px solid #303037;color:#eee;border-radius:9px;padding:9px;font-size:9px;outline:none}.error{min-height:14px;color:#fb7185;font-size:8px;margin-top:8px}
-@media(max-width:900px){body{overflow:auto}.app{height:auto;min-height:100vh;grid-template-columns:1fr}.sidebar{padding:9px;border-right:0;border-bottom:1px solid #25252b}.channels{display:flex;overflow:auto}.channel{min-width:190px}.main{padding:9px}.topbar{height:auto}.work{grid-template-columns:1fr}.rack{grid-template-columns:repeat(4,1fr)}.primary{grid-template-rows:auto 56px 100px 26px}.views{min-height:300px}.studio{display:block}.statusbar,.controls{margin-bottom:7px}.footer{padding-bottom:10px}}
+.login-page{min-height:100vh;display:grid;place-items:center;padding:24px;position:relative;overflow:hidden;background:radial-gradient(650px 420px at 50% 40%,rgba(230,196,85,.10),transparent 68%),#070708}.login-glow{position:absolute;width:680px;height:680px;border-radius:50%;background:radial-gradient(circle,rgba(230,196,85,.08),transparent 66%);filter:blur(2px);pointer-events:none}.login-shell{width:min(960px,100%);display:grid;grid-template-columns:1fr 420px;gap:28px;align-items:center;position:relative;z-index:1}.login-brand{text-align:left;padding:28px}.brand-mark{width:82px;height:82px;border-radius:22px;border:1px solid rgba(236,204,91,.25);background:linear-gradient(145deg,#19191d,#0c0c0e);display:grid;place-items:center;box-shadow:0 18px 55px rgba(0,0,0,.32);margin-bottom:22px}.brand-mark img{width:56px;height:56px;object-fit:contain}.login-kicker{font-size:9px;letter-spacing:.18em;color:#8e8e96}.login-brand-title{font-size:44px;font-weight:850;letter-spacing:-.04em;margin-top:6px}.login-brand-sub{font-size:12px;color:#8c8c95;margin-top:7px;line-height:1.5}.login-foot{grid-column:1 / -1;text-align:center;color:#5f5f67;font-size:8px;margin-top:-4px}.login-card{border:1px solid #2b2b31;border-radius:22px;background:linear-gradient(180deg,rgba(21,21,24,.98),rgba(12,12,14,.98));box-shadow:0 35px 100px rgba(0,0,0,.5);overflow:hidden}.login-head{padding:23px 23px 16px;border-bottom:1px solid #242428}.login-eyebrow{font-size:7px;letter-spacing:.14em;color:#d8ba53;font-weight:850}.login-head h1{margin:7px 0 0;font-size:22px;letter-spacing:-.02em}.login-head p{margin:5px 0 0;color:#85858e;font-size:9px;line-height:1.5}.login-body{padding:18px 23px 21px}.login-body .field{display:grid;gap:6px;margin-bottom:12px}.login-body .field label{font-size:7px;text-transform:uppercase;letter-spacing:.08em;color:#8f8f98}.login-body .field input,.login-body .field select{width:100%;background:#09090c;border:1px solid #303038;color:#f3f3f5;border-radius:10px;padding:10px 11px;font-size:9px;outline:none}.login-body .field input:focus,.login-body .field select:focus{border-color:rgba(237,214,111,.58);box-shadow:0 0 0 3px rgba(237,214,111,.08)}.auth-primary,.auth-secondary,.auth-link{width:100%;border-radius:10px;padding:10px 12px;font-size:9px;font-weight:850;cursor:pointer}.auth-primary{border:1px solid #d3b13e;background:linear-gradient(180deg,#edd66f,#d6b542);color:#16160f}.auth-secondary{border:1px solid #36363d;background:#18181b;color:#e9e9ed}.auth-link{border:0;background:transparent;color:#c7c7ce;padding:9px 3px;font-weight:700}.auth-row{display:flex;justify-content:space-between;gap:10px;margin-top:5px}.auth-row .auth-link{width:auto}.auth-message{min-height:15px;color:#fb7185;font-size:8px;line-height:1.5;margin-top:10px}.question-box{padding:10px 11px;border:1px solid rgba(236,204,91,.22);border-radius:10px;background:rgba(236,204,91,.05);font-size:9px;color:#e8d37a;line-height:1.45;margin:10px 0}.login-body select{appearance:auto}
+
+@media(max-width:900px){body{overflow:auto}.app{height:auto;min-height:100vh;grid-template-columns:1fr}.sidebar{padding:9px;border-right:0;border-bottom:1px solid #25252b}.channels{display:flex;overflow:auto}.channel{min-width:190px}.main{padding:9px}.topbar{height:auto}.work{grid-template-columns:1fr}.rack{grid-template-columns:repeat(4,1fr)}.primary-area{grid-template-rows:auto 56px 100px 26px}.views{min-height:300px}.studio{display:block}.statusbar,.controls{margin-bottom:7px}.footer{padding-bottom:10px}}
 @media(max-width:640px){.views{grid-template-columns:1fr}.rack{grid-template-columns:1fr 1fr}.mixer{grid-template-columns:repeat(5,minmax(72px,1fr));overflow:auto}.sources{grid-template-columns:repeat(4,minmax(100px,1fr));overflow:auto}.top-actions .btn{padding:7px}.top-title h1{font-size:16px}}
 </style>
 </head>
 <body>
 <div id="root"></div>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<div class="channel-modal hidden" id="channelModal"><div class="channel-box"><div class="channel-head"><b>Create Live Channel</b><button class="channel-close" id="channelClose">×</button></div><div class="channel-body"><p class="channel-help">Create a channel for OBS, vMix, Streamlabs or another RTMP encoder. The existing live streaming engine is unchanged.</p><div class="field"><label>Channel Name</label><input id="newChannelName" placeholder="e.g. Wedding Live"></div><div class="field"><label>Stream Title</label><input id="newChannelTitle" placeholder="Title viewers will see"></div><div class="field"><label>Description</label><textarea id="newChannelDescription" placeholder="Optional broadcast description"></textarea></div><div id="channelResult" class="channel-result" style="display:none"></div></div><div class="channel-foot"><button class="btn" id="channelCancel">Cancel</button><button class="btn primary" id="channelCreate">CREATE CHANNEL</button></div></div></div>
 <script>
 (function(){
   const root=document.getElementById('root');
   let streams=[],selectedId=null,refreshTimer=null,audioState=null;
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
   async function api(url,options){const r=await fetch(url,options);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.error||'Request failed');return d}
-  function login(){
-    root.innerHTML='<div class="login"><div class="loginbox"><img src="/official-logo.png" alt="FBI"><h1>FBI Live Broadcast Studio</h1><p>Standalone live production control room</p><div class="field"><label>Email</label><input id="email" value=""></div><div class="field"><label>Password</label><input id="password" type="password" placeholder="Admin password"></div><button class="btn primary" id="loginBtn" style="width:100%">Sign In</button><div class="error" id="loginErr"></div></div></div>';
-    document.getElementById('email').focus();
-    document.getElementById('loginBtn').onclick=async()=>{try{await api('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value,password:document.getElementById('password').value})});boot()}catch(e){document.getElementById('loginErr').textContent=e.message}};
+  function authCard(mode,extra){
+    const setup=mode==='setup',forgot=mode==='forgot';
+    const title=setup?'Create Live Admin Account':forgot?'Reset Admin Password':'FBI Live Broadcast Studio';
+    const subtitle=setup?'Set up the administrator account for this standalone control room.':forgot?'Recover access using your security question.':'Standalone professional live production control room';
+    const body=setup
+      ? '<div class="field"><label>Full Name</label><input id="fullName" placeholder="Administrator name"></div>'+
+        '<div class="field"><label>Email</label><input id="email" type="email" placeholder="admin@example.com"></div>'+
+        '<div class="field"><label>Password</label><input id="password" type="password" placeholder="At least 10 characters"></div>'+
+        '<div class="field"><label>Confirm Password</label><input id="confirmPassword" type="password" placeholder="Repeat password"></div>'+
+        '<div class="field"><label>Security Question</label><select id="securityQuestion"><option value="What was the name of your first school?">What was the name of your first school?</option><option value="What city were you born in?">What city were you born in?</option><option value="What was your first job?">What was your first job?</option><option value="What was the name of your first pet?">What was the name of your first pet?</option></select></div>'+
+        '<div class="field"><label>Security Answer</label><input id="securityAnswer" placeholder="Your private recovery answer"></div>'+
+        '<button class="auth-primary" id="setupBtn">Create Admin Account</button>'+
+        '<button class="auth-link" id="toLogin">Already have an account? Sign in</button>'
+      : forgot
+        ? '<div class="field"><label>Admin Email</label><input id="email" type="email" placeholder="Your admin email"></div>'+
+          '<button class="auth-secondary" id="questionBtn">Load Security Question</button>'+
+          '<div id="questionBox" class="question-box" style="display:none"></div>'+
+          '<div id="resetFields" style="display:none"><div class="field"><label>Security Answer</label><input id="securityAnswer" placeholder="Your recovery answer"></div><div class="field"><label>New Password</label><input id="password" type="password" placeholder="At least 10 characters"></div><div class="field"><label>Confirm Password</label><input id="confirmPassword" type="password" placeholder="Repeat password"></div><button class="auth-primary" id="resetBtn">Reset Password</button></div>'+
+          '<button class="auth-link" id="toLogin">Back to sign in</button>'
+        : '<div class="field"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="Admin email"></div>'+
+          '<div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password" placeholder="Admin password"></div>'+
+          '<button class="auth-primary" id="loginBtn">Sign In</button>'+
+          '<div class="auth-row"><button class="auth-link" id="forgotBtn">Forgot password?</button><button class="auth-link" id="setupLink" style="display:none">Create admin account</button></div>';
+    root.innerHTML='<div class="login-page"><div class="login-glow"></div><div class="login-shell"><div class="login-brand"><div class="brand-mark"><img src="/official-logo.png" alt="FBI"></div><div class="login-kicker">FILM BEYOND IMAGINATION</div><div class="login-brand-title">FBI LIVE</div><div class="login-brand-sub">Standalone Broadcast Control Room</div></div><div class="login-card"><div class="login-head"><div class="login-eyebrow">'+(setup?'FIRST-TIME SETUP':forgot?'ACCOUNT RECOVERY':'ADMIN ACCESS')+'</div><h1>'+title+'</h1><p>'+subtitle+'</p></div><div class="login-body">'+body+(extra?'<div class="auth-message" id="extra">'+extra+'</div>':'')+'<div class="auth-message" id="authError"></div></div></div><div class="login-foot">Secure administration • Live engine remains independent from Client File Studio</div></div></div>';
+
+    const err=m=>{const e=document.getElementById('authError');if(e)e.textContent=m||''};
+    const toLogin=document.getElementById('toLogin');if(toLogin)toLogin.onclick=()=>login('login');
+    if(setup){
+      document.getElementById('setupBtn').onclick=async()=>{
+        err('');
+        try{await api('/api/live-auth/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+          full_name:document.getElementById('fullName').value,email:document.getElementById('email').value,password:document.getElementById('password').value,
+          confirm_password:document.getElementById('confirmPassword').value,security_question:document.getElementById('securityQuestion').value,security_answer:document.getElementById('securityAnswer').value
+        })});boot()}catch(e){err(e.message)}
+      };
+      return;
+    }
+    if(forgot){
+      document.getElementById('questionBtn').onclick=async()=>{
+        err('');
+        try{const d=await api('/api/live-auth/forgot-question',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value})});const box=document.getElementById('questionBox');box.textContent=d.question;box.style.display='block';document.getElementById('resetFields').style.display='block'}catch(e){err(e.message)}
+      };
+      document.getElementById('resetBtn').onclick=async()=>{
+        err('');
+        try{await api('/api/live-auth/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value,security_answer:document.getElementById('securityAnswer').value,password:document.getElementById('password').value,confirm_password:document.getElementById('confirmPassword').value})});login('login','Password reset. Sign in with your new password.')}catch(e){err(e.message)}
+      };
+      return;
+    }
+    document.getElementById('loginBtn').onclick=async()=>{
+      err('');
+      try{await api('/api/live-auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value,password:document.getElementById('password').value})});boot()}catch(e){err(e.message)}
+    };
+    document.getElementById('forgotBtn').onclick=()=>login('forgot');
+    document.addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('loginBtn')?.click()},{once:true});
+  }
+  async function login(mode='login',message=''){
+    if(mode==='setup'||mode==='forgot'||mode==='login')authCard(mode,message);
+    else authCard('login');
   }
   function renderShell(){
-    root.innerHTML='<div class="app"><aside class="sidebar"><div class="brand"><img src="/official-logo.png" alt="FBI"><strong>FBI LIVE</strong><span>Standalone Broadcast Studio</span></div><div class="sidebar-head"><div><h2>Live Channels</h2><span id="channelCount">0</span></div><button class="add-channel-btn" id="addChannelBtn">＋ ADD CHANNEL</button></div><div class="channels" id="channels"></div><div class="footer">Streaming engine connected<br>HLS delivery online<br>Automatic recording currently paused</div></aside><main class="main"><div class="topbar"><div class="top-title"><h1>FBI Live Broadcast Studio</h1><p>Monitor your live signal, program output, viewers and audio from one control surface.</p></div><div class="top-actions"><button class="btn" id="logoutBtn">Logout</button></div></div><section class="studio" id="studio"><div class="placeholder"><div><b>Select a live channel</b><span>Choose a channel from the left to open the control room.</span></div></div></section></main></div><div class="channel-modal hidden" id="channelModal"><div class="channel-box"><div class="channel-head"><b>Create Live Channel</b><button class="channel-close" id="channelClose">×</button></div><div class="channel-body"><p class="channel-help">Create a channel for OBS, vMix, Streamlabs or another RTMP encoder. The system will generate the RTMP server, stream key and public watch link automatically.</p><div class="field"><label>Channel Name</label><input id="newChannelName" placeholder="e.g. Wedding Live"></div><div class="field"><label>Stream Title</label><input id="newChannelTitle" placeholder="Title viewers will see"></div><div class="field"><label>Description</label><textarea id="newChannelDescription" placeholder="Optional broadcast description"></textarea></div><div id="channelResult" class="channel-result" style="display:none"></div></div><div class="channel-foot"><button class="btn" id="channelCancel">Cancel</button><button class="btn primary" id="channelCreate">CREATE CHANNEL</button></div></div></div>';
-    document.getElementById('logoutBtn').onclick=async()=>{await api('/api/auth/logout',{method:'POST'});login()};
+    root.innerHTML='<div class="app"><aside class="sidebar"><div class="brand"><img src="/official-logo.png" alt="FBI"><strong>FBI LIVE</strong><span>Standalone Broadcast Studio</span></div><div class="sidebar-head"><div class="sidebar-head-left"><h2>Live Channels</h2><span id="channelCount">0</span></div><button class="add-channel-btn" id="addChannelBtn">＋ ADD CHANNEL</button></div><div class="channels" id="channels"></div><div class="footer">Streaming engine connected<br>HLS delivery online<br>Automatic recording paused during control-room development</div></aside><main class="main"><div class="topbar"><div class="top-title"><h1>FBI Live Broadcast Studio</h1><p>Monitor your live signal, program output, viewers and audio from one control surface.</p></div><div class="top-actions"><button class="btn" id="logoutBtn">Logout</button></div></div><section class="studio" id="studio"><div class="placeholder"><div><b>Select a live channel</b><span>Choose a channel from the left to open the control room.</span></div></div></section></main></div>';
+    document.getElementById('logoutBtn').onclick=async()=>{await api('/api/live-auth/logout',{method:'POST'});login('login')};
   }
   function getSelected(){return streams.find(s=>s.id===selectedId)||null}
   function segments(n){return Array.from({length:n},()=>'<i></i>').join('')}
@@ -65,131 +122,186 @@ button,input{font:inherit}
     const el=document.getElementById('channels'),count=document.getElementById('channelCount');if(!el)return;
     count.textContent=streams.length+' channel'+(streams.length===1?'':'s');
     el.innerHTML=streams.length?streams.map(s=>'<div class="channel '+(s.id===selectedId?'active':'')+'" data-id="'+esc(s.id)+'"><div class="channel-top"><div class="channel-name">'+esc(s.name)+'</div><span class="badge '+(s.status==='live'?'live':'')+'">'+(s.status==='live'?'● LIVE':'OFFLINE')+'</span></div><div class="channel-meta">'+esc(s.title||'')+'<br>'+Number(s.current_viewers||0)+' watching now</div></div>').join(''):'<div class="placeholder" style="min-height:160px"><div><b>No live channels</b><span>Create a channel from the main Studio when needed.</span></div></div>';
-    el.querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>{selectedId=x.dataset.id;renderChannels();renderStudio()});
+    el.querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>{selectedId=x.dataset.id;renderChannels();renderedStudioSignature='';renderStudio();refreshViewerCount()});
   }
   function placeholder(msg,sub){return '<div class="placeholder"><div><b>'+esc(msg)+'</b><span>'+esc(sub)+'</span></div></div>'}
-  async function ensureHls(){
-    if(window.Hls)return window.Hls;
-    if(window.__fbiStandaloneHls)return window.__fbiStandaloneHls;
-    window.__fbiStandaloneHls=new Promise(function(resolve,reject){
-      const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/hls.js@latest';
-      s.onload=function(){resolve(window.Hls)};s.onerror=reject;document.head.appendChild(s);
-    });
-    return window.__fbiStandaloneHls;
-  }
-  async function attachHls(video,url){
-    if(!video||!url)return;
-    try{
-      if(video.__fbiHls){try{video.__fbiHls.destroy()}catch{}video.__fbiHls=null}
-      if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=url;video.play().catch(()=>{});return}
-      const H=await ensureHls();if(!H||!H.isSupported())throw new Error('HLS playback is not supported in this browser.');
-      const hls=new H({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:6,maxBufferLength:30,maxMaxBufferLength:60,backBufferLength:90,capLevelToPlayerSize:true});
-      video.__fbiHls=hls;
-      hls.on(H.Events.ERROR,function(_,data){if(!data||!data.fatal)return;try{hls.destroy()}catch{}video.__fbiHls=null;setTimeout(function(){attachHls(video,url)},1500)});
-      hls.on(H.Events.MANIFEST_PARSED,function(){video.play().catch(()=>{})});
-      hls.loadSource(url);hls.attachMedia(video);
-    }catch(e){console.warn('Standalone HLS player:',e)}
-  }
   function renderStudio(){
     const s=getSelected(),studio=document.getElementById('studio');if(!studio)return;
     if(!s){studio.innerHTML=placeholder('Select a live channel','Choose a channel from the left to open the control room.');return}
-    const live=s.status==='live'&&!!s.hls_url;
-    const frame=live?'<video class="frame" id="previewVideo" muted playsinline autoplay controls></video>':placeholder('OFFLINE','Waiting for the encoder signal.');
-    const program=live?'<video class="frame" id="programVideo" muted playsinline autoplay controls></video>':placeholder('PROGRAM OFFLINE','Waiting for the encoder signal.');
+    const live=s.status==='live'&&!!s.viewer_url;
+    const frame=live?'<video class="frame" id="previewVideo" playsinline muted autoplay></video>':placeholder('OFFLINE','Waiting for the encoder signal.');
+    const program=live?'<video class="frame" id="programVideo" playsinline muted autoplay></video>':placeholder('PROGRAM OFFLINE','Waiting for the encoder signal.');
     studio.innerHTML='<div class="statusbar"><div class="chips"><span class="chip '+(live?'live':'')+'">'+(live?'● LIVE':'OFFLINE')+'</span><span class="chip">'+esc(s.name)+'</span><span class="chip gold">'+(s.record_enabled?'RECORD ARMED':'RECORD PAUSED')+'</span></div><div class="chips"><span class="control" id="duration">'+(live?'ON AIR':'OFFLINE')+'</span><span class="chip"><span class="viewers"><b id="viewerTop">'+Number(s.current_viewers||0)+'</b> VIEWERS</span></span></div></div>'+
-      '<div class="work"><div class="primary"><div class="views"><div class="view"><div class="view-head"><b class="preview-label">PREVIEW</b><span>LIVE FEED</span></div>'+frame+'<div class="overlay-note">Incoming live signal</div></div><div class="view"><div class="view-head"><b class="program-label">PROGRAM</b><span>ON AIR OUTPUT</span></div>'+program+'<div class="overlay-note">Clean program output</div></div></div>'+
+      '<div class="work"><div class="primary-area"><div class="views"><div class="view"><div class="view-head"><b class="preview-label">PREVIEW</b><span>LIVE FEED</span></div>'+frame+'<div class="overlay-note">Incoming live signal</div></div><div class="view"><div class="view-head"><b class="program-label">PROGRAM</b><span>ON AIR OUTPUT</span></div>'+program+'<div class="overlay-note">Clean program output</div></div></div>'+
       '<div class="sources"><div class="source '+(live?'live':'')+'"><div class="source-head"><span>INPUT</span><span>'+(live?'ACTIVE':'WAITING')+'</span></div><div class="source-thumb">◉</div><div class="source-foot"><span>Live Feed</span><i class="dot"></i></div></div><div class="source '+(live?'live':'')+'"><div class="source-head"><span>PROGRAM</span><span>'+(live?'ON AIR':'OFF')+'</span></div><div class="source-thumb">▣</div><div class="source-foot"><span>Program Output</span><i class="dot"></i></div></div><div class="source"><div class="source-head"><span>WATCH</span><span>LINK</span></div><div class="source-thumb">▶</div><div class="source-foot"><span>Viewer Page</span><i class="dot"></i></div></div><div class="source '+(s.record_enabled?'live':'')+'"><div class="source-head"><span>REC</span><span>'+(s.record_enabled?'ARMED':'OFF')+'</span></div><div class="source-thumb">●</div><div class="source-foot"><span>Session Record</span><i class="dot"></i></div></div></div>'+
       '<div class="mixer"><div class="strip"><strong>PROGRAM L</strong><small>Audio</small><div class="meter" id="meterL">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>LEVEL</span><b id="dbL">−∞</b></div></div><div class="strip"><strong>PROGRAM R</strong><small>Audio</small><div class="meter" id="meterR">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>LEVEL</span><b id="dbR">−∞</b></div></div><div class="strip"><strong>STREAM</strong><small>Output</small><div class="meter" id="meterStream">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>STATUS</span><b>'+(live?'LIVE':'OFF')+'</b></div></div><div class="strip"><strong>MONITOR</strong><small>Browser</small><div class="meter" id="meterMonitor">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>STATE</span><b id="monitorState">READY</b></div></div><div class="strip"><strong>MASTER</strong><small>Bus</small><div class="meter" id="meterMaster">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>PEAK</span><b id="dbMaster">−∞</b></div></div></div>'+
       '<div class="audio-row"><div class="audio-title">AUDIO MONITOR</div><div class="audio-meter" id="audioMeter">'+segments(20)+'</div><div class="audio-db" id="audioDb">−∞ dBFS</div></div></div>'+
       '<aside class="rack"><div class="panel"><div class="ph">OPERATOR CONTROLS</div><div class="pb grid2"><button class="rack-btn primary" id="watchBtn">WATCH</button><button class="rack-btn" id="fullBtn">FULL</button><button class="rack-btn" id="copyBtn">COPY</button><button class="rack-btn" id="muteBtn">MUTE</button></div></div>'+
       '<div class="panel"><div class="ph">CHANNEL STATUS</div><div class="pb"><div class="rack-row"><span>Signal</span><b>'+(live?'ON AIR':'OFFLINE')+'</b></div><div class="rack-row"><span>Viewers</span><b id="viewerRack">'+Number(s.current_viewers||0)+'</b></div><div class="rack-row"><span>Recording</span><b>'+(s.record_enabled?'ARMED':'OFF')+'</b></div><div class="rack-row"><span>Format</span><b>H.264 / AAC</b></div><div class="rack-row"><span>Delivery</span><b>HLS</b></div></div></div>'+
       '<div class="panel"><div class="ph">AUDIO METER</div><div class="pb rack-meter"><div class="rack-meter-line"><span>L</span><div class="rack-meter-segs" id="rackL">'+segments(12)+'</div><span id="rackDbL">−∞</span></div><div class="rack-meter-line"><span>R</span><div class="rack-meter-segs" id="rackR">'+segments(12)+'</div><span id="rackDbR">−∞</span></div></div></div>'+
-      '<div class="panel"><div class="ph">RECORDING</div><div class="pb"><div class="rack-row"><span>Automatic</span><b>'+(s.record_enabled?'ON':'OFF')+'</b></div><div class="rack-row"><span>Status</span><b>'+(live?'LIVE':'PAUSED')+'</b></div></div></div></aside></div>'+
+      '<div class="panel"><div class="ph">RECORDING</div><div class="pb"><div class="rack-row"><span>Automatic</span><b>'+(s.record_enabled?'ON':'OFF')+'</b></div><div class="rack-row"><span>Status</span><b>PAUSED</b></div></div></div></aside></div>'+
       '<div class="controls"><div class="control-group"><button class="smallbtn primary" id="openWatch">OPEN WATCH PAGE</button><button class="smallbtn" id="monitorBtn">MONITOR AUDIO</button></div><div class="control-group"><span class="chip">'+(live?'PROGRAM LIVE':'PROGRAM OFFLINE')+'</span><span class="chip">'+(s.record_enabled?'AUTO RECORD ON':'AUTO RECORD OFF')+'</span></div></div>'+
-      '<div class="footer">FBI Live Standalone • Streaming engine unchanged • Audio metering reads the live program feed</div>';
-    if(live){
-      const pv=document.getElementById('previewVideo'),pr=document.getElementById('programVideo');
-      attachHls(pv,s.hls_url);attachHls(pr,s.hls_url);bindAudio(pr);
-    }
+      '<div class="footer">FBI Live Standalone • Streaming engine unchanged • Recording currently paused</div>';
     bindStudio(s,live);
   }
+  function initProgramHls(video,url,onReady){
+    if(!video||!url)return;
+    try{
+      if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=url;video.addEventListener('loadedmetadata',()=>{video.play().catch(()=>{});onReady&&onReady(video)},{once:true});video.load();return}
+      if(window.Hls&&window.Hls.isSupported()){
+        const hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,maxBufferLength:20,maxMaxBufferLength:45,backBufferLength:30,capLevelToPlayerSize:true,startLevel:-1,xhrSetup:function(xhr){xhr.withCredentials=true}});
+        hls.loadSource(url);hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED,()=>{video.play().catch(()=>{});onReady&&onReady(video)});
+        hls.on(Hls.Events.ERROR,(event,data)=>{if(data&&data.fatal){try{hls.destroy()}catch{}const s=document.getElementById('monitorState');if(s)s.textContent='RECONNECTING';setTimeout(()=>initProgramHls(video,url,onReady),1200)}});
+        window.__studioHls=hls;
+        return;
+      }
+      video.src=url;video.addEventListener('loadedmetadata',()=>{video.play().catch(()=>{});onReady&&onReady(video)},{once:true});video.load();
+    }catch(e){const s=document.getElementById('monitorState');if(s)s.textContent='PLAYBACK ERROR'}
+  }
   function db(an){
-    const a=new Uint8Array(an.fftSize);an.getByteTimeDomainData(a);let s=0;
-    for(let i=0;i<a.length;i++){const x=(a[i]-128)/128;s+=x*x}
-    const rms=Math.sqrt(s/a.length);return rms>0?20*Math.log10(rms):-60;
+    const a=new Uint8Array(an.fftSize);an.getByteTimeDomainData(a);let s=0;for(let i=0;i<a.length;i++){let x=(a[i]-128)/128;s+=x*x}const rms=Math.sqrt(s/a.length);return rms>0?20*Math.log10(rms):-60;
   }
   function paint(id,val){
     const e=document.getElementById(id);if(!e)return;const n=e.querySelectorAll('i'),lvl=Math.max(0,Math.min(n.length,Math.round((Math.max(-48,Math.min(0,val))+48)/48*n.length)));
     n.forEach((x,i)=>x.className=i<lvl?(val>-6&&i>=n.length-4?'clip':val>-14&&i>=n.length-7?'hot':'on'):'');
   }
   function audioTick(){
-    const st=window.__standaloneAudioState;if(!st||!st.left)return;
-    const l=db(st.left),r0=db(st.right),r=(r0<=-58&&l>-52)?l:r0,m=Math.max(l,r);
+    if(!audioState||!audioState.left)return;
+    let l=db(audioState.left),r=db(audioState.right);if(r<=-58&&l>-52)r=l;const m=Math.max(l,r);
     ['meterL','rackL'].forEach(id=>paint(id,l));['meterR','rackR'].forEach(id=>paint(id,r));['meterStream','meterMonitor','meterMaster','audioMeter'].forEach(id=>paint(id,m));
     [['dbL',l],['rackDbL',l],['dbR',r],['rackDbR',r],['dbMaster',m],['audioDb',m]].forEach(([id,v])=>{const e=document.getElementById(id);if(e)e.textContent=v<=-59?'−∞':v.toFixed(1)+(id==='audioDb'?' dBFS':' dB')});
-    const ms=document.getElementById('monitorState');if(ms)ms.textContent=st.ctx.state==='running'?'ACTIVE':'CLICK MONITOR';
-    st.raf=requestAnimationFrame(audioTick);
+    const st=document.getElementById('monitorState');if(st)st.textContent=audioState.ctx.state==='running'?'ACTIVE':'CLICK MONITOR';
+    audioState.raf=requestAnimationFrame(audioTick);
   }
-  function bindAudio(video){
+  function startAudioMonitor(video){
     if(!video)return;
     try{
-      const old=window.__standaloneAudioState;
-      if(old&&old.raf)cancelAnimationFrame(old.raf);
-      if(old&&old.ctx){try{old.ctx.close()}catch{}}
+      if(audioState&&audioState.raf)cancelAnimationFrame(audioState.raf);
+      if(audioState&&audioState.ctx)try{audioState.ctx.close()}catch{}
       const C=window.AudioContext||window.webkitAudioContext;if(!C)throw new Error('Web Audio unavailable');
-      const ctx=new C(),source=ctx.createMediaElementSource(video),split=ctx.createChannelSplitter(2),left=ctx.createAnalyser(),right=ctx.createAnalyser();
+      const ctx=new C();
+      const source=ctx.createMediaElementSource(video);
+      const split=ctx.createChannelSplitter(2);
+      const left=ctx.createAnalyser(),right=ctx.createAnalyser();
       left.fftSize=right.fftSize=1024;left.smoothingTimeConstant=right.smoothingTimeConstant=.78;
       source.connect(split);split.connect(left,0);split.connect(right,1);
-      window.__standaloneAudioState={ctx,video,source,split,left,right,raf:0};
-      ctx.resume().catch(()=>{});audioTick();
-    }catch(e){const ms=document.getElementById('monitorState');if(ms)ms.textContent='UNAVAILABLE';const ad=document.getElementById('audioDb');if(ad)ad.textContent='MONITOR UNAVAILABLE';console.warn('Audio meter:',e)}
+      audioState={ctx,left,right,raf:0};
+      ctx.resume().catch(()=>{});
+      audioTick();
+    }catch(e){
+      const st=document.getElementById('monitorState');if(st)st.textContent='MONITOR READY';
+      const dbEl=document.getElementById('audioDb');if(dbEl)dbEl.textContent='CLICK MONITOR';
+    }
+  }
+  function bindStudioMedia(s,live){
+    const pv=document.getElementById('programVideo'),pr=document.getElementById('previewVideo');
+    if(!live||!pv)return;
+    const publicToken=s.viewer_url?String(s.viewer_url).split('/watch/').pop():'';const playbackUrl=publicToken?('/api/public/stream/'+encodeURIComponent(publicToken)+'/hls/index.m3u8'):(s.hls_url||'');initProgramHls(pv,playbackUrl,function(video){
+      // One live playback connection powers the program monitor. The preview
+      // is a local mirror so the control surface does not create another stream
+      // connection to the ingest engine.
+      try{
+        if(pr&&video.captureStream){pr.srcObject=video.captureStream();pr.play().catch(()=>{})}
+      }catch{}
+      startAudioMonitor(video);
+      const st=document.getElementById('monitorState');if(st)st.textContent='ACTIVE';
+    });
   }
   function bindStudio(s,live){
+    bindStudioMedia(s,live);
     const open=()=>window.open(s.viewer_url,'_blank','noopener');
     document.getElementById('watchBtn').onclick=open;document.getElementById('openWatch').onclick=open;
     document.getElementById('copyBtn').onclick=()=>navigator.clipboard?.writeText('Server: '+s.rtmp_server+'\nStream Key: '+s.stream_key);
-    document.getElementById('fullBtn').onclick=()=>{const f=document.getElementById('programVideo');if(f?.requestFullscreen)f.requestFullscreen().catch(open);else open()};
-    document.getElementById('muteBtn').onclick=()=>{const v=document.getElementById('programVideo');if(!v)return;v.muted=!v.muted;document.getElementById('muteBtn').textContent=v.muted?'MUTE':'UNMUTE';if(window.__standaloneAudioState?.ctx?.state==='suspended')window.__standaloneAudioState.ctx.resume().catch(()=>{})};
-    document.getElementById('monitorBtn').onclick=()=>{const st=window.__standaloneAudioState;if(!st){toast('Audio monitor is waiting for the live feed');return}if(st.ctx.state==='running')st.ctx.suspend().catch(()=>{});else st.ctx.resume().catch(()=>{})};
-    if(window.__durationTimer)clearInterval(window.__durationTimer);
-    const el=document.getElementById('duration');if(el)el.textContent=live?'ON AIR':'OFFLINE';
-  }
-  function bindStudio(s,live){
-    const pf=document.getElementById('previewFrame'),pr=document.getElementById('programFrame');cleanFrame(pf);cleanFrame(pr);bindAudio(pr);
-    const open=()=>window.open(s.viewer_url,'_blank','noopener');
-    document.getElementById('watchBtn').onclick=open;document.getElementById('openWatch').onclick=open;
-    document.getElementById('copyBtn').onclick=()=>navigator.clipboard?.writeText('Server: '+s.rtmp_server+'\nStream Key: '+s.stream_key);
-    document.getElementById('fullBtn').onclick=()=>{const f=document.getElementById('programFrame');if(f?.requestFullscreen)f.requestFullscreen().catch(open);else open()};
-    document.getElementById('muteBtn').onclick=()=>{try{const v=pr.contentDocument?.querySelector('#video');if(!v)return;v.muted=!v.muted;document.getElementById('muteBtn').textContent=v.muted?'MUTE':'UNMUTE'}catch{}};
-    document.getElementById('monitorBtn').onclick=()=>{if(!audioState?.ctx)return;if(audioState.ctx.state==='running')audioState.ctx.suspend();else audioState.ctx.resume()};
+    document.getElementById('fullBtn').onclick=()=>{
+      const v=document.getElementById('programVideo');
+      if(v?.requestFullscreen)v.requestFullscreen().catch(open);else open();
+    };
+    document.getElementById('muteBtn').onclick=()=>{
+      const v=document.getElementById('programVideo');if(!v)return;
+      v.muted=!v.muted;document.getElementById('muteBtn').textContent=v.muted?'MUTE':'UNMUTE';
+    };
+    document.getElementById('monitorBtn').onclick=()=>{
+      if(!audioState?.ctx){const st=document.getElementById('monitorState');if(st)st.textContent='WAITING FOR FEED';return}
+      if(audioState.ctx.state==='running')audioState.ctx.suspend();else audioState.ctx.resume();
+    };
     if(window.__durationTimer)clearInterval(window.__durationTimer);
     const started=s.started_at?Date.parse(s.started_at):NaN,el=document.getElementById('duration');const tick=()=>{if(!el||!live)return;if(!Number.isFinite(started)){el.textContent='ON AIR';return}let sec=Math.max(0,Math.floor((Date.now()-started)/1000)),h=Math.floor(sec/3600);sec%=3600;let m=Math.floor(sec/60),ss=sec%60;el.textContent=(h?String(h).padStart(2,'0')+':':'')+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0')};tick();window.__durationTimer=setInterval(tick,1000);
   }
+  let viewerCountTimer=0;
+  async function refreshViewerCount(){
+    try{
+      const s=getSelected();
+      if(!s||!s.viewer_token)return;
+      const r=await api('/api/public/stream/'+encodeURIComponent(s.viewer_token)+'/status');
+      const count=Number(r.current_viewers||0);
+      const top=document.getElementById('viewerTop'),rack=document.getElementById('viewerRack');
+      if(top)top.textContent=String(count);
+      if(rack)rack.textContent=String(count);
+      // Keep the selected channel card in sync without rebuilding the player.
+      const card=document.querySelector('#channels [data-id="'+s.id+'"] .channel-meta');
+      if(card){
+        const title=esc(s.title||'');
+        card.innerHTML=title+'<br>'+count+' watching now';
+      }
+    }catch(e){/* viewer count is non-critical; keep the current displayed value */}
+  }
+  function startViewerCountPolling(){
+    if(viewerCountTimer)clearInterval(viewerCountTimer);
+    refreshViewerCount();
+    viewerCountTimer=setInterval(refreshViewerCount,2000);
+  }
+  let renderedStudioSignature='';
   async function load(){
-    try{const d=await api('/api/streams');streams=d.streams||[];if(!selectedId&&streams[0])selectedId=streams[0].id;if(selectedId&&!streams.some(s=>s.id===selectedId))selectedId=streams[0]?.id||null;renderChannels();renderStudio();
-      const s=getSelected(),v=Number(s?.current_viewers||0);const t=document.getElementById('viewerTop'),r=document.getElementById('viewerRack');if(t)t.textContent=String(v);if(r)r.textContent=String(v);
+    try{
+      const d=await api('/api/streams');
+      streams=d.streams||[];
+      if(!selectedId&&streams[0])selectedId=streams[0].id;
+      if(selectedId&&!streams.some(s=>s.id===selectedId))selectedId=streams[0]?.id||null;
+      renderChannels();
+      const s=getSelected();
+      // Keep the currently playing HLS MediaSource alive during status polling.
+      // Rebuilding the video DOM every 5 seconds was causing the picture to
+      // flash briefly and then return to black.
+      const signature=s?[s.id,s.status,s.viewer_url||'',s.hls_url||''].join('|'):'none';
+      if(signature!==renderedStudioSignature){
+        renderedStudioSignature=signature;
+        renderStudio();
+      }else if(s){
+        const v=Number(s.current_viewers||0);
+        const t=document.getElementById('viewerTop'),r=document.getElementById('viewerRack');
+        if(t)t.textContent=String(v);if(r)r.textContent=String(v);
+      }
     }catch(e){if(e.message==='Unauthorised'||e.message==='Please log in')login()}
   }
-  function closeChannelModal(){const m=document.getElementById('channelModal');if(m)m.classList.add('hidden')}
+  async function boot(){
+    try{
+      const cfg=await api('/api/live-auth/status');
+      const me=await api('/api/live-auth/me');
+      if(me.authenticated){renderShell();bindChannelCreator();load();startViewerCountPolling();if(refreshTimer)clearInterval(refreshTimer);refreshTimer=setInterval(load,5000);return}
+      login(cfg.configured?'login':'setup');
+    }catch{login('login')}
+  }  function closeChannelModal(){const m=document.getElementById('channelModal');if(m)m.classList.add('hidden')}
   function openChannelModal(){const m=document.getElementById('channelModal');if(!m)return;m.classList.remove('hidden');document.getElementById('channelResult').style.display='none';document.getElementById('newChannelName').focus()}
   function bindChannelCreator(){
-    document.getElementById('addChannelBtn').onclick=openChannelModal;
-    document.getElementById('channelClose').onclick=closeChannelModal;
-    document.getElementById('channelCancel').onclick=closeChannelModal;
-    document.getElementById('channelModal').onclick=e=>{if(e.target.id==='channelModal')closeChannelModal()};
-    document.getElementById('channelCreate').onclick=async function(){
+    const add=document.getElementById('addChannelBtn'),close=document.getElementById('channelClose'),cancel=document.getElementById('channelCancel'),modal=document.getElementById('channelModal'),create=document.getElementById('channelCreate');
+    if(add)add.onclick=openChannelModal;if(close)close.onclick=closeChannelModal;if(cancel)cancel.onclick=closeChannelModal;
+    if(modal)modal.onclick=e=>{if(e.target===modal)closeChannelModal()};
+    if(create)create.onclick=async function(){
       const name=document.getElementById('newChannelName').value.trim(),title=document.getElementById('newChannelTitle').value.trim(),description=document.getElementById('newChannelDescription').value.trim(),result=document.getElementById('channelResult');
       if(!name){toast('Channel name is required');return}
-      this.disabled=true;this.textContent='CREATING…';
+      create.disabled=true;create.textContent='CREATING…';
       try{
         const d=await api('/api/streams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,title,description})});
-        selectedId=d.stream.id;result.style.display='block';result.innerHTML='<b>Channel created. RTMP setup generated.</b><div>Server<br><code>'+esc(d.stream.rtmp_server||'')+'</code></div><div style="margin-top:6px">Stream Key<br><code>'+esc(d.stream.stream_key||'')+'</code></div>';
-        await load();setTimeout(closeChannelModal,900);
+        selectedId=d.stream.id;
+        result.style.display='block';
+        result.innerHTML='<b>Channel created. RTMP setup generated.</b><div>Server<br><code>'+esc(d.stream.rtmp_server||'')+'</code></div><div style="margin-top:6px">Stream Key<br><code>'+esc(d.stream.stream_key||'')+'</code></div>';
+        await load();setTimeout(closeChannelModal,1000);
       }catch(e){toast(e.message||'Could not create channel')}
-      finally{this.disabled=false;this.textContent='CREATE CHANNEL'}
+      finally{create.disabled=false;create.textContent='CREATE CHANNEL'}
     };
   }
-  async function boot(){try{const me=await api('/api/auth/me');if(!me.authenticated)return login();renderShell();bindChannelCreator();load();refreshTimer=setInterval(load,5000)}catch{login()}}
+
   boot();
 })();
 </script>
