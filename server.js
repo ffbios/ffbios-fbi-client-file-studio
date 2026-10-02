@@ -1149,6 +1149,54 @@ app.get("/api/public/stream/:token/replay",async(req,res)=>{
   }
 });
 
+app.get("/api/public/stream/:token/replay/file",async(req,res)=>{
+  try{
+    const r=await publicStreamByToken(req.params.token);
+    if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
+    const stream=r.rows[0];
+    const q=await pool.query("SELECT id,filename,status,size_bytes,storage_key FROM stream_recordings WHERE stream_id=$1 AND status='completed' ORDER BY ended_at DESC NULLS LAST,created_at DESC LIMIT 1",[stream.id]);
+    const recording=q.rows[0];
+    if(!recording||!s3Ready())return res.status(404).json({error:"Replay file is not available yet."});
+    const meta=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:recording.storage_key}));
+    const total=Number(meta.ContentLength||recording.size_bytes||0);
+    if(!total)return res.status(404).json({error:"Replay file is empty."});
+    const range=String(req.headers.range||"").match(/^bytes=(\\d*)-(\\d*)$/i);
+    let start=0,end=total-1;
+    if(range){
+      if(range[1])start=Math.max(0,Number(range[1]));
+      if(range[2])end=Math.min(total-1,Number(range[2]));
+      if(!range[1]&&range[2]){
+        const suffix=Math.max(0,Number(range[2]));
+        start=Math.max(0,total-suffix);end=total-1;
+      }
+      if(start>=total||start>end)return res.status(416).set("Content-Range","bytes */"+total).end();
+    }
+    const partial=!!range;
+    const get=await s3.send(new GetObjectCommand({
+      Bucket:bucket(),
+      Key:recording.storage_key,
+      ...(partial?{Range:"bytes="+start+"-"+end}:{}),
+      ResponseContentType:"video/mp4"
+    }));
+    res.status(partial?206:200);
+    res.set({
+      "Content-Type":"video/mp4",
+      "Content-Length":String(end-start+1),
+      "Accept-Ranges":"bytes",
+      "Cache-Control":"public, max-age=3600",
+      ...(partial?{"Content-Range":"bytes "+start+"-"+end+"/"+total}:{}),
+      "Content-Disposition":"inline; filename=\""+String(recording.filename||"replay.mp4").replace(/["\\]/g,"_")+"\""
+    });
+    if(get.Body&&typeof get.Body.pipe==="function")get.Body.pipe(res);
+    else if(get.Body&&typeof get.Body.transformToByteArray==="function")res.end(Buffer.from(await get.Body.transformToByteArray()));
+    else res.end();
+  }catch(e){
+    console.error("Public replay file failed:",e?.stack||e);
+    if(!res.headersSent)res.status(502).json({error:"Could not play the stream replay."});
+    else res.end();
+  }
+});
+
 app.get("/api/streams/:id/recordings",admin,async(req,res)=>{
   try{
     const q=await pool.query("SELECT * FROM stream_recordings WHERE stream_id=$1 ORDER BY created_at DESC LIMIT 50",[req.params.id]);
@@ -1322,7 +1370,7 @@ body{margin:0;background:#09090a;color:#f6f6f7;font-family:Inter,system-ui,sans-
   .mobile-floating-comment b{font-size:7px;color:#fff;margin-right:5px}
   .mobile-floating-comment span{font-size:8px;line-height:1.3;color:#ededf1;word-break:break-word}
   .mobile-floating-comment time{font-size:6px;color:#8f8f98;margin-left:5px}
-  .mobile-reaction-rail{position:absolute;right:8px;bottom:8px;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:auto}
+  .mobile-live-ui .mobile-reaction-rail{opacity:0;transform:translateY(8px) scale(.96);transition:opacity .2s ease,transform .2s ease;pointer-events:none}.mobile-live-ui.show-reactions .mobile-reaction-rail{opacity:1;transform:none;pointer-events:auto}.mobile-reaction-rail{position:absolute;right:8px;bottom:8px;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:auto}
   .mobile-reaction-btn{width:38px;height:38px;padding:0;border-radius:50%;border:1px solid rgba(255,255,255,.15);background:rgba(18,18,21,.68);backdrop-filter:blur(12px);color:#fff;display:grid;place-items:center;font-size:17px;box-shadow:0 8px 25px rgba(0,0,0,.3);touch-action:manipulation}
   .mobile-reaction-btn.heart{width:46px;height:46px;font-size:23px;background:rgba(170,32,55,.3)}
   .mobile-reaction-btn:active{transform:scale(.9)}
@@ -1382,7 +1430,7 @@ body{margin:0;background:#09090a;color:#f6f6f7;font-family:Inter,system-ui,sans-
   .mobile-live-status.live{color:#69ef8d}
   .foot{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
 }</style></head><body><div class="wrap"><div class="head"><div class="brand">FILM BEYOND IMAGINATION • FBI Live</div><div style="margin-top:8px"><span class="badge" id="status">Checking live status…</span></div><h1>${title}</h1><p id="viewers">FBI Live Stream</p></div><div class="layout"><section><div class="card player"><video id="video" controls playsinline autoplay muted></video><div id="offline" class="offline" style="display:none"></div><div class="mobile-live-ui"><span class="mobile-live-status" id="mobileLiveStatus">CONNECTING…</span><span class="mobile-viewer-badge"><b id="mobileViewerCount">0</b> watching</span><div id="mobileFloatingComments" class="mobile-floating-comments"></div><div id="mobileReactionFloaters" class="mobile-reaction-floaters"></div><div class="mobile-reaction-rail"><button type="button" class="mobile-reaction-btn" data-mobile-reaction="👏" aria-label="Clap">👏</button><button type="button" class="mobile-reaction-btn" data-mobile-reaction="❤️" aria-label="Love">❤️</button><button type="button" class="mobile-reaction-btn heart" data-mobile-reaction="❤️" aria-label="Send heart">♥</button></div></div><div class="playerbar"><span class="nowq" id="streamState">Connecting…</span></div></div></section><aside class="card comments"><div class="comments-head"><h2>Live Comments</h2><span class="badge" id="commentCount">0</span></div><div id="commentList" class="comment-list"><div style="color:#777;font-size:9px;padding:10px 0">No comments yet.</div></div><form id="commentForm" class="comment-form"><input id="commentName" maxlength="60" placeholder="Your name"><textarea id="commentText" maxlength="500" placeholder="Write a comment…"></textarea><div class="comment-tools"><div class="emoji-popover" id="emojiPopover"><button type="button" class="emoji-open" id="emojiOpen" title="Add emoji">😊</button><emoji-picker id="emojiPicker" locale="en"></emoji-picker></div><button type="submit">Post Comment</button></div><div class="statusline" id="commentStatus"></div></form></aside></div><div class="foot">FBI Live • Live broadcast and viewer comments</div></div><script>
-const token=${tokenJs},hlsUrl=${JSON.stringify(hls)};const video=document.getElementById("video"),emojiOpen=document.getElementById("emojiOpen"),emojiPopover=document.getElementById("emojiPopover"),emojiPicker=document.getElementById("emojiPicker"),offline=document.getElementById("offline"),statusEl=document.getElementById("status"),viewers=document.getElementById("viewers"),streamState=document.getElementById("streamState"),commentList=document.getElementById("commentList"),commentCount=document.getElementById("commentCount"),commentForm=document.getElementById("commentForm"),commentName=document.getElementById("commentName"),commentText=document.getElementById("commentText"),commentStatus=document.getElementById("commentStatus");const sessionKey=crypto.randomUUID();let player=null,live=false,replayMode=false,replayTimer=0;const mobileFloatingComments=document.getElementById("mobileFloatingComments"),mobileReactionFloaters=document.getElementById("mobileReactionFloaters"),mobileViewerCount=document.getElementById("mobileViewerCount"),mobileLiveStatus=document.getElementById("mobileLiveStatus");let mobileReactionIndex=0;
+const token=${tokenJs},hlsUrl=${JSON.stringify(hls)};const video=document.getElementById("video"),emojiOpen=document.getElementById("emojiOpen"),emojiPopover=document.getElementById("emojiPopover"),emojiPicker=document.getElementById("emojiPicker"),offline=document.getElementById("offline"),statusEl=document.getElementById("status"),viewers=document.getElementById("viewers"),streamState=document.getElementById("streamState"),commentList=document.getElementById("commentList"),commentCount=document.getElementById("commentCount"),commentForm=document.getElementById("commentForm"),commentName=document.getElementById("commentName"),commentText=document.getElementById("commentText"),commentStatus=document.getElementById("commentStatus");const sessionKey=crypto.randomUUID();let player=null,live=false,replayMode=false,replayTimer=0;const mobileFloatingComments=document.getElementById("mobileFloatingComments"),mobileReactionFloaters=document.getElementById("mobileReactionFloaters"),mobileViewerCount=document.getElementById("mobileViewerCount"),mobileLiveStatus=document.getElementById("mobileLiveStatus");let mobileReactionIndex=0;const mobileLiveUi=document.querySelector(".mobile-live-ui");let mobileReactionHideTimer=0;function revealMobileReactions(){if(!mobileLiveUi)return;mobileLiveUi.classList.add("show-reactions");clearTimeout(mobileReactionHideTimer);mobileReactionHideTimer=setTimeout(function(){mobileLiveUi.classList.remove("show-reactions")},3200)}video.addEventListener("pointerup",revealMobileReactions);
 function renderMobileOverlay(rows){
   if(mobileFloatingComments)mobileFloatingComments.innerHTML=(rows||[]).slice(-5).map(function(x,i){return '<div class="mobile-floating-comment" style="animation-delay:'+(i*60)+'ms"><b>'+esc(x.display_name)+'</b><span>'+esc(x.comment)+'</span><time>'+esc(fmtTime(x.created_at))+'</time></div>'}).join('');
 }
@@ -1437,7 +1485,7 @@ async function loadReplay(){
     video.style.display="block";
     offline.style.display="none";
     video.muted=false;
-    video.src=d.play_url;
+    video.src="/api/public/stream/"+encodeURIComponent(token)+"/replay/file";
     video.load();
     statusEl.textContent="REPLAY";
     statusEl.className="badge live";
