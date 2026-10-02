@@ -582,7 +582,6 @@ async function startStreamRecording(row){
 
 
   proc.on("error",async err=>{
-  proc.on("error",async err=>{
     try{pass.destroy(err)}catch{}
     await finalize("failed",String(err?.message||err));
   });
