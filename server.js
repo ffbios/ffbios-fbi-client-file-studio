@@ -1561,7 +1561,7 @@ button,input,textarea,select{font:inherit}
       <img src="/official-logo.png" alt="FBI">
       <div class="brand-block">
         <div class="brand">FILM BEYOND IMAGINATION • FBI LIVE</div>
-        <h1>\${title}</h1>
+        <h1>${title}</h1>
       </div>
     </div>
     <div class="head-info">
@@ -1582,7 +1582,7 @@ button,input,textarea,select{font:inherit}
 
         <div class="video-bottombar">
           <div class="video-title">
-            <strong>\${title}</strong>
+            <strong>${title}</strong>
             <span>Film Beyond Imagination • Live broadcast</span>
           </div>
         </div>
