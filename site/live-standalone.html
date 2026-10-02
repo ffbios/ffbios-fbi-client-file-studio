@@ -13,7 +13,7 @@ button,input{font:inherit}
 .app{height:100vh;display:grid;grid-template-columns:250px minmax(0,1fr)}
 .sidebar{background:#0d0d0f;border-right:1px solid #25252b;padding:14px;display:flex;flex-direction:column;min-height:0}
 .brand{padding:7px 8px 14px;border-bottom:1px solid #25252b;text-align:center}.brand img{width:92px;height:38px;object-fit:contain}.brand strong{display:block;font-size:11px;margin-top:3px}.brand span{display:block;color:#7d7d85;font-size:8px;margin-top:2px}
-.sidebar-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 4px 8px}.sidebar-head h2{margin:0;font-size:12px}.sidebar-head span{font-size:8px;color:#85858d}
+.sidebar-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 4px 8px}.sidebar-head h2{margin:0;font-size:12px}.sidebar-head span{font-size:8px;color:#85858d}.add-channel-btn{border:1px solid #3a393f;background:#18181b;color:#f0e6bd;border-radius:7px;padding:5px 7px;font-size:6px;font-weight:850;cursor:pointer}.add-channel-btn:hover{background:#222227;border-color:#d3b13e}.channel-modal{position:fixed;inset:0;z-index:100;display:grid;place-items:center;background:rgba(0,0,0,.72);padding:18px}.channel-modal.hidden{display:none}.channel-box{width:min(520px,100%);border:1px solid #34343b;border-radius:14px;background:linear-gradient(180deg,#17171a,#101012);box-shadow:0 30px 90px rgba(0,0,0,.6);overflow:hidden}.channel-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #29292f}.channel-head b{font-size:11px}.channel-close{border:0;background:none;color:#aaaab2;font-size:18px;cursor:pointer}.channel-body{padding:14px}.channel-body .field{margin-bottom:11px}.channel-body textarea{width:100%;min-height:80px;background:#0a0a0d;border:1px solid #303037;color:#eee;border-radius:9px;padding:9px;font-size:9px;outline:none;resize:vertical}.channel-foot{display:flex;justify-content:flex-end;gap:6px;padding:10px 14px;border-top:1px solid #29292f}.channel-help{margin:0 0 12px;color:#888891;font-size:8px;line-height:1.5}.channel-result{margin-top:12px;padding:10px;border:1px solid rgba(236,204,91,.25);background:rgba(236,204,91,.04);border-radius:9px;font-size:8px;color:#d9d9df}.channel-result b{display:block;color:#f0e4ad;margin-bottom:5px}.channel-result code{font:700 8px ui-monospace,SFMono-Regular,Menlo,monospace;color:#ddd;word-break:break-all}
 .channels{min-height:0;overflow:auto;display:grid;gap:8px;padding:0 1px}
 .channel{border:1px solid #2a2a30;background:#111113;border-radius:11px;padding:10px;cursor:pointer}.channel:hover{background:#161619}.channel.active{border-color:rgba(236,204,91,.75);box-shadow:inset 0 0 0 1px rgba(236,204,91,.12)}
 .channel-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.channel-name{font-size:10px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.channel-meta{margin-top:4px;color:#8b8b93;font-size:7px;line-height:1.45}
@@ -56,7 +56,7 @@ button,input{font:inherit}
     document.getElementById('loginBtn').onclick=async()=>{try{await api('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value,password:document.getElementById('password').value})});boot()}catch(e){document.getElementById('loginErr').textContent=e.message}};
   }
   function renderShell(){
-    root.innerHTML='<div class="app"><aside class="sidebar"><div class="brand"><img src="/official-logo.png" alt="FBI"><strong>FBI LIVE</strong><span>Standalone Broadcast Studio</span></div><div class="sidebar-head"><h2>Live Channels</h2><span id="channelCount">0</span></div><div class="channels" id="channels"></div><div class="footer">Streaming engine connected<br>HLS delivery online<br>Automatic recording currently paused</div></aside><main class="main"><div class="topbar"><div class="top-title"><h1>FBI Live Broadcast Studio</h1><p>Monitor your live signal, program output, viewers and audio from one control surface.</p></div><div class="top-actions"><button class="btn" id="logoutBtn">Logout</button></div></div><section class="studio" id="studio"><div class="placeholder"><div><b>Select a live channel</b><span>Choose a channel from the left to open the control room.</span></div></div></section></main></div>';
+    root.innerHTML='<div class="app"><aside class="sidebar"><div class="brand"><img src="/official-logo.png" alt="FBI"><strong>FBI LIVE</strong><span>Standalone Broadcast Studio</span></div><div class="sidebar-head"><div><h2>Live Channels</h2><span id="channelCount">0</span></div><button class="add-channel-btn" id="addChannelBtn">＋ ADD CHANNEL</button></div><div class="channels" id="channels"></div><div class="footer">Streaming engine connected<br>HLS delivery online<br>Automatic recording currently paused</div></aside><main class="main"><div class="topbar"><div class="top-title"><h1>FBI Live Broadcast Studio</h1><p>Monitor your live signal, program output, viewers and audio from one control surface.</p></div><div class="top-actions"><button class="btn" id="logoutBtn">Logout</button></div></div><section class="studio" id="studio"><div class="placeholder"><div><b>Select a live channel</b><span>Choose a channel from the left to open the control room.</span></div></div></section></main></div><div class="channel-modal hidden" id="channelModal"><div class="channel-box"><div class="channel-head"><b>Create Live Channel</b><button class="channel-close" id="channelClose">×</button></div><div class="channel-body"><p class="channel-help">Create a channel for OBS, vMix, Streamlabs or another RTMP encoder. The system will generate the RTMP server, stream key and public watch link automatically.</p><div class="field"><label>Channel Name</label><input id="newChannelName" placeholder="e.g. Wedding Live"></div><div class="field"><label>Stream Title</label><input id="newChannelTitle" placeholder="Title viewers will see"></div><div class="field"><label>Description</label><textarea id="newChannelDescription" placeholder="Optional broadcast description"></textarea></div><div id="channelResult" class="channel-result" style="display:none"></div></div><div class="channel-foot"><button class="btn" id="channelCancel">Cancel</button><button class="btn primary" id="channelCreate">CREATE CHANNEL</button></div></div></div>';
     document.getElementById('logoutBtn').onclick=async()=>{await api('/api/auth/logout',{method:'POST'});login()};
   }
   function getSelected(){return streams.find(s=>s.id===selectedId)||null}
@@ -68,12 +68,34 @@ button,input{font:inherit}
     el.querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>{selectedId=x.dataset.id;renderChannels();renderStudio()});
   }
   function placeholder(msg,sub){return '<div class="placeholder"><div><b>'+esc(msg)+'</b><span>'+esc(sub)+'</span></div></div>'}
+  async function ensureHls(){
+    if(window.Hls)return window.Hls;
+    if(window.__fbiStandaloneHls)return window.__fbiStandaloneHls;
+    window.__fbiStandaloneHls=new Promise(function(resolve,reject){
+      const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/hls.js@latest';
+      s.onload=function(){resolve(window.Hls)};s.onerror=reject;document.head.appendChild(s);
+    });
+    return window.__fbiStandaloneHls;
+  }
+  async function attachHls(video,url){
+    if(!video||!url)return;
+    try{
+      if(video.__fbiHls){try{video.__fbiHls.destroy()}catch{}video.__fbiHls=null}
+      if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=url;video.play().catch(()=>{});return}
+      const H=await ensureHls();if(!H||!H.isSupported())throw new Error('HLS playback is not supported in this browser.');
+      const hls=new H({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:6,maxBufferLength:30,maxMaxBufferLength:60,backBufferLength:90,capLevelToPlayerSize:true});
+      video.__fbiHls=hls;
+      hls.on(H.Events.ERROR,function(_,data){if(!data||!data.fatal)return;try{hls.destroy()}catch{}video.__fbiHls=null;setTimeout(function(){attachHls(video,url)},1500)});
+      hls.on(H.Events.MANIFEST_PARSED,function(){video.play().catch(()=>{})});
+      hls.loadSource(url);hls.attachMedia(video);
+    }catch(e){console.warn('Standalone HLS player:',e)}
+  }
   function renderStudio(){
     const s=getSelected(),studio=document.getElementById('studio');if(!studio)return;
     if(!s){studio.innerHTML=placeholder('Select a live channel','Choose a channel from the left to open the control room.');return}
-    const live=s.status==='live'&&s.viewer_url;
-    const frame=live?'<iframe class="frame" id="previewFrame" src="'+esc(s.viewer_url)+'" title="FBI Live Feed" scrolling="no" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>':placeholder('OFFLINE','Waiting for the encoder signal.');
-    const program=live?'<iframe class="frame" id="programFrame" src="'+esc(s.viewer_url)+'" title="FBI Live Program" scrolling="no" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>':placeholder('PROGRAM OFFLINE','Waiting for the encoder signal.');
+    const live=s.status==='live'&&!!s.hls_url;
+    const frame=live?'<video class="frame" id="previewVideo" muted playsinline autoplay controls></video>':placeholder('OFFLINE','Waiting for the encoder signal.');
+    const program=live?'<video class="frame" id="programVideo" muted playsinline autoplay controls></video>':placeholder('PROGRAM OFFLINE','Waiting for the encoder signal.');
     studio.innerHTML='<div class="statusbar"><div class="chips"><span class="chip '+(live?'live':'')+'">'+(live?'● LIVE':'OFFLINE')+'</span><span class="chip">'+esc(s.name)+'</span><span class="chip gold">'+(s.record_enabled?'RECORD ARMED':'RECORD PAUSED')+'</span></div><div class="chips"><span class="control" id="duration">'+(live?'ON AIR':'OFFLINE')+'</span><span class="chip"><span class="viewers"><b id="viewerTop">'+Number(s.current_viewers||0)+'</b> VIEWERS</span></span></div></div>'+
       '<div class="work"><div class="primary"><div class="views"><div class="view"><div class="view-head"><b class="preview-label">PREVIEW</b><span>LIVE FEED</span></div>'+frame+'<div class="overlay-note">Incoming live signal</div></div><div class="view"><div class="view-head"><b class="program-label">PROGRAM</b><span>ON AIR OUTPUT</span></div>'+program+'<div class="overlay-note">Clean program output</div></div></div>'+
       '<div class="sources"><div class="source '+(live?'live':'')+'"><div class="source-head"><span>INPUT</span><span>'+(live?'ACTIVE':'WAITING')+'</span></div><div class="source-thumb">◉</div><div class="source-foot"><span>Live Feed</span><i class="dot"></i></div></div><div class="source '+(live?'live':'')+'"><div class="source-head"><span>PROGRAM</span><span>'+(live?'ON AIR':'OFF')+'</span></div><div class="source-thumb">▣</div><div class="source-foot"><span>Program Output</span><i class="dot"></i></div></div><div class="source"><div class="source-head"><span>WATCH</span><span>LINK</span></div><div class="source-thumb">▶</div><div class="source-foot"><span>Viewer Page</span><i class="dot"></i></div></div><div class="source '+(s.record_enabled?'live':'')+'"><div class="source-head"><span>REC</span><span>'+(s.record_enabled?'ARMED':'OFF')+'</span></div><div class="source-thumb">●</div><div class="source-foot"><span>Session Record</span><i class="dot"></i></div></div></div>'+
@@ -82,45 +104,55 @@ button,input{font:inherit}
       '<aside class="rack"><div class="panel"><div class="ph">OPERATOR CONTROLS</div><div class="pb grid2"><button class="rack-btn primary" id="watchBtn">WATCH</button><button class="rack-btn" id="fullBtn">FULL</button><button class="rack-btn" id="copyBtn">COPY</button><button class="rack-btn" id="muteBtn">MUTE</button></div></div>'+
       '<div class="panel"><div class="ph">CHANNEL STATUS</div><div class="pb"><div class="rack-row"><span>Signal</span><b>'+(live?'ON AIR':'OFFLINE')+'</b></div><div class="rack-row"><span>Viewers</span><b id="viewerRack">'+Number(s.current_viewers||0)+'</b></div><div class="rack-row"><span>Recording</span><b>'+(s.record_enabled?'ARMED':'OFF')+'</b></div><div class="rack-row"><span>Format</span><b>H.264 / AAC</b></div><div class="rack-row"><span>Delivery</span><b>HLS</b></div></div></div>'+
       '<div class="panel"><div class="ph">AUDIO METER</div><div class="pb rack-meter"><div class="rack-meter-line"><span>L</span><div class="rack-meter-segs" id="rackL">'+segments(12)+'</div><span id="rackDbL">−∞</span></div><div class="rack-meter-line"><span>R</span><div class="rack-meter-segs" id="rackR">'+segments(12)+'</div><span id="rackDbR">−∞</span></div></div></div>'+
-      '<div class="panel"><div class="ph">RECORDING</div><div class="pb"><div class="rack-row"><span>Automatic</span><b>'+(s.record_enabled?'ON':'OFF')+'</b></div><div class="rack-row"><span>Status</span><b>PAUSED</b></div></div></div></aside></div>'+
+      '<div class="panel"><div class="ph">RECORDING</div><div class="pb"><div class="rack-row"><span>Automatic</span><b>'+(s.record_enabled?'ON':'OFF')+'</b></div><div class="rack-row"><span>Status</span><b>'+(live?'LIVE':'PAUSED')+'</b></div></div></div></aside></div>'+
       '<div class="controls"><div class="control-group"><button class="smallbtn primary" id="openWatch">OPEN WATCH PAGE</button><button class="smallbtn" id="monitorBtn">MONITOR AUDIO</button></div><div class="control-group"><span class="chip">'+(live?'PROGRAM LIVE':'PROGRAM OFFLINE')+'</span><span class="chip">'+(s.record_enabled?'AUTO RECORD ON':'AUTO RECORD OFF')+'</span></div></div>'+
-      '<div class="footer">FBI Live Standalone • Streaming engine unchanged • Recording currently paused</div>';
+      '<div class="footer">FBI Live Standalone • Streaming engine unchanged • Audio metering reads the live program feed</div>';
+    if(live){
+      const pv=document.getElementById('previewVideo'),pr=document.getElementById('programVideo');
+      attachHls(pv,s.hls_url);attachHls(pr,s.hls_url);bindAudio(pr);
+    }
     bindStudio(s,live);
   }
-  function cleanFrame(frame){
-    if(!frame)return;
-    const hide=()=>{try{const doc=frame.contentDocument||frame.contentWindow.document;if(!doc)return;
-      ['.comments','.comment-form','.foot','.head','.playerbar'].forEach(sel=>doc.querySelectorAll(sel).forEach(el=>el.style.display='none'));
-      const wrap=doc.querySelector('.wrap');if(wrap){wrap.style.maxWidth='none';wrap.style.padding='0';wrap.style.width='100%'}
-      const layout=doc.querySelector('.layout');if(layout){layout.style.display='block';layout.style.width='100%'}
-      const player=doc.querySelector('.player');if(player){player.style.width='100%';player.style.height='100%';player.style.border='0';player.style.borderRadius='0';player.style.boxShadow='none'}
-      const shell=doc.querySelector('.video-shell');if(shell){shell.style.aspectRatio='auto';shell.style.height='100%'}
-      const v=doc.querySelector('#video');if(v){v.style.width='100%';v.style.height='100%';v.muted=true}
-    }catch{}};
-    frame.addEventListener('load',hide);setTimeout(hide,800);setTimeout(hide,2000);
-  }
   function db(an){
-    const a=new Uint8Array(an.fftSize);an.getByteTimeDomainData(a);let s=0;for(let i=0;i<a.length;i++){let x=(a[i]-128)/128;s+=x*x}const rms=Math.sqrt(s/a.length);return rms>0?20*Math.log10(rms):-60;
+    const a=new Uint8Array(an.fftSize);an.getByteTimeDomainData(a);let s=0;
+    for(let i=0;i<a.length;i++){const x=(a[i]-128)/128;s+=x*x}
+    const rms=Math.sqrt(s/a.length);return rms>0?20*Math.log10(rms):-60;
   }
   function paint(id,val){
     const e=document.getElementById(id);if(!e)return;const n=e.querySelectorAll('i'),lvl=Math.max(0,Math.min(n.length,Math.round((Math.max(-48,Math.min(0,val))+48)/48*n.length)));
     n.forEach((x,i)=>x.className=i<lvl?(val>-6&&i>=n.length-4?'clip':val>-14&&i>=n.length-7?'hot':'on'):'');
   }
   function audioTick(){
-    if(!audioState||!audioState.left)return;
-    let l=db(audioState.left),r=db(audioState.right);if(r<=-58&&l>-52)r=l;const m=Math.max(l,r);
+    const st=window.__standaloneAudioState;if(!st||!st.left)return;
+    const l=db(st.left),r0=db(st.right),r=(r0<=-58&&l>-52)?l:r0,m=Math.max(l,r);
     ['meterL','rackL'].forEach(id=>paint(id,l));['meterR','rackR'].forEach(id=>paint(id,r));['meterStream','meterMonitor','meterMaster','audioMeter'].forEach(id=>paint(id,m));
     [['dbL',l],['rackDbL',l],['dbR',r],['rackDbR',r],['dbMaster',m],['audioDb',m]].forEach(([id,v])=>{const e=document.getElementById(id);if(e)e.textContent=v<=-59?'−∞':v.toFixed(1)+(id==='audioDb'?' dBFS':' dB')});
-    const st=document.getElementById('monitorState');if(st)st.textContent=audioState.ctx.state==='running'?'ACTIVE':'CLICK MONITOR';
-    audioState.raf=requestAnimationFrame(audioTick);
+    const ms=document.getElementById('monitorState');if(ms)ms.textContent=st.ctx.state==='running'?'ACTIVE':'CLICK MONITOR';
+    st.raf=requestAnimationFrame(audioTick);
   }
-  function bindAudio(frame){
-    if(!frame)return;
-    const find=()=>{try{const doc=frame.contentDocument||frame.contentWindow.document,v=doc&&doc.querySelector('#video');if(!v)return;
-      if(audioState&&audioState.raf)cancelAnimationFrame(audioState.raf);if(audioState&&audioState.ctx)try{audioState.ctx.close()}catch{}
-      const C=window.AudioContext||window.webkitAudioContext;if(!C)throw 0;const ctx=new C(),source=ctx.createMediaElementSource(v),split=ctx.createChannelSplitter(2),l=ctx.createAnalyser(),r=ctx.createAnalyser();l.fftSize=r.fftSize=1024;l.smoothingTimeConstant=r.smoothingTimeConstant=.75;source.connect(split);split.connect(l,0);split.connect(r,1);audioState={ctx,left:l,right:r,raf:0};ctx.resume().catch(()=>{});audioTick();
-    }catch(e){const s=document.getElementById('monitorState');if(s)s.textContent='UNAVAILABLE';const d=document.getElementById('audioDb');if(d)d.textContent='MONITOR UNAVAILABLE'}};
-    frame.addEventListener('load',find);setTimeout(find,1200);setTimeout(find,2800);
+  function bindAudio(video){
+    if(!video)return;
+    try{
+      const old=window.__standaloneAudioState;
+      if(old&&old.raf)cancelAnimationFrame(old.raf);
+      if(old&&old.ctx){try{old.ctx.close()}catch{}}
+      const C=window.AudioContext||window.webkitAudioContext;if(!C)throw new Error('Web Audio unavailable');
+      const ctx=new C(),source=ctx.createMediaElementSource(video),split=ctx.createChannelSplitter(2),left=ctx.createAnalyser(),right=ctx.createAnalyser();
+      left.fftSize=right.fftSize=1024;left.smoothingTimeConstant=right.smoothingTimeConstant=.78;
+      source.connect(split);split.connect(left,0);split.connect(right,1);
+      window.__standaloneAudioState={ctx,video,source,split,left,right,raf:0};
+      ctx.resume().catch(()=>{});audioTick();
+    }catch(e){const ms=document.getElementById('monitorState');if(ms)ms.textContent='UNAVAILABLE';const ad=document.getElementById('audioDb');if(ad)ad.textContent='MONITOR UNAVAILABLE';console.warn('Audio meter:',e)}
+  }
+  function bindStudio(s,live){
+    const open=()=>window.open(s.viewer_url,'_blank','noopener');
+    document.getElementById('watchBtn').onclick=open;document.getElementById('openWatch').onclick=open;
+    document.getElementById('copyBtn').onclick=()=>navigator.clipboard?.writeText('Server: '+s.rtmp_server+'\nStream Key: '+s.stream_key);
+    document.getElementById('fullBtn').onclick=()=>{const f=document.getElementById('programVideo');if(f?.requestFullscreen)f.requestFullscreen().catch(open);else open()};
+    document.getElementById('muteBtn').onclick=()=>{const v=document.getElementById('programVideo');if(!v)return;v.muted=!v.muted;document.getElementById('muteBtn').textContent=v.muted?'MUTE':'UNMUTE';if(window.__standaloneAudioState?.ctx?.state==='suspended')window.__standaloneAudioState.ctx.resume().catch(()=>{})};
+    document.getElementById('monitorBtn').onclick=()=>{const st=window.__standaloneAudioState;if(!st){toast('Audio monitor is waiting for the live feed');return}if(st.ctx.state==='running')st.ctx.suspend().catch(()=>{});else st.ctx.resume().catch(()=>{})};
+    if(window.__durationTimer)clearInterval(window.__durationTimer);
+    const el=document.getElementById('duration');if(el)el.textContent=live?'ON AIR':'OFFLINE';
   }
   function bindStudio(s,live){
     const pf=document.getElementById('previewFrame'),pr=document.getElementById('programFrame');cleanFrame(pf);cleanFrame(pr);bindAudio(pr);
@@ -138,7 +170,26 @@ button,input{font:inherit}
       const s=getSelected(),v=Number(s?.current_viewers||0);const t=document.getElementById('viewerTop'),r=document.getElementById('viewerRack');if(t)t.textContent=String(v);if(r)r.textContent=String(v);
     }catch(e){if(e.message==='Unauthorised'||e.message==='Please log in')login()}
   }
-  async function boot(){try{const me=await api('/api/auth/me');if(!me.authenticated)return login();renderShell();load();refreshTimer=setInterval(load,5000)}catch{login()}}
+  function closeChannelModal(){const m=document.getElementById('channelModal');if(m)m.classList.add('hidden')}
+  function openChannelModal(){const m=document.getElementById('channelModal');if(!m)return;m.classList.remove('hidden');document.getElementById('channelResult').style.display='none';document.getElementById('newChannelName').focus()}
+  function bindChannelCreator(){
+    document.getElementById('addChannelBtn').onclick=openChannelModal;
+    document.getElementById('channelClose').onclick=closeChannelModal;
+    document.getElementById('channelCancel').onclick=closeChannelModal;
+    document.getElementById('channelModal').onclick=e=>{if(e.target.id==='channelModal')closeChannelModal()};
+    document.getElementById('channelCreate').onclick=async function(){
+      const name=document.getElementById('newChannelName').value.trim(),title=document.getElementById('newChannelTitle').value.trim(),description=document.getElementById('newChannelDescription').value.trim(),result=document.getElementById('channelResult');
+      if(!name){toast('Channel name is required');return}
+      this.disabled=true;this.textContent='CREATING…';
+      try{
+        const d=await api('/api/streams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,title,description})});
+        selectedId=d.stream.id;result.style.display='block';result.innerHTML='<b>Channel created. RTMP setup generated.</b><div>Server<br><code>'+esc(d.stream.rtmp_server||'')+'</code></div><div style="margin-top:6px">Stream Key<br><code>'+esc(d.stream.stream_key||'')+'</code></div>';
+        await load();setTimeout(closeChannelModal,900);
+      }catch(e){toast(e.message||'Could not create channel')}
+      finally{this.disabled=false;this.textContent='CREATE CHANNEL'}
+    };
+  }
+  async function boot(){try{const me=await api('/api/auth/me');if(!me.authenticated)return login();renderShell();bindChannelCreator();load();refreshTimer=setInterval(load,5000)}catch{login()}}
   boot();
 })();
 </script>
