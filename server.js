@@ -6,6 +6,7 @@ const fs=require("fs");
 const fsp=fs.promises;
 const path=require("path");
 const {spawn}=require("child_process");
+const {Readable}=require("stream");
 let ffmpegPath="";try{ffmpegPath=require("ffmpeg-static")||""}catch(e){console.warn("ffmpeg-static is unavailable; video thumbnails will use fallback cards.")}
 const {S3Client,PutObjectCommand,GetObjectCommand,DeleteObjectCommand,DeleteObjectsCommand,HeadObjectCommand,CreateMultipartUploadCommand,UploadPartCommand,CompleteMultipartUploadCommand,AbortMultipartUploadCommand,ListPartsCommand,PutBucketCorsCommand}=require("@aws-sdk/client-s3");
 const {Upload}=require("@aws-sdk/lib-storage");
@@ -117,9 +118,17 @@ async function generateThumbnail(file,width,height){
       return sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+Math.round(width*9/16)+'"><rect width="100%" height="100%" fill="#101012"/><circle cx="'+(width/2)+'" cy="'+(Math.round(width*9/16)/2)+'" r="'+Math.min(60,width*.15)+'" fill="#c7a53d"/><path d="M '+(width/2-16)+' '+(Math.round(width*9/16)/2-24)+' L '+(width/2+22)+' '+(Math.round(width*9/16)/2)+' L '+(width/2-16)+' '+(Math.round(width*9/16)/2+24)+' Z" fill="#101012"/></svg>')).webp({quality:84,method:4}).toBuffer();
     }
   }
+  // Do not buffer multi-gigabyte originals in Node just to make a small
+  // gallery thumbnail. AWS SDK v3 exposes GetObject as a stream and sharp can
+  // consume image streams directly, keeping the original bytes out of RAM.
   const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:file.storage_path}));
-  const input=obj.Body?.transformToByteArray?Buffer.from(await obj.Body.transformToByteArray()):Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject)}));
-  return sharp(input).rotate().resize({width:width,height:height,fit:"inside",withoutEnlargement:true}).webp({quality:68,method:4}).toBuffer();
+  const source=obj.Body?.pipe?obj.Body:(obj.Body?.transformToWebStream?Readable.fromWeb(obj.Body.transformToWebStream()):null);
+  if(!source)throw new Error("Cloud image stream is unavailable.");
+  const transformer=sharp().rotate().resize({width:width,height:height,fit:"inside",withoutEnlargement:true}).webp({quality:68,method:4});
+  const output=transformer.toBuffer();
+  source.on?.("error",err=>transformer.destroy(err));
+  source.pipe(transformer);
+  return output;
 }
 
 const app=express();
@@ -214,8 +223,13 @@ const s3=s3Ready()?new S3Client({
 const bucket=()=>process.env.S3_BUCKET;
 
 function choosePartSize(size){
-  var part=Number(size||0)>=512*1000*1000?TURBO_PART_SIZE:MIN_PART_SIZE;
-  while(Math.ceil(size/part)>MAX_PARTS) part*=2;
+  // Keep large uploads resilient on mobile/unstable links. Smaller parts recover
+  // faster when one transfer stalls, while the loop still scales part size for
+  // very large objects so we never exceed the multipart part-count limit.
+  var bytes=Number(size||0);
+  var part=MIN_PART_SIZE;
+  if(bytes>=100*1000*1000*1000)part=TURBO_PART_SIZE;
+  while(Math.ceil(bytes/part)>MAX_PARTS)part*=2;
   return part;
 }
 async function headObjectWithRetry(input,attempts=8,baseDelay=400){
