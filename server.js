@@ -455,7 +455,6 @@ async function reconcileStaleRecordings(){
 }
 
 
-const DEFAULT_SETTINGS=
 const DEFAULT_SETTINGS={
   studio_name:"FBI Client File Studio",
   portal_title:"FBI Client File Delivery",
