@@ -923,7 +923,7 @@ function renderSelectedStream(){
 
   const watch=esc(s.viewer_url||''),rtmp=esc(s.rtmp_server||''),key=esc(s.stream_key||'');
   const player=s.status==='live'&&s.viewer_url
-    ? '<iframe src="'+watch+'" title="FBI Live Preview" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>'
+    ? '<iframe src="'+watch+'" title="FBI Live Preview" scrolling="no" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>'
     : '<div class="offline"><div><b>'+(s.status==='live'?'ENCODER STARTING':'OFFLINE')+'</b><br><span>'+(s.status==='live'?'The live signal is received. Preparing the browser playback stream.':'Start publishing from OBS, vMix, Streamlabs or another RTMP encoder.')+'</span></div></div>';
 
   pane.innerHTML=
@@ -957,11 +957,11 @@ function renderSelectedStream(){
           '</div>'+
           '<div class="streamglass"><div class="streamglass-head"><div><h3>Recorded Sessions</h3><p>Completed live broadcasts saved as playable files.</p></div></div><div id="streamRecordings"><div class="smallnote">Loading recordings…</div></div></div>'+
         '</div>'+
-        '<div class="panel stream-settings" style="box-shadow:none"><div class="ph"><div><h2>Stream Settings</h2><p>Manage the channel without changing the streaming engine.</p></div><button class="btn primary" id="saveStream">Save Changes</button></div>'+
+        '<details class="panel stream-settings" style="box-shadow:none"><summary class="stream-settings-summary"><div><b>Stream Settings</b><span>Channel title, public access and automatic recording.</span></div><button type="button" class="mini" id="saveStream">Save Changes</button></summary>'+
           '<div class="body"><div class="settinggrid"><div class="field"><label>Stream Name</label><input id="streamNameEdit" value="'+esc(s.name)+'"></div><div class="field"><label>On-screen Title</label><input id="streamTitleEdit" value="'+esc(s.title||'')+'"></div></div>'+
           '<div class="field"><label>Description</label><textarea id="streamDescEdit">'+esc(s.description||'')+'</textarea></div>'+
           '<div class="settinggrid"><label class="toggle"><input id="streamShareEdit" type="checkbox" '+(s.shared?'checked':'')+'><span><b>Allow viewers to watch</b><br><small class="muted">Turn the public watch page on or off.</small></span></label>'+
-          '<label class="toggle"><input id="streamRecordEdit" type="checkbox" '+(s.record_enabled?'checked':'')+'><span><b>Record every live session</b><br><small class="muted">Save a playable MP4 automatically when streaming ends.</small></span></label></div></div></div>'+
+          '<label class="toggle"><input id="streamRecordEdit" type="checkbox" '+(s.record_enabled?'checked':'')+'><span><b>Record every live session</b><br><small class="muted">Save a playable MP4 automatically when streaming ends.</small></span></label></div></div></details>'+
         '</div>'+
         '<div class="stream-danger"><div><b>Stream Key Management</b><span>Regenerating the key changes the publishing address for this channel.</span></div><div><button class="btn" id="regenStreamKey">Regenerate Key</button> <button class="btn danger" id="deleteStream">Delete Stream</button></div></div>'+
     '</div>';
