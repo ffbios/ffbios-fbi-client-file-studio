@@ -1160,7 +1160,7 @@ app.get("/api/public/stream/:token/replay/file",async(req,res)=>{
     const meta=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:recording.storage_key}));
     const total=Number(meta.ContentLength||recording.size_bytes||0);
     if(!total)return res.status(404).json({error:"Replay file is empty."});
-    const range=String(req.headers.range||"").match(/^bytes=(\\d*)-(\\d*)$/i);
+    const range=String(req.headers.range||"").match(/^bytes=(\d*)-(\d*)$/i);
     let start=0,end=total-1;
     if(range){
       if(range[1])start=Math.max(0,Number(range[1]));
