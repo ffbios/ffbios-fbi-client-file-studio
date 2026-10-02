@@ -454,7 +454,7 @@ function xhrPut(url,blob,headers,item,onProgress){
     function armStall(){clearStall();stallTimer=setTimeout(function(){try{x.abort()}catch{}},120000)}
     Object.keys(headers||{}).forEach(function(k){x.setRequestHeader(k,headers[k])});
     x.upload.onprogress=function(e){if(e.lengthComputable)onProgress(e.loaded);armStall()};
-    x.onload=function(){clearStall();item.xhrs.delete(x);if(x.status>=200&&x.status<300)resolve({etag:x.getResponseHeader("ETag")||"");else reject(new Error("Upload returned HTTP "+x.status))};
+    x.onload=function(){clearStall();item.xhrs.delete(x);if(x.status>=200&&x.status<300)resolve({etag:x.getResponseHeader("ETag")||""});else reject(new Error("Upload returned HTTP "+x.status))};
     x.onerror=function(){clearStall();item.xhrs.delete(x);reject(new Error("Network error during upload"))};
     x.onabort=function(){clearStall();item.xhrs.delete(x);reject(new Error(item.paused?"Upload paused":"Upload stalled; retrying"))};
     x.ontimeout=function(){clearStall();item.xhrs.delete(x);reject(new Error("Upload timed out; retrying"))};
