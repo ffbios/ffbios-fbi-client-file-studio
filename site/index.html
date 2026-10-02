@@ -950,63 +950,262 @@ function selectedStream(){return (window.__streams||[]).find(function(s){return 
 function renderSelectedStream(){
   const pane=document.querySelector('#streamDetail');if(!pane)return;
   const s=selectedStream();
-  if(!s){pane.innerHTML='<div class="empty">Select a stream or create a new live stream.</div>';return}
+  if(!s){pane.innerHTML='<div class="stream-empty">Select a live channel or create a new stream.</div>';return}
 
   const watch=esc(s.viewer_url||''),rtmp=esc(s.rtmp_server||''),key=esc(s.stream_key||'');
-  const player=s.status==='live'&&s.viewer_url
-    ? '<iframe src="'+watch+'" title="FBI Live Preview" scrolling="no" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>'
-    : '<div class="offline"><div><b>'+(s.status==='live'?'ENCODER STARTING':'OFFLINE')+'</b><br><span>'+(s.status==='live'?'The live signal is received. Preparing the browser playback stream.':'Start publishing from OBS, vMix, Streamlabs or another RTMP encoder.')+'</span></div></div>';
+  const live=s.status==='live'&&!!s.viewer_url;
+  const preview=live
+    ? '<video id="streamPreviewMirror" playsinline muted autoplay></video>'
+    : '<div class="offline"><div><b>'+((s.status==='live')?'ENCODER STARTING':'OFFLINE')+'</b><br><span>'+((s.status==='live')?'The live signal is received. Preparing the browser playback stream.':'Start publishing from OBS, vMix, Streamlabs or another RTMP encoder.')+'</span></div></div>';
+  const program=live
+    ? '<iframe id="streamProgramFrame" src="'+watch+'" title="FBI Live Program" scrolling="no" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>'
+    : '<div class="offline"><div><b>PROGRAM OFFLINE</b><br><span>Waiting for the encoder signal.</span></div></div>';
+
+  if(window.__studioDurationTimer)clearInterval(window.__studioDurationTimer);
 
   pane.innerHTML=
-    '<div class="streamstudio-top">'+
-      '<div class="streamstudio-top-main"><div class="streamstudio-kicker">FBI Live Broadcast Studio</div><h1>'+esc(s.title||s.name)+'</h1><p>'+esc(s.name)+' • '+(s.status==='live'?'Live broadcast is on air':'Ready for broadcast')+'</p></div>'+
-      '<div class="streamstudio-top-actions"><button class="btn" id="copyAllStream">Copy Setup</button><button class="btn primary" id="openWatch">Open Watch Page</button></div>'+
-    '</div>'+
-    '<div class="streamstudio-layout">'+
-      '<div class="stream-stage">'+
-        '<div class="streamhero">'+
-          '<div class="streamhero-top">'+
-            '<div><div class="streamhero-title">'+esc(s.name)+'</div><div class="streamhero-meta">'+esc(s.title||'FBI Live Channel')+' • '+Number(s.current_viewers||0)+' watching</div></div>'+
-            '<div class="streamhero-badge '+(s.status==='live'?'live':'')+'">'+(s.status==='live'?'● LIVE':'OFFLINE')+'</div>'+
-          '</div>'+
-          '<div class="streamplayer">'+player+'</div>'+
-          '<div class="streamhero-bottom"><div class="streamhero-glass"><h3>'+esc(s.title||s.name)+'</h3><p><span id="streamDetailViewers">'+Number(s.current_viewers||0)+' watching now</span> • '+(s.record_enabled?'Automatic recording ON':'Recording OFF')+'</p></div><div class="streamhero-actions"><button class="btn primary" id="openWatchHero">Watch Page</button></div></div>'+
+    '<div class="studio-shell">'+
+      '<div class="studio-topline">'+
+        '<div class="studio-topline-left">'+
+          '<span class="studio-chip '+(live?'live':'')+'">'+(live?'● LIVE':'OFFLINE')+'</span>'+
+          '<span class="studio-chip">'+esc(s.name)+'</span>'+
+          '<span class="studio-chip gold">'+(s.record_enabled?'RECORD ARMED':'RECORD OFF')+'</span>'+
         '</div>'+
-        '<div class="streammetrics">'+
-          '<div class="streammetric"><small>Live Signal</small><b>'+(s.status==='live'?'ON AIR':'OFFLINE')+'</b><span>'+(s.status==='live'?'Input detected and online':'Waiting for encoder')+'</span></div>'+
-          '<div class="streammetric"><small>Viewers Now</small><b>'+Number(s.current_viewers||0)+'</b><span>'+Number(s.total_viewers||0)+' total viewer sessions</span></div>'+
-          '<div class="streammetric"><small>Recording</small><b>'+(s.record_enabled?'ON':'OFF')+'</b><span>'+(s.record_enabled?'Save completed sessions automatically':'Recording disabled')+'</span></div>'+
+        '<div class="studio-topline-right">'+
+          '<span class="studio-duration" id="studioDuration">'+(live?'ON AIR':'OFFLINE')+'</span>'+
+          '<span class="studio-chip"><b id="studioViewers">'+Number(s.current_viewers||0)+'</b> VIEWERS</span>'+
         '</div>'+
-        '<div class="streamlower">'+
-          '<div class="streamglass"><div class="streamglass-head"><div><h3>Broadcast Setup</h3><p>Use these settings in OBS, vMix, Streamlabs or another RTMP encoder.</p></div><button class="mini" id="copyRtmp">Copy Server</button></div>'+
-            '<div class="streamsetup">'+
-              '<div class="credrow"><label>Server</label><input readonly value="'+rtmp+'"><button class="mini" id="copyRtmp2">Copy</button></div>'+
-              '<div class="credrow"><label>Key</label><input id="streamKey" type="password" readonly value="'+key+'"><div><button class="mini" id="toggleKey">Show</button> <button class="mini" id="copyKey">Copy</button></div></div>'+
+      '</div>'+
+
+      '<div class="studio-main">'+
+        '<div class="studio-program-area">'+
+          '<div class="studio-views">'+
+            '<div class="studio-view">'+
+              '<div class="studio-view-head"><span class="studio-label preview">PREVIEW</span><span class="studio-view-status">INCOMING FEED</span></div>'+
+              '<div class="studio-view-body">'+preview+'</div>'+
+              '<div class="studio-overlay-note">'+(live?'Live signal mirror':'Preview waiting for signal')+'</div>'+
             '</div>'+
-            '<div class="streamcode" style="margin-top:10px">Service: Custom RTMP\nServer: '+rtmp+'\nStream Key: '+key+'</div>'+
-            '<div class="streamStatusLine"><span id="streamPlayerStatus" class="streamstatus-pill">'+(s.status==='live'?'Live playback active':'Waiting for the live signal')+'</span><span class="streamstatus-pill">H.264 / AAC</span></div>'+
+            '<div class="studio-view">'+
+              '<div class="studio-view-head"><span class="studio-label program">PROGRAM</span><span class="studio-view-status">ON AIR OUTPUT</span></div>'+
+              '<div class="studio-view-body">'+program+'</div>'+
+              '<div class="studio-overlay-note">'+(live?'Broadcast player':'No active program')+'</div>'+
+            '</div>'+
           '</div>'+
-          '<div class="streamglass"><div class="streamglass-head"><div><h3>Recorded Sessions</h3><p>Completed live broadcasts saved as playable files.</p></div></div><div id="streamRecordings"><div class="smallnote">Loading recordings…</div></div></div>'+
+
+          '<div class="studio-source-strip">'+
+            '<div class="studio-source '+(live?'live':'')+'"><div class="studio-source-head"><span>INPUT</span><span>'+ (live?'ACTIVE':'WAITING') +'</span></div><div class="studio-source-thumb">◉</div><div class="studio-source-foot"><span>Live Feed</span><span class="studio-source-dot"></span></div></div>'+
+            '<div class="studio-source '+(live?'live':'')+'"><div class="studio-source-head"><span>PROGRAM</span><span>'+ (live?'ON AIR':'OFF') +'</span></div><div class="studio-source-thumb">▣</div><div class="studio-source-foot"><span>Program Output</span><span class="studio-source-dot"></span></div></div>'+
+            '<div class="studio-source"><div class="studio-source-head"><span>WATCH</span><span>LINK</span></div><div class="studio-source-thumb">▶</div><div class="studio-source-foot"><span>Viewer Page</span><span class="studio-source-dot"></span></div></div>'+
+            '<div class="studio-source '+(s.record_enabled?'live':'')+'"><div class="studio-source-head"><span>REC</span><span>'+ (s.record_enabled?'ARMED':'OFF') +'</span></div><div class="studio-source-thumb">●</div><div class="studio-source-foot"><span>Session Record</span><span class="studio-source-dot"></span></div></div>'+
+          '</div>'+
+
+          '<div class="studio-mixer">'+
+            '<div class="mix-strip"><div class="mix-name">PROGRAM L</div><div class="mix-sub">Audio</div><div class="mix-meter" id="mixMeterL">'+Array.from({length:14},()=>'<i></i>').join('')+'</div><div class="mix-fader"><span class="mix-knob"></span></div><div class="mix-bottom"><span>LEVEL</span><b id="mixDbL">−∞</b></div></div>'+
+            '<div class="mix-strip"><div class="mix-name">PROGRAM R</div><div class="mix-sub">Audio</div><div class="mix-meter" id="mixMeterR">'+Array.from({length:14},()=>'<i></i>').join('')+'</div><div class="mix-fader"><span class="mix-knob"></span></div><div class="mix-bottom"><span>LEVEL</span><b id="mixDbR">−∞</b></div></div>'+
+            '<div class="mix-strip"><div class="mix-name">STREAM</div><div class="mix-sub">Output</div><div class="mix-meter" id="mixMeterStream">'+Array.from({length:14},()=>'<i></i>').join('')+'</div><div class="mix-fader"><span class="mix-knob"></span></div><div class="mix-bottom"><span>STATUS</span><b>'+(live?'LIVE':'OFF')+'</b></div></div>'+
+            '<div class="mix-strip"><div class="mix-name">MONITOR</div><div class="mix-sub">Browser</div><div class="mix-meter" id="mixMeterMonitor">'+Array.from({length:14},()=>'<i></i>').join('')+'</div><div class="mix-fader"><span class="mix-knob"></span></div><div class="mix-bottom"><span>STATE</span><b id="mixMonitorState">READY</b></div></div>'+
+            '<div class="mix-strip"><div class="mix-name">MASTER</div><div class="mix-sub">Bus</div><div class="mix-meter" id="mixMeterMaster">'+Array.from({length:14},()=>'<i></i>').join('')+'</div><div class="mix-fader"><span class="mix-knob"></span></div><div class="mix-bottom"><span>PEAK</span><b id="mixDbMaster">−∞</b></div></div>'+
+          '</div>'+
+
+          '<div class="studio-audio-monitor">'+
+            '<div class="studio-audio-title">Audio Monitor</div>'+
+            '<div class="studio-audio-meter" id="studioAudioMeter">'+Array.from({length:20},()=>'<i></i>').join('')+'</div>'+
+            '<div class="studio-audio-db" id="studioAudioDb">−∞ dBFS</div>'+
+          '</div>'+
         '</div>'+
-        '<details class="panel stream-settings" style="box-shadow:none"><summary class="stream-settings-summary"><div><b>Stream Settings</b><span>Channel title, public access and automatic recording.</span></div><button type="button" class="mini" id="saveStream">Save Changes</button></summary>'+
-          '<div class="body"><div class="settinggrid"><div class="field"><label>Stream Name</label><input id="streamNameEdit" value="'+esc(s.name)+'"></div><div class="field"><label>On-screen Title</label><input id="streamTitleEdit" value="'+esc(s.title||'')+'"></div></div>'+
-          '<div class="field"><label>Description</label><textarea id="streamDescEdit">'+esc(s.description||'')+'</textarea></div>'+
-          '<div class="settinggrid"><label class="toggle"><input id="streamShareEdit" type="checkbox" '+(s.shared?'checked':'')+'><span><b>Allow viewers to watch</b><br><small class="muted">Turn the public watch page on or off.</small></span></label>'+
-          '<label class="toggle"><input id="streamRecordEdit" type="checkbox" '+(s.record_enabled?'checked':'')+'><span><b>Record every live session</b><br><small class="muted">Save a playable MP4 automatically when streaming ends.</small></span></label></div></div></details>'+
+
+        '<aside class="studio-rack">'+
+          '<div class="rack-panel">'+
+            '<div class="rack-head">Operator Controls</div>'+
+            '<div class="rack-body"><div class="rack-buttons">'+
+              '<button class="rack-btn primary" id="studioWatchBtn">WATCH</button>'+
+              '<button class="rack-btn" id="studioFullscreenBtn">FULLSCREEN</button>'+
+              '<button class="rack-btn" id="studioCopyBtn">COPY SETUP</button>'+
+              '<button class="rack-btn" id="studioMuteBtn">MUTE</button>'+
+            '</div></div>'+
+          '</div>'+
+          '<div class="rack-panel">'+
+            '<div class="rack-head">Channel Status</div>'+
+            '<div class="rack-body rack-info">'+
+              '<div class="rack-row"><span>Signal</span><b>'+ (live?'ON AIR':'OFFLINE') +'</b></div>'+
+              '<div class="rack-row"><span>Viewers</span><b id="rackViewers">'+Number(s.current_viewers||0)+'</b></div>'+
+              '<div class="rack-row"><span>Recording</span><b>'+ (s.record_enabled?'ARMED':'OFF') +'</b></div>'+
+              '<div class="rack-row"><span>Format</span><b>H.264 / AAC</b></div>'+
+              '<div class="rack-row"><span>Delivery</span><b>HLS</b></div>'+
+            '</div>'+
+          '</div>'+
+          '<div class="rack-panel">'+
+            '<div class="rack-head">Audio Meter</div>'+
+            '<div class="rack-body">'+
+              '<div class="rack-meter-wrap"><div class="rack-meter-label"><span>L</span><span id="rackDbL">−∞</span></div><div class="rack-meter" id="rackMeterL">'+Array.from({length:12},()=>'<i></i>').join('')+'</div></div>'+
+              '<div style="height:7px"></div>'+
+              '<div class="rack-meter-wrap"><div class="rack-meter-label"><span>R</span><span id="rackDbR">−∞</span></div><div class="rack-meter" id="rackMeterR">'+Array.from({length:12},()=>'<i></i>').join('')+'</div></div>'+
+            '</div>'+
+          '</div>'+
+          '<div class="rack-panel">'+
+            '<div class="rack-head">Recording</div>'+
+            '<div class="rack-body rack-info"><div class="rack-row"><span>Automatic</span><b>'+(s.record_enabled?'ON':'OFF')+'</b></div><div class="rack-row"><span>Sessions</span><b>Auto-save</b></div></div>'+
+          '</div>'+
+        '</aside>'+
+      '</div>'+
+
+      '<div class="studio-controls">'+
+        '<div class="studio-controls-left">'+
+          '<button class="studio-action primary" id="openWatchHero">OPEN WATCH PAGE</button>'+
+          '<button class="studio-action" id="studioMonitorAudio">MONITOR AUDIO</button>'+
+          '<button class="studio-action" id="studioOpenSettings">STREAM SETTINGS</button>'+
         '</div>'+
-        '<div class="stream-danger"><div><b>Stream Key Management</b><span>Regenerating the key changes the publishing address for this channel.</span></div><div><button class="btn" id="regenStreamKey">Regenerate Key</button> <button class="btn danger" id="deleteStream">Delete Stream</button></div></div>'+
-    '</div>';
+        '<div class="studio-controls-right">'+
+          '<span class="studio-chip">'+(live?'PROGRAM LIVE':'PROGRAM OFFLINE')+'</span>'+
+          '<span class="studio-chip">'+(s.record_enabled?'AUTO RECORD ON':'AUTO RECORD OFF')+'</span>'+
+        '</div>'+
+      '</div>'+
+    '</div>'+
+
+    '<div class="streamlower">'+
+      '<div class="streamglass"><div class="streamglass-head"><div><h3>Broadcast Setup</h3><p>Encoder connection details</p></div><button class="mini" id="copyRtmp">Copy Server</button></div>'+
+        '<div class="streamsetup">'+
+          '<div class="credrow"><label>Server</label><input readonly value="'+rtmp+'"><button class="mini" id="copyRtmp2">Copy</button></div>'+
+          '<div class="credrow"><label>Key</label><input id="streamKey" type="password" readonly value="'+key+'"><div><button class="mini" id="toggleKey">Show</button> <button class="mini" id="copyKey">Copy</button></div></div>'+
+        '</div>'+
+        '<div class="streamcode">Service: Custom RTMP\nServer: '+rtmp+'\nStream Key: '+key+'</div>'+
+        '<div class="streamStatusLine"><span id="streamPlayerStatus" class="streamstatus-pill">'+(live?'Live playback active':'Waiting for the live signal')+'</span><span class="streamstatus-pill">H.264 / AAC</span></div>'+
+      '</div>'+
+      '<div class="streamglass"><div class="streamglass-head"><div><h3>Recorded Sessions</h3><p>Completed live broadcasts saved as playable files.</p></div></div><div id="streamRecordings"><div class="smallnote">Loading recordings…</div></div></div>'+
+    '</div>'+
+
+    '<details class="panel stream-settings" style="box-shadow:none"><summary class="stream-settings-summary"><div><b>Stream Settings</b><span>Channel title, public access and automatic recording.</span></div><button type="button" class="mini" id="saveStream">Save Changes</button></summary>'+
+      '<div class="body"><div class="settinggrid"><div class="field"><label>Stream Name</label><input id="streamNameEdit" value="'+esc(s.name)+'"></div><div class="field"><label>On-screen Title</label><input id="streamTitleEdit" value="'+esc(s.title||'')+'"></div></div>'+
+      '<div class="field"><label>Description</label><textarea id="streamDescEdit">'+esc(s.description||'')+'</textarea></div>'+
+      '<div class="settinggrid"><label class="toggle"><input id="streamShareEdit" type="checkbox" '+(s.shared?'checked':'')+'><span><b>Allow viewers to watch</b><br><small class="muted">Turn the public watch page on or off.</small></span></label>'+
+      '<label class="toggle"><input id="streamRecordEdit" type="checkbox" '+(s.record_enabled?'checked':'')+'><span><b>Record every live session</b><br><small class="muted">Save a playable MP4 automatically when streaming ends.</small></span></label></div></div></details>'+
+
+    '<div class="stream-danger"><div><b>Stream Key Management</b><span>Regenerating the key changes the publishing address for this channel.</span></div><div><button class="btn" id="regenStreamKey">Regenerate Key</button> <button class="btn danger" id="deleteStream">Delete Stream</button></div></div>';
 
   renderStreamsList();
 
+  const studioFrame=document.querySelector('#streamProgramFrame');
+  const studioMirror=document.querySelector('#streamPreviewMirror');
+
+  window.__studioAudioState=window.__studioAudioState||{ctx:null,video:null,raf:0,stream:null,splitter:null,left:null,right:null};
+
+  function dbFromAnalyser(analyser){
+    const data=new Uint8Array(analyser.fftSize);analyser.getByteTimeDomainData(data);
+    let sum=0;for(let i=0;i<data.length;i++){const x=(data[i]-128)/128;sum+=x*x}
+    const rms=Math.sqrt(sum/data.length);return rms>0?20*Math.log10(rms):-60;
+  }
+  function paintSegments(id,db,count,vertical){
+    const box=document.getElementById(id);if(!box)return;
+    const nodes=box.querySelectorAll('i');if(!nodes.length)return;
+    const level=Math.max(0,Math.min(nodes.length,Math.round((Math.max(-48,Math.min(0,db))+48)/48*nodes.length)));
+    nodes.forEach(function(n,i){n.className=i<level?(db>-6&&i>=nodes.length-4?'clip':db>-14&&i>=nodes.length-7?'hot':'on'):''});
+  }
+  function paintAudio(dbL,dbR){
+    const master=Math.max(dbL,dbR);
+    paintSegments('mixMeterL',dbL,14,true);paintSegments('mixMeterR',dbR,14,true);paintSegments('mixMeterStream',master,14,true);paintSegments('mixMeterMonitor',master,14,true);paintSegments('mixMeterMaster',master,14,true);
+    paintSegments('rackMeterL',dbL,12,false);paintSegments('rackMeterR',dbR,12,false);paintSegments('studioAudioMeter',master,20,false);
+    ['mixDbL','rackDbL'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=dbL<=-59?'−∞':dbL.toFixed(1)+' dB'});
+    ['mixDbR','rackDbR'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=dbR<=-59?'−∞':dbR.toFixed(1)+' dB'});
+    const m=document.getElementById('mixDbMaster'),a=document.getElementById('studioAudioDb');if(m)m.textContent=master<=-59?'−∞':master.toFixed(1)+' dB';if(a)a.textContent=master<=-59?'−∞ dBFS':master.toFixed(1)+' dBFS';
+  }
+  function startStudioAudioMonitor(video){
+    try{
+      if(!video||!video.captureStream)throw new Error('captureStream unavailable');
+      if(window.__studioAudioState.video===video)return;
+      if(window.__studioAudioState.raf)cancelAnimationFrame(window.__studioAudioState.raf);
+      if(window.__studioAudioState.ctx){try{window.__studioAudioState.ctx.close()}catch{}}
+      const captured=video.captureStream();
+      const tracks=captured.getAudioTracks?captured.getAudioTracks():[];
+      if(!tracks.length)throw new Error('No audio track');
+      const ctx=new (window.AudioContext||window.webkitAudioContext)();
+      const source=ctx.createMediaStreamSource(new MediaStream(tracks));
+      const splitter=ctx.createChannelSplitter(2);
+      const left=ctx.createAnalyser(),right=ctx.createAnalyser();
+      left.fftSize=1024;right.fftSize=1024;left.smoothingTimeConstant=.72;right.smoothingTimeConstant=.72;
+      source.connect(splitter);splitter.connect(left,0);splitter.connect(right,1);
+      window.__studioAudioState={ctx,video,raf:0,stream:captured,source,splitter,left,right};
+      const tick=function(){
+        if(window.__studioAudioState.video!==video)return;
+        const l=dbFromAnalyser(left),r=dbFromAnalyser(right);
+        paintAudio(l,r);
+        const ms=document.getElementById('mixMonitorState');if(ms)ms.textContent=ctx.state==='running'?'ACTIVE':'CLICK MONITOR';
+        window.__studioAudioState.raf=requestAnimationFrame(tick);
+      };
+      ctx.resume().catch(function(){});
+      tick();
+    }catch(e){
+      const msg=document.getElementById('studioAudioDb');if(msg)msg.textContent='Monitor unavailable';
+      const ms=document.getElementById('mixMonitorState');if(ms)ms.textContent='UNAVAILABLE';
+    }
+  }
+  function bindStudioMedia(){
+    const frame=document.querySelector('#streamProgramFrame');
+    const mirror=document.querySelector('#streamPreviewMirror');
+    if(!frame)return;
+    const bind=function(){
+      try{
+        const doc=frame.contentDocument||frame.contentWindow.document;
+        const sourceVideo=doc&&doc.querySelector('video');
+        if(!sourceVideo)return;
+        if(mirror&&sourceVideo.captureStream){
+          try{
+            const mirrorStream=sourceVideo.captureStream();
+            mirror.srcObject=mirrorStream;
+            mirror.play().catch(function(){});
+          }catch(e){}
+        }
+        startStudioAudioMonitor(sourceVideo);
+      }catch(e){
+        const msg=document.getElementById('studioAudioDb');if(msg)msg.textContent='Monitor unavailable';
+      }
+    };
+    frame.addEventListener('load',bind,{once:true});
+    setTimeout(bind,1200);
+    setTimeout(bind,3000);
+  }
+  bindStudioMedia();
+
+  const watchOpen=function(){window.open(s.viewer_url,'_blank','noopener')};
+  document.querySelector('#openWatchHero').onclick=watchOpen;
+  document.querySelector('#studioWatchBtn').onclick=watchOpen;
+  document.querySelector('#openWatch').onclick=watchOpen;
+  document.querySelector('#studioCopyBtn').onclick=function(){copyText('Server: '+s.rtmp_server+'\nStream Key: '+s.stream_key)};
   document.querySelector('#copyRtmp').onclick=function(){copyText(s.rtmp_server)};
   document.querySelector('#copyRtmp2').onclick=function(){copyText(s.rtmp_server)};
   document.querySelector('#copyKey').onclick=function(){copyText(s.stream_key)};
-  document.querySelector('#copyAllStream').onclick=function(){copyText('Server: '+s.rtmp_server+'\nStream Key: '+s.stream_key)};
   document.querySelector('#toggleKey').onclick=function(){const i=document.querySelector('#streamKey');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'Show':'Hide'};
-  document.querySelector('#openWatch').onclick=function(){window.open(s.viewer_url,'_blank','noopener')};
-  document.querySelector('#openWatchHero').onclick=function(){window.open(s.viewer_url,'_blank','noopener')};
-  document.querySelector('#saveStream').onclick=async function(){
+  document.querySelector('#studioFullscreenBtn').onclick=function(){
+    const frame=document.querySelector('#streamProgramFrame');
+    if(frame&&frame.requestFullscreen)frame.requestFullscreen().catch(function(){window.open(s.viewer_url,'_blank','noopener')});
+    else watchOpen();
+  };
+  let muted=true;
+  document.querySelector('#studioMuteBtn').onclick=function(){
+    const frame=document.querySelector('#streamProgramFrame');
+    try{
+      const v=frame&&frame.contentDocument&&frame.contentDocument.querySelector('video');
+      if(!v){toast('Program feed is not ready');return}
+      v.muted=!v.muted;muted=v.muted;this.textContent=v.muted?'UNMUTE':'MUTE';
+    }catch(e){toast('Program feed is not ready')}
+  };
+  document.querySelector('#studioMonitorAudio').onclick=function(){
+    const st=window.__studioAudioState;
+    if(!st||!st.ctx){toast('Audio monitor is waiting for the live feed');return}
+    if(st.ctx.state==='running'){st.ctx.suspend().catch(function(){});this.classList.remove('primary');const m=document.getElementById('mixMonitorState');if(m)m.textContent='PAUSED'}
+    else{st.ctx.resume().catch(function(){});this.classList.add('primary');const m=document.getElementById('mixMonitorState');if(m)m.textContent='ACTIVE'}
+  };
+  document.querySelector('#studioOpenSettings').onclick=function(){const d=document.querySelector('.stream-settings');if(d){d.open=true;d.scrollIntoView({behavior:'smooth',block:'nearest'})}};
+  const updateDuration=function(){
+    const el=document.getElementById('studioDuration');if(!el||!live)return;
+    const started=s.started_at?Date.parse(s.started_at):NaN;
+    if(!Number.isFinite(started)){el.textContent='ON AIR';return}
+    let sec=Math.max(0,Math.floor((Date.now()-started)/1000));const h=Math.floor(sec/3600);sec%=3600;const m=Math.floor(sec/60),ss=sec%60;
+    el.textContent=(h?String(h).padStart(2,'0')+':':'')+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0');
+  };
+  updateDuration();window.__studioDurationTimer=setInterval(updateDuration,1000);
+
+  document.querySelector('#saveStream').onclick=async function(e){
+    e.preventDefault();
     try{
       const r=await api('/api/streams/'+s.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({
         name:document.querySelector('#streamNameEdit').value,
@@ -1016,8 +1215,7 @@ function renderSelectedStream(){
         record_enabled:document.querySelector('#streamRecordEdit').checked
       })});
       window.__streams=window.__streams.map(function(x){return x.id===s.id?{...x,...r.stream}:x});
-      renderedStreamSignature='';
-      renderStreamsList();renderSelectedStream();toast('Stream settings saved');
+      renderedStreamSignature='';renderStreamsList();renderSelectedStream();toast('Stream settings saved');
     }catch(e){toast(e.message)}
   };
 
