@@ -415,27 +415,47 @@ async function initDb(){
 
   ``;
 
-// The function is defined after initDb so it can use the existing pool.
-// It only affects recordings whose stream is already offline.
-async function finalizeStaleOfflineRecordings(){
+// Reconcile recording rows left behind by a process restart or interrupted upload.
+// A recording can survive in PostgreSQL as "recording" even when the FFmpeg process
+// is gone. On startup we close that gap before the stream monitor starts again.
+async function reconcileStaleRecordings(){
   try{
     const r=await pool.query(`
-      UPDATE stream_recordings sr
-      SET status='failed',
-          ended_at=COALESCE(sr.ended_at,now()),
-          error=CASE WHEN COALESCE(sr.error,'')='' THEN 'Recording process was interrupted before finalization.' ELSE sr.error END
-      FROM streams s
-      WHERE sr.stream_id=s.id
-        AND sr.status='recording'
-        AND s.status='offline'
-      RETURNING sr.id
+      SELECT sr.id,sr.stream_id,sr.storage_key,sr.size_bytes,sr.status
+      FROM stream_recordings sr
+      WHERE sr.status='recording'
     `);
-    if(r.rowCount)console.warn("Finalized "+r.rowCount+" stale offline recording(s).");
+    let completed=0,failed=0;
+    for(const row of r.rows){
+      let objectSize=0;
+      if(s3Ready()){
+        try{
+          const meta=await headObjectWithRetry({Bucket:bucket(),Key:row.storage_key});
+          objectSize=Number(meta.ContentLength||0);
+        }catch{}
+      }
+      if(objectSize>0){
+        await pool.query(
+          "UPDATE stream_recordings SET status='completed',ended_at=COALESCE(ended_at,now()),size_bytes=$2,error='' WHERE id=$1",
+          [row.id,objectSize]
+        );
+        completed++;
+      }else{
+        await pool.query(
+          "UPDATE stream_recordings SET status='failed',ended_at=COALESCE(ended_at,now()),size_bytes=COALESCE(size_bytes,0),error=CASE WHEN COALESCE(error,'')='' THEN 'Recording process was interrupted before finalization.' ELSE error END WHERE id=$1",
+          [row.id]
+        );
+        failed++;
+      }
+    }
+    if(completed||failed)console.warn("Recording reconciliation: "+completed+" recovered, "+failed+" marked failed.");
   }catch(e){
-    console.warn("Stale recording cleanup failed:",e?.message||e);
+    console.warn("Recording reconciliation failed:",e?.message||e);
   }
 }
 
+
+const DEFAULT_SETTINGS=
 const DEFAULT_SETTINGS={
   studio_name:"FBI Client File Studio",
   portal_title:"FBI Client File Delivery",
@@ -527,21 +547,28 @@ async function startStreamRecording(row){
   proc.stdout.on("end",()=>pass.end());
   proc.stderr.on("data",chunk=>{stderr=(stderr+chunk.toString()).slice(-8000)});
 
-  const uploadDone=new Upload({
+  const uploader=new Upload({
     client:s3,
     params:{Bucket:bucket(),Key:storageKey,Body:pass,ContentType:"video/mp4",CacheControl:"private, max-age=31536000"},
     queueSize:2,
-    partSize:64*1024*1024,
+    partSize:16*1024*1024,
     leavePartsOnError:false
-  }).done();
+  });
+  const uploadDone=uploader.done();
 
   let finalized=false;
   const finalize=async(status,errorText)=>{
     if(finalized)return;
     finalized=true;
-    try{await uploadDone}catch(uploadErr){
+    try{
+      await Promise.race([
+        uploadDone,
+        new Promise((_,reject)=>setTimeout(()=>reject(new Error("Recording upload finalization timed out.")),30000))
+      ]);
+    }catch(uploadErr){
       status="failed";
       errorText=String(uploadErr?.message||uploadErr);
+      try{if(typeof uploader.abort==="function")await uploader.abort()}catch{}
     }
     try{
       await pool.query(
@@ -554,6 +581,8 @@ async function startStreamRecording(row){
     activeStreamRecordings.delete(row.id);
   };
 
+
+  proc.on("error",async err=>{
   proc.on("error",async err=>{
     try{pass.destroy(err)}catch{}
     await finalize("failed",String(err?.message||err));
@@ -1208,12 +1237,14 @@ app.get("/api/public/stream/:token/replay",async(req,res)=>{
     const r=await publicStreamByToken(req.params.token);
     if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
     const stream=r.rows[0];
-    const q=await pool.query("SELECT id,filename,status,size_bytes,started_at,ended_at,created_at,storage_key FROM stream_recordings WHERE stream_id=$1 AND status='completed' AND size_bytes>0 ORDER BY ended_at DESC NULLS LAST,created_at DESC LIMIT 1",[stream.id]);
+    const q=await pool.query("SELECT id,filename,status,size_bytes,started_at,ended_at,created_at,storage_key,error FROM stream_recordings WHERE stream_id=$1 ORDER BY created_at DESC LIMIT 1",[stream.id]);
     const recording=q.rows[0];
-    if(!recording||!s3Ready())return res.json({available:false,status:recording?"completed":"none"});
+    if(!recording||!s3Ready())return res.json({available:false,status:recording?.status||"none",error:recording?.error||""});
+    if(recording.status==="recording")return res.json({available:false,status:"recording",error:recording.error||"Replay recording is still being finalized.",recording:{id:recording.id}});
+    if(recording.status!=="completed")return res.json({available:false,status:recording.status||"failed",error:recording.error||"Replay recording could not be finalized.",recording:{id:recording.id}});
     const meta=await headObjectWithRetry({Bucket:bucket(),Key:recording.storage_key});
     const total=Number(meta.ContentLength||recording.size_bytes||0);
-    if(!Number.isFinite(total)||total<=0)return res.json({available:false,status:"empty"});
+    if(!Number.isFinite(total)||total<=0)return res.json({available:false,status:"empty",error:"Replay file is empty.",recording:{id:recording.id}});
     const play_url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:recording.storage_key,ResponseContentType:"video/mp4",ResponseContentDisposition:"inline"}),{expiresIn:3600});
     res.json({available:true,status:"completed",play_url,recording:{id:recording.id,filename:recording.filename,size_bytes:total,started_at:recording.started_at,ended_at:recording.ended_at}});
   }catch(e){
@@ -1222,6 +1253,8 @@ app.get("/api/public/stream/:token/replay",async(req,res)=>{
   }
 });
 
+
+app.get("/api/public/stream/:token/replay/file",async(req,res)=>{
 app.get("/api/public/stream/:token/replay/file",async(req,res)=>{
   try{
     const r=await publicStreamByToken(req.params.token);
@@ -1569,8 +1602,14 @@ async function loadReplay(){
   try{
     const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/replay",{cache:"no-store"});
     const d=await r.json();
-    if(!r.ok)throw new Error(d.error);
-    if(!d.available)return false;
+    if(!r.ok)throw new Error(d.error||"Replay unavailable");
+    if(!d.available){
+      if(d.status==="recording")streamState.textContent="Replay is being saved…";
+      else if(d.status==="failed")streamState.textContent=d.error||"Replay recording failed to finalize.";
+      else if(d.status==="empty")streamState.textContent=d.error||"Replay file is empty.";
+      else streamState.textContent=d.error||"Replay is not available yet.";
+      return false;
+    }
     clearTimeout(replayTimer);
     replayMode=true;
     clearPlayer();
@@ -1596,11 +1635,14 @@ async function showOfflineOrReplay(){
   offline.style.display="grid";
   offline.textContent="The live stream has ended. Preparing the replay…";
   video.style.display="none";
-  streamState.textContent="Replay is being saved…";
+  if(!/Replay is being saved|Replay recording failed|Replay file is empty|Replay is not available/.test(String(streamState.textContent||""))){
+    streamState.textContent="Replay is being saved…";
+  }
   clearTimeout(replayTimer);
   replayTimer=setTimeout(()=>{if(!live)refresh()},5000);
 }
-async function refresh(){try{const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/status",{cache:"no-store"}),d=await r.json();if(!r.ok)throw new Error(d.error);if(d.live){clearTimeout(replayTimer);statusEl.textContent="● LIVE";statusEl.className="badge live";viewers.textContent=(d.current_viewers||0)+" watching now";updateMobileViewerUi();if(!live||replayMode){live=true;startPlayer()}await fetch("/api/public/stream/"+encodeURIComponent(token)+"/heartbeat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionKey})});}else{if(live){live=false;clearPlayer()}statusEl.textContent="OFFLINE";statusEl.className="badge";await showOfflineOrReplay()}}catch(e){statusEl.textContent="STREAM UNAVAILABLE";statusEl.className="badge error";streamState.textContent=e.message||"Unavailable"}}
+
+function esc(v){
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 function fmtTime(v){try{return new Date(v).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}catch{return ""}}
 async function loadComments(){try{const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/comments?limit=80",{cache:"no-store"}),d=await r.json();if(!r.ok)throw new Error(d.error);const rows=d.comments||[];commentCount.textContent=rows.length;commentList.innerHTML=rows.length?rows.map(x=>'<div class="comment"><b>'+esc(x.display_name)+'</b><span>'+esc(x.comment)+'</span><time>'+esc(fmtTime(x.created_at))+'</time></div>').join(""):'<div style="color:#777;font-size:9px;padding:10px 0">No comments yet. Start the conversation.</div>';commentList.scrollTop=commentList.scrollHeight;renderMobileOverlay(rows);updateMobileViewerUi()}catch(e){commentStatus.textContent=e.message||"Comments unavailable"}}
@@ -2348,4 +2390,4 @@ app.get("/editor.html",(req,res)=>{
 app.use((req,res)=>res.sendFile(path.join(ROOT,"index.html")));
 
 initDb().then(async()=>{
-  await finalizeStaleOfflineRecordings();await ensureBucketCors();app.listen(PORT,"0.0.0.0",()=>console.log("FBI Client File Studio listening on port "+PORT))}).catch(e=>{console.error(e);process.exit(1)});
+  await reconcileStaleRecordings();await ensureBucketCors();app.listen(PORT,"0.0.0.0",()=>console.log("FBI Client File Studio listening on port "+PORT))}).catch(e=>{console.error(e);process.exit(1)});
