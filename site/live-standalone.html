@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FBI Live Broadcast Studio</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:#070708;color:#f5f5f7;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{overflow:hidden;background:radial-gradient(900px 420px at 18% -8%,rgba(215,175,65,.10),transparent 55%),radial-gradient(760px 380px at 98% 4%,rgba(93,103,255,.08),transparent 58%),#070708}
+button,input{font:inherit}
+.app{height:100vh;display:grid;grid-template-columns:250px minmax(0,1fr)}
+.sidebar{background:#0d0d0f;border-right:1px solid #25252b;padding:14px;display:flex;flex-direction:column;min-height:0}
+.brand{padding:7px 8px 14px;border-bottom:1px solid #25252b;text-align:center}.brand img{width:92px;height:38px;object-fit:contain}.brand strong{display:block;font-size:11px;margin-top:3px}.brand span{display:block;color:#7d7d85;font-size:8px;margin-top:2px}
+.sidebar-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 4px 8px}.sidebar-head h2{margin:0;font-size:12px}.sidebar-head span{font-size:8px;color:#85858d}
+.channels{min-height:0;overflow:auto;display:grid;gap:8px;padding:0 1px}
+.channel{border:1px solid #2a2a30;background:#111113;border-radius:11px;padding:10px;cursor:pointer}.channel:hover{background:#161619}.channel.active{border-color:rgba(236,204,91,.75);box-shadow:inset 0 0 0 1px rgba(236,204,91,.12)}
+.channel-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.channel-name{font-size:10px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.channel-meta{margin-top:4px;color:#8b8b93;font-size:7px;line-height:1.45}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:4px 6px;border:1px solid #303036;border-radius:999px;font-size:6px;font-weight:850;letter-spacing:.06em}.badge.live{color:#71ee93;border-color:rgba(112,238,146,.3);background:rgba(112,238,146,.06)}.badge.live:before{content:"";width:5px;height:5px;border-radius:50%;background:#70ee92;box-shadow:0 0 8px rgba(112,238,146,.55)}
+.main{min-width:0;min-height:0;display:flex;flex-direction:column;padding:12px}
+.topbar{height:44px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.top-title h1{margin:0;font-size:18px}.top-title p{margin:2px 0 0;color:#85858e;font-size:8px}.top-actions{display:flex;gap:6px}.btn{border:1px solid #303037;background:#17171a;color:#ececf0;border-radius:8px;padding:7px 10px;font-size:8px;font-weight:800;cursor:pointer}.btn.primary{background:linear-gradient(180deg,#edd66f,#d6b542);border-color:#d3b13e;color:#16160f}
+.studio{min-height:0;flex:1;display:grid;grid-template-rows:auto minmax(0,1fr) 36px;gap:7px}
+.statusbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;border:1px solid #28282e;border-radius:10px;background:#111113}.chips{display:flex;gap:5px;align-items:center;min-width:0}.chip{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border-radius:999px;border:1px solid #303036;background:#0e0e10;color:#9e9ea6;font-size:6px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}.chip.live{color:#70ee92;border-color:rgba(112,238,146,.28);background:rgba(112,238,146,.05)}.chip.gold{color:#efcf63;border-color:rgba(212,175,55,.28);background:rgba(212,175,55,.04)}
+.control{font:700 7px ui-monospace,SFMono-Regular,Menlo,monospace;color:#a9a9b1;white-space:nowrap}.viewers{font-size:7px;color:#f0f0f2}.viewers b{font-size:8px}
+.work{min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 160px;gap:7px}
+.primary{min-width:0;min-height:0;display:grid;grid-template-rows:minmax(0,1fr) 60px 102px 26px;gap:6px}
+.views{min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.view{position:relative;min-width:0;min-height:0;border:1px solid #25252a;border-radius:9px;overflow:hidden;background:#000}
+.view-head{position:absolute;top:0;left:0;right:0;z-index:5;padding:7px;background:linear-gradient(180deg,rgba(0,0,0,.85),transparent);display:flex;justify-content:space-between;align-items:center;pointer-events:none}.view-head b{font-size:7px;letter-spacing:.08em}.preview-label{color:#d7d7dc}.program-label{color:#ff8d8d}.view-head span{font-size:6px;color:#8e8e97}
+.frame{width:100%;height:100%;display:block;border:0;background:#000}
+.overlay-note{position:absolute;left:7px;bottom:6px;padding:4px 6px;border-radius:5px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.1);font-size:6px;color:#aaaab2}
+.placeholder{height:100%;display:grid;place-items:center;text-align:center;padding:20px;background:radial-gradient(350px 160px at 50% 46%,rgba(212,175,55,.07),transparent 65%),#070708;color:#86868f}.placeholder b{display:block;color:#ddd;font-size:8px}.placeholder span{display:block;margin-top:4px;font-size:7px;line-height:1.4}
+.sources{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}.source{border:1px solid #25252a;border-radius:8px;background:#111113;overflow:hidden;min-width:0}.source-head{display:flex;justify-content:space-between;padding:5px 6px;font-size:6px;color:#9c9ca4;border-bottom:1px solid #242428}.source-thumb{height:32px;display:grid;place-items:center;font-size:12px;background:radial-gradient(circle at 50% 50%,rgba(212,175,55,.14),transparent 60%),#0d0d0f}.source-foot{display:flex;justify-content:space-between;padding:4px 6px;font-size:6px;color:#707079}.dot{width:5px;height:5px;border-radius:50%;background:#55555c}.source.live .dot{background:#4ade80;box-shadow:0 0 8px rgba(74,222,128,.55)}
+.mixer{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;min-height:0}.strip{border:1px solid #25252a;border-radius:8px;background:#101012;padding:6px 5px;min-width:0;display:flex;flex-direction:column}.strip strong{font-size:6px;color:#d0d0d6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.strip small{font-size:5px;color:#6e6e76;margin-top:1px}.meter{height:61px;width:11px;margin:5px auto;display:flex;flex-direction:column-reverse;gap:2px}.meter i{flex:1;background:#29292f;border-radius:2px}.meter i.on{background:#4ade80}.meter i.hot{background:#e3c44d}.meter i.clip{background:#fb7185}.fader{height:18px;position:relative;margin:0 3px}.fader:before{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;transform:translateX(-50%);background:#303038}.knob{position:absolute;left:50%;top:45%;width:12px;height:12px;transform:translate(-50%,-50%);background:#ddd;border:2px solid #19191d;border-radius:50%;box-shadow:0 0 0 1px #4c4c52}.strip-foot{display:flex;justify-content:space-between;font-size:5px;color:#707079}.strip-foot b{font:700 6px ui-monospace,SFMono-Regular,Menlo,monospace;color:#d7d7dd}
+.audio-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:7px;padding:5px 7px;border:1px solid #25252a;border-radius:7px;background:#0f0f11}.audio-title{font-size:6px;font-weight:900;letter-spacing:.08em;color:#bfc0c7}.audio-meter{display:flex;gap:2px;height:8px}.audio-meter i{flex:1;background:#29292f;border-radius:2px}.audio-meter i.on{background:#4ade80}.audio-meter i.hot{background:#e3c44d}.audio-meter i.clip{background:#fb7185}.audio-db{font:700 6px ui-monospace,SFMono-Regular,Menlo,monospace;color:#d4d4da}
+.rack{display:grid;gap:6px;min-height:0}.panel{border:1px solid #25252a;border-radius:9px;background:#111113;overflow:hidden}.ph{padding:7px 8px;border-bottom:1px solid #242428;font-size:6px;font-weight:900;letter-spacing:.08em;color:#9c9ca5}.pb{padding:7px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:5px}.rack-btn{width:100%;border:1px solid #303038;background:#18181b;color:#e4e4e8;border-radius:7px;padding:8px 4px;font-size:6px;font-weight:850;cursor:pointer;margin-bottom:5px}.rack-btn.primary{background:linear-gradient(180deg,#edd66f,#d6b542);border-color:#d3b13e;color:#15150f}.rack-row{display:flex;justify-content:space-between;gap:6px;font-size:6px;color:#86868f;padding:2px 0}.rack-row b{color:#ececf0;text-align:right}.rack-meter{display:grid;gap:5px}.rack-meter-line{display:grid;grid-template-columns:auto 1fr auto;gap:5px;align-items:center;font-size:6px;color:#777780}.rack-meter-segs{display:flex;gap:2px;height:7px}.rack-meter-segs i{flex:1;background:#29292e;border-radius:2px}.rack-meter-segs i.on{background:#4ade80}.rack-meter-segs i.hot{background:#e3c44d}.rack-meter-segs i.clip{background:#fb7185}
+.controls{display:flex;justify-content:space-between;align-items:center;gap:7px;border:1px solid #28282e;border-radius:9px;background:#111113;padding:5px 7px}.control-group{display:flex;gap:5px;align-items:center;flex-wrap:wrap}.smallbtn{border:1px solid #303038;background:#18181b;color:#dddde2;border-radius:7px;padding:6px 8px;font-size:6px;font-weight:850;cursor:pointer}.smallbtn.primary{background:linear-gradient(180deg,#edd66f,#d6b542);color:#15150f;border-color:#d3b13e}
+.footer{margin-top:6px;color:#62626a;font-size:7px}
+.login{height:100vh;display:grid;place-items:center;padding:24px}.loginbox{width:min(390px,100%);border:1px solid #2c2c32;border-radius:18px;background:linear-gradient(180deg,#151518,#101012);box-shadow:0 30px 80px rgba(0,0,0,.45);padding:22px}.loginbox img{width:105px;height:45px;object-fit:contain;display:block;margin:0 auto 10px}.loginbox h1{text-align:center;margin:0;font-size:18px}.loginbox p{text-align:center;color:#85858e;font-size:9px;margin:5px 0 18px}.field{display:grid;gap:5px;margin-bottom:10px}.field label{font-size:7px;text-transform:uppercase;letter-spacing:.08em;color:#8f8f98}.field input{width:100%;background:#0a0a0d;border:1px solid #303037;color:#eee;border-radius:9px;padding:9px;font-size:9px;outline:none}.error{min-height:14px;color:#fb7185;font-size:8px;margin-top:8px}
+@media(max-width:900px){body{overflow:auto}.app{height:auto;min-height:100vh;grid-template-columns:1fr}.sidebar{padding:9px;border-right:0;border-bottom:1px solid #25252b}.channels{display:flex;overflow:auto}.channel{min-width:190px}.main{padding:9px}.topbar{height:auto}.work{grid-template-columns:1fr}.rack{grid-template-columns:repeat(4,1fr)}.primary{grid-template-rows:auto 56px 100px 26px}.views{min-height:300px}.studio{display:block}.statusbar,.controls{margin-bottom:7px}.footer{padding-bottom:10px}}
+@media(max-width:640px){.views{grid-template-columns:1fr}.rack{grid-template-columns:1fr 1fr}.mixer{grid-template-columns:repeat(5,minmax(72px,1fr));overflow:auto}.sources{grid-template-columns:repeat(4,minmax(100px,1fr));overflow:auto}.top-actions .btn{padding:7px}.top-title h1{font-size:16px}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+(function(){
+  const root=document.getElementById('root');
+  let streams=[],selectedId=null,refreshTimer=null,audioState=null;
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+  async function api(url,options){const r=await fetch(url,options);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.error||'Request failed');return d}
+  function login(){
+    root.innerHTML='<div class="login"><div class="loginbox"><img src="/official-logo.png" alt="FBI"><h1>FBI Live Broadcast Studio</h1><p>Standalone live production control room</p><div class="field"><label>Email</label><input id="email" value=""></div><div class="field"><label>Password</label><input id="password" type="password" placeholder="Admin password"></div><button class="btn primary" id="loginBtn" style="width:100%">Sign In</button><div class="error" id="loginErr"></div></div></div>';
+    document.getElementById('email').focus();
+    document.getElementById('loginBtn').onclick=async()=>{try{await api('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value,password:document.getElementById('password').value})});boot()}catch(e){document.getElementById('loginErr').textContent=e.message}};
+  }
+  function renderShell(){
+    root.innerHTML='<div class="app"><aside class="sidebar"><div class="brand"><img src="/official-logo.png" alt="FBI"><strong>FBI LIVE</strong><span>Standalone Broadcast Studio</span></div><div class="sidebar-head"><h2>Live Channels</h2><span id="channelCount">0</span></div><div class="channels" id="channels"></div><div class="footer">Streaming engine connected<br>HLS delivery online<br>Automatic recording currently paused</div></aside><main class="main"><div class="topbar"><div class="top-title"><h1>FBI Live Broadcast Studio</h1><p>Monitor your live signal, program output, viewers and audio from one control surface.</p></div><div class="top-actions"><button class="btn" id="logoutBtn">Logout</button></div></div><section class="studio" id="studio"><div class="placeholder"><div><b>Select a live channel</b><span>Choose a channel from the left to open the control room.</span></div></div></section></main></div>';
+    document.getElementById('logoutBtn').onclick=async()=>{await api('/api/auth/logout',{method:'POST'});login()};
+  }
+  function getSelected(){return streams.find(s=>s.id===selectedId)||null}
+  function segments(n){return Array.from({length:n},()=>'<i></i>').join('')}
+  function renderChannels(){
+    const el=document.getElementById('channels'),count=document.getElementById('channelCount');if(!el)return;
+    count.textContent=streams.length+' channel'+(streams.length===1?'':'s');
+    el.innerHTML=streams.length?streams.map(s=>'<div class="channel '+(s.id===selectedId?'active':'')+'" data-id="'+esc(s.id)+'"><div class="channel-top"><div class="channel-name">'+esc(s.name)+'</div><span class="badge '+(s.status==='live'?'live':'')+'">'+(s.status==='live'?'● LIVE':'OFFLINE')+'</span></div><div class="channel-meta">'+esc(s.title||'')+'<br>'+Number(s.current_viewers||0)+' watching now</div></div>').join(''):'<div class="placeholder" style="min-height:160px"><div><b>No live channels</b><span>Create a channel from the main Studio when needed.</span></div></div>';
+    el.querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>{selectedId=x.dataset.id;renderChannels();renderStudio()});
+  }
+  function placeholder(msg,sub){return '<div class="placeholder"><div><b>'+esc(msg)+'</b><span>'+esc(sub)+'</span></div></div>'}
+  function renderStudio(){
+    const s=getSelected(),studio=document.getElementById('studio');if(!studio)return;
+    if(!s){studio.innerHTML=placeholder('Select a live channel','Choose a channel from the left to open the control room.');return}
+    const live=s.status==='live'&&s.viewer_url;
+    const frame=live?'<iframe class="frame" id="previewFrame" src="'+esc(s.viewer_url)+'" title="FBI Live Feed" scrolling="no" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>':placeholder('OFFLINE','Waiting for the encoder signal.');
+    const program=live?'<iframe class="frame" id="programFrame" src="'+esc(s.viewer_url)+'" title="FBI Live Program" scrolling="no" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>':placeholder('PROGRAM OFFLINE','Waiting for the encoder signal.');
+    studio.innerHTML='<div class="statusbar"><div class="chips"><span class="chip '+(live?'live':'')+'">'+(live?'● LIVE':'OFFLINE')+'</span><span class="chip">'+esc(s.name)+'</span><span class="chip gold">'+(s.record_enabled?'RECORD ARMED':'RECORD PAUSED')+'</span></div><div class="chips"><span class="control" id="duration">'+(live?'ON AIR':'OFFLINE')+'</span><span class="chip"><span class="viewers"><b id="viewerTop">'+Number(s.current_viewers||0)+'</b> VIEWERS</span></span></div></div>'+
+      '<div class="work"><div class="primary"><div class="views"><div class="view"><div class="view-head"><b class="preview-label">PREVIEW</b><span>LIVE FEED</span></div>'+frame+'<div class="overlay-note">Incoming live signal</div></div><div class="view"><div class="view-head"><b class="program-label">PROGRAM</b><span>ON AIR OUTPUT</span></div>'+program+'<div class="overlay-note">Clean program output</div></div></div>'+
+      '<div class="sources"><div class="source '+(live?'live':'')+'"><div class="source-head"><span>INPUT</span><span>'+(live?'ACTIVE':'WAITING')+'</span></div><div class="source-thumb">◉</div><div class="source-foot"><span>Live Feed</span><i class="dot"></i></div></div><div class="source '+(live?'live':'')+'"><div class="source-head"><span>PROGRAM</span><span>'+(live?'ON AIR':'OFF')+'</span></div><div class="source-thumb">▣</div><div class="source-foot"><span>Program Output</span><i class="dot"></i></div></div><div class="source"><div class="source-head"><span>WATCH</span><span>LINK</span></div><div class="source-thumb">▶</div><div class="source-foot"><span>Viewer Page</span><i class="dot"></i></div></div><div class="source '+(s.record_enabled?'live':'')+'"><div class="source-head"><span>REC</span><span>'+(s.record_enabled?'ARMED':'OFF')+'</span></div><div class="source-thumb">●</div><div class="source-foot"><span>Session Record</span><i class="dot"></i></div></div></div>'+
+      '<div class="mixer"><div class="strip"><strong>PROGRAM L</strong><small>Audio</small><div class="meter" id="meterL">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>LEVEL</span><b id="dbL">−∞</b></div></div><div class="strip"><strong>PROGRAM R</strong><small>Audio</small><div class="meter" id="meterR">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>LEVEL</span><b id="dbR">−∞</b></div></div><div class="strip"><strong>STREAM</strong><small>Output</small><div class="meter" id="meterStream">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>STATUS</span><b>'+(live?'LIVE':'OFF')+'</b></div></div><div class="strip"><strong>MONITOR</strong><small>Browser</small><div class="meter" id="meterMonitor">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>STATE</span><b id="monitorState">READY</b></div></div><div class="strip"><strong>MASTER</strong><small>Bus</small><div class="meter" id="meterMaster">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>PEAK</span><b id="dbMaster">−∞</b></div></div></div>'+
+      '<div class="audio-row"><div class="audio-title">AUDIO MONITOR</div><div class="audio-meter" id="audioMeter">'+segments(20)+'</div><div class="audio-db" id="audioDb">−∞ dBFS</div></div></div>'+
+      '<aside class="rack"><div class="panel"><div class="ph">OPERATOR CONTROLS</div><div class="pb grid2"><button class="rack-btn primary" id="watchBtn">WATCH</button><button class="rack-btn" id="fullBtn">FULL</button><button class="rack-btn" id="copyBtn">COPY</button><button class="rack-btn" id="muteBtn">MUTE</button></div></div>'+
+      '<div class="panel"><div class="ph">CHANNEL STATUS</div><div class="pb"><div class="rack-row"><span>Signal</span><b>'+(live?'ON AIR':'OFFLINE')+'</b></div><div class="rack-row"><span>Viewers</span><b id="viewerRack">'+Number(s.current_viewers||0)+'</b></div><div class="rack-row"><span>Recording</span><b>'+(s.record_enabled?'ARMED':'OFF')+'</b></div><div class="rack-row"><span>Format</span><b>H.264 / AAC</b></div><div class="rack-row"><span>Delivery</span><b>HLS</b></div></div></div>'+
+      '<div class="panel"><div class="ph">AUDIO METER</div><div class="pb rack-meter"><div class="rack-meter-line"><span>L</span><div class="rack-meter-segs" id="rackL">'+segments(12)+'</div><span id="rackDbL">−∞</span></div><div class="rack-meter-line"><span>R</span><div class="rack-meter-segs" id="rackR">'+segments(12)+'</div><span id="rackDbR">−∞</span></div></div></div>'+
+      '<div class="panel"><div class="ph">RECORDING</div><div class="pb"><div class="rack-row"><span>Automatic</span><b>'+(s.record_enabled?'ON':'OFF')+'</b></div><div class="rack-row"><span>Status</span><b>PAUSED</b></div></div></div></aside></div>'+
+      '<div class="controls"><div class="control-group"><button class="smallbtn primary" id="openWatch">OPEN WATCH PAGE</button><button class="smallbtn" id="monitorBtn">MONITOR AUDIO</button></div><div class="control-group"><span class="chip">'+(live?'PROGRAM LIVE':'PROGRAM OFFLINE')+'</span><span class="chip">'+(s.record_enabled?'AUTO RECORD ON':'AUTO RECORD OFF')+'</span></div></div>'+
+      '<div class="footer">FBI Live Standalone • Streaming engine unchanged • Recording currently paused</div>';
+    bindStudio(s,live);
+  }
+  function cleanFrame(frame){
+    if(!frame)return;
+    const hide=()=>{try{const doc=frame.contentDocument||frame.contentWindow.document;if(!doc)return;
+      ['.comments','.comment-form','.foot','.head','.playerbar'].forEach(sel=>doc.querySelectorAll(sel).forEach(el=>el.style.display='none'));
+      const wrap=doc.querySelector('.wrap');if(wrap){wrap.style.maxWidth='none';wrap.style.padding='0';wrap.style.width='100%'}
+      const layout=doc.querySelector('.layout');if(layout){layout.style.display='block';layout.style.width='100%'}
+      const player=doc.querySelector('.player');if(player){player.style.width='100%';player.style.height='100%';player.style.border='0';player.style.borderRadius='0';player.style.boxShadow='none'}
+      const shell=doc.querySelector('.video-shell');if(shell){shell.style.aspectRatio='auto';shell.style.height='100%'}
+      const v=doc.querySelector('#video');if(v){v.style.width='100%';v.style.height='100%';v.muted=true}
+    }catch{}};
+    frame.addEventListener('load',hide);setTimeout(hide,800);setTimeout(hide,2000);
+  }
+  function db(an){
+    const a=new Uint8Array(an.fftSize);an.getByteTimeDomainData(a);let s=0;for(let i=0;i<a.length;i++){let x=(a[i]-128)/128;s+=x*x}const rms=Math.sqrt(s/a.length);return rms>0?20*Math.log10(rms):-60;
+  }
+  function paint(id,val){
+    const e=document.getElementById(id);if(!e)return;const n=e.querySelectorAll('i'),lvl=Math.max(0,Math.min(n.length,Math.round((Math.max(-48,Math.min(0,val))+48)/48*n.length)));
+    n.forEach((x,i)=>x.className=i<lvl?(val>-6&&i>=n.length-4?'clip':val>-14&&i>=n.length-7?'hot':'on'):'');
+  }
+  function audioTick(){
+    if(!audioState||!audioState.left)return;
+    let l=db(audioState.left),r=db(audioState.right);if(r<=-58&&l>-52)r=l;const m=Math.max(l,r);
+    ['meterL','rackL'].forEach(id=>paint(id,l));['meterR','rackR'].forEach(id=>paint(id,r));['meterStream','meterMonitor','meterMaster','audioMeter'].forEach(id=>paint(id,m));
+    [['dbL',l],['rackDbL',l],['dbR',r],['rackDbR',r],['dbMaster',m],['audioDb',m]].forEach(([id,v])=>{const e=document.getElementById(id);if(e)e.textContent=v<=-59?'−∞':v.toFixed(1)+(id==='audioDb'?' dBFS':' dB')});
+    const st=document.getElementById('monitorState');if(st)st.textContent=audioState.ctx.state==='running'?'ACTIVE':'CLICK MONITOR';
+    audioState.raf=requestAnimationFrame(audioTick);
+  }
+  function bindAudio(frame){
+    if(!frame)return;
+    const find=()=>{try{const doc=frame.contentDocument||frame.contentWindow.document,v=doc&&doc.querySelector('#video');if(!v)return;
+      if(audioState&&audioState.raf)cancelAnimationFrame(audioState.raf);if(audioState&&audioState.ctx)try{audioState.ctx.close()}catch{}
+      const C=window.AudioContext||window.webkitAudioContext;if(!C)throw 0;const ctx=new C(),source=ctx.createMediaElementSource(v),split=ctx.createChannelSplitter(2),l=ctx.createAnalyser(),r=ctx.createAnalyser();l.fftSize=r.fftSize=1024;l.smoothingTimeConstant=r.smoothingTimeConstant=.75;source.connect(split);split.connect(l,0);split.connect(r,1);audioState={ctx,left:l,right:r,raf:0};ctx.resume().catch(()=>{});audioTick();
+    }catch(e){const s=document.getElementById('monitorState');if(s)s.textContent='UNAVAILABLE';const d=document.getElementById('audioDb');if(d)d.textContent='MONITOR UNAVAILABLE'}};
+    frame.addEventListener('load',find);setTimeout(find,1200);setTimeout(find,2800);
+  }
+  function bindStudio(s,live){
+    const pf=document.getElementById('previewFrame'),pr=document.getElementById('programFrame');cleanFrame(pf);cleanFrame(pr);bindAudio(pr);
+    const open=()=>window.open(s.viewer_url,'_blank','noopener');
+    document.getElementById('watchBtn').onclick=open;document.getElementById('openWatch').onclick=open;
+    document.getElementById('copyBtn').onclick=()=>navigator.clipboard?.writeText('Server: '+s.rtmp_server+'\nStream Key: '+s.stream_key);
+    document.getElementById('fullBtn').onclick=()=>{const f=document.getElementById('programFrame');if(f?.requestFullscreen)f.requestFullscreen().catch(open);else open()};
+    document.getElementById('muteBtn').onclick=()=>{try{const v=pr.contentDocument?.querySelector('#video');if(!v)return;v.muted=!v.muted;document.getElementById('muteBtn').textContent=v.muted?'MUTE':'UNMUTE'}catch{}};
+    document.getElementById('monitorBtn').onclick=()=>{if(!audioState?.ctx)return;if(audioState.ctx.state==='running')audioState.ctx.suspend();else audioState.ctx.resume()};
+    if(window.__durationTimer)clearInterval(window.__durationTimer);
+    const started=s.started_at?Date.parse(s.started_at):NaN,el=document.getElementById('duration');const tick=()=>{if(!el||!live)return;if(!Number.isFinite(started)){el.textContent='ON AIR';return}let sec=Math.max(0,Math.floor((Date.now()-started)/1000)),h=Math.floor(sec/3600);sec%=3600;let m=Math.floor(sec/60),ss=sec%60;el.textContent=(h?String(h).padStart(2,'0')+':':'')+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0')};tick();window.__durationTimer=setInterval(tick,1000);
+  }
+  async function load(){
+    try{const d=await api('/api/streams');streams=d.streams||[];if(!selectedId&&streams[0])selectedId=streams[0].id;if(selectedId&&!streams.some(s=>s.id===selectedId))selectedId=streams[0]?.id||null;renderChannels();renderStudio();
+      const s=getSelected(),v=Number(s?.current_viewers||0);const t=document.getElementById('viewerTop'),r=document.getElementById('viewerRack');if(t)t.textContent=String(v);if(r)r.textContent=String(v);
+    }catch(e){if(e.message==='Unauthorised'||e.message==='Please log in')login()}
+  }
+  async function boot(){try{const me=await api('/api/auth/me');if(!me.authenticated)return login();renderShell();load();refreshTimer=setInterval(load,5000)}catch{login()}}
+  boot();
+})();
+</script>
+</body>
+</html>
