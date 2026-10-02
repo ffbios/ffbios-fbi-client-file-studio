@@ -2336,7 +2336,17 @@ app.post("/portal",async(req,res)=>{
 });
 app.get("/portal.html",(req,res)=>{res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.type("html").sendFile(path.join(ROOT,"portal.html"))});
 app.get("/portal",(req,res)=>{res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.type("html").sendFile(path.join(ROOT,"portal.html"))});
-app.get("/",(req,res)=>{res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.set("Pragma","no-cache");res.set("Expires","0");res.type("html").sendFile(path.join(ROOT,"index.html"))});
+app.get("/",(req,res)=>{
+  res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma","no-cache");
+  res.set("Expires","0");
+  res.type("html").sendFile(path.join(ROOT,process.env.FBI_LIVE_STANDALONE==="1"?"live-standalone.html":"index.html"));
+});
+app.get("/live",(req,res)=>{
+  if(process.env.FBI_LIVE_STANDALONE!=="1")return res.redirect("/");
+  res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.type("html").sendFile(path.join(ROOT,"live-standalone.html"));
+});
 app.get("/editor.html",(req,res)=>{
   if(!validSession(req))return res.redirect("/");
   res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
