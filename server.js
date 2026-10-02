@@ -413,6 +413,28 @@ async function initDb(){
   `);
 }
 
+  ``;
+
+// The function is defined after initDb so it can use the existing pool.
+// It only affects recordings whose stream is already offline.
+async function finalizeStaleOfflineRecordings(){
+  try{
+    const r=await pool.query(`
+      UPDATE stream_recordings sr
+      SET status='failed',
+          ended_at=COALESCE(sr.ended_at,now()),
+          error=CASE WHEN COALESCE(sr.error,'')='' THEN 'Recording process was interrupted before finalization.' ELSE sr.error END
+      FROM streams s
+      WHERE sr.stream_id=s.id
+        AND sr.status='recording'
+        AND s.status='offline'
+      RETURNING sr.id
+    `);
+    if(r.rowCount)console.warn("Finalized "+r.rowCount+" stale offline recording(s).");
+  }catch(e){
+    console.warn("Stale recording cleanup failed:",e?.message||e);
+  }
+}
 
 const DEFAULT_SETTINGS={
   studio_name:"FBI Client File Studio",
@@ -478,44 +500,97 @@ function streamEncodedRtmpUrl(row){
 const activeStreamRecordings=new Map();
 async function startStreamRecording(row){
   if(activeStreamRecordings.has(row.id)||!row.record_enabled||!ffmpegPath||!s3Ready())return;
-  // Capture the same HLS feed the public viewer is already using. This avoids
-  // depending on an optional RTMP/encoded relay that may not be reachable
-  // from the Railway application container.
   const inputBase=streamInputHlsUrl(row);
   const input=inputBase&&inputBase.startsWith("http")?inputBase+"/index.m3u8":streamInputRtmpUrl(row);
   if(!input)return;
+
   const id=uid();
   const filename=safeName((row.name||"live-stream")+"-"+new Date().toISOString().replace(/[:.]/g,"-")+".mp4");
   const storageKey="recordings/"+row.id+"/"+id+"/"+filename;
   await pool.query("INSERT INTO stream_recordings(id,stream_id,filename,storage_key,status,started_at) VALUES($1,$2,$3,$4,'recording',now())",[id,row.id,filename,storageKey]);
-  const proc=spawn(ffmpegPath,["-hide_banner","-loglevel","warning","-reconnect","1","-reconnect_streamed","1","-reconnect_delay_max","3","-i",input,"-map","0:v:0","-map","0:a:0?","-c:v","libx264","-preset","veryfast","-crf","18","-pix_fmt","yuv420p","-profile:v","high","-c:a","aac","-b:a","160k","-ar","48000","-ac","2","-movflags","+frag_keyframe+empty_moov+default_base_moof","-f","mp4","pipe:1"],{stdio:["ignore","pipe","pipe"]});
+
+  const proc=spawn(ffmpegPath,[
+    "-hide_banner","-loglevel","warning",
+    "-i",input,
+    "-map","0:v:0","-map","0:a:0?",
+    "-c:v","libx264","-preset","veryfast","-crf","18",
+    "-pix_fmt","yuv420p","-profile:v","high",
+    "-c:a","aac","-b:a","160k","-ar","48000","-ac","2",
+    "-movflags","+frag_keyframe+empty_moov+default_base_moof",
+    "-f","mp4","pipe:1"
+  ],{stdio:["ignore","pipe","pipe"]});
+
   const PassThrough=require("stream").PassThrough;
   const pass=new PassThrough();
   let bytes=0,stderr="";
   proc.stdout.on("data",chunk=>{bytes+=chunk.length;pass.write(chunk)});
   proc.stdout.on("end",()=>pass.end());
-  proc.stderr.on("data",chunk=>{stderr=(stderr+chunk.toString()).slice(-4000)});
-  const uploadDone=new Upload({client:s3,params:{Bucket:bucket(),Key:storageKey,Body:pass,ContentType:"video/mp4",CacheControl:"private, max-age=31536000"},queueSize:2,partSize:64*1024*1024,leavePartsOnError:false}).done();
-  const finish=new Promise(resolve=>{
-    proc.on("error",async err=>{
-      try{pass.destroy(err)}catch{}
-      await uploadDone.catch(()=>{});
-      await pool.query("UPDATE stream_recordings SET status='failed',ended_at=now(),size_bytes=$2,error=$3 WHERE id=$1",[id,bytes,String(err.message||err)]);
-      activeStreamRecordings.delete(row.id);resolve();
-    });
-    proc.on("close",async code=>{
-      try{if(!proc.stdout.readableEnded)pass.end()}catch{}
-      try{
-        await uploadDone;
-        const status=code===0&&bytes>0?"completed":"failed";
-        await pool.query("UPDATE stream_recordings SET status=$2,ended_at=now(),size_bytes=$3,error=$4 WHERE id=$1",[id,status,bytes,status==="failed"?(stderr||"Recording produced no media data."):""]);
-      }catch(err){
-        await pool.query("UPDATE stream_recordings SET status='failed',ended_at=now(),size_bytes=$2,error=$3 WHERE id=$1",[id,bytes,String(err.message||err)]);
-      }
-      activeStreamRecordings.delete(row.id);resolve();
-    });
+  proc.stderr.on("data",chunk=>{stderr=(stderr+chunk.toString()).slice(-8000)});
+
+  const uploadDone=new Upload({
+    client:s3,
+    params:{Bucket:bucket(),Key:storageKey,Body:pass,ContentType:"video/mp4",CacheControl:"private, max-age=31536000"},
+    queueSize:2,
+    partSize:64*1024*1024,
+    leavePartsOnError:false
+  }).done();
+
+  let finalized=false;
+  const finalize=async(status,errorText)=>{
+    if(finalized)return;
+    finalized=true;
+    try{await uploadDone}catch(uploadErr){
+      status="failed";
+      errorText=String(uploadErr?.message||uploadErr);
+    }
+    try{
+      await pool.query(
+        "UPDATE stream_recordings SET status=$2,ended_at=COALESCE(ended_at,now()),size_bytes=$3,error=$4 WHERE id=$1",
+        [id,status,bytes,String(errorText||"")]
+      );
+    }catch(dbErr){
+      console.error("Recording database finalization failed:",dbErr?.message||dbErr);
+    }
+    activeStreamRecordings.delete(row.id);
+  };
+
+  proc.on("error",async err=>{
+    try{pass.destroy(err)}catch{}
+    await finalize("failed",String(err?.message||err));
   });
-  activeStreamRecordings.set(row.id,{id,proc,finish});
+
+  proc.on("close",async code=>{
+    try{if(!proc.stdout.readableEnded)pass.end()}catch{}
+    const status=code===0&&bytes>0?"completed":"failed";
+    await finalize(status,status==="failed"?(stderr||("FFmpeg exited with code "+String(code))):"");
+  });
+
+  activeStreamRecordings.set(row.id,{id,proc,finish:()=>finalize("completed","")});
+}
+
+async function stopStreamRecording(streamId){
+  const active=activeStreamRecordings.get(streamId);
+  if(!active)return;
+
+  try{active.proc.kill("SIGINT")}catch{}
+  await new Promise(r=>setTimeout(r,5000));
+
+  if(activeStreamRecordings.has(streamId)){
+    try{active.proc.kill("SIGTERM")}catch{}
+    await new Promise(r=>setTimeout(r,4000));
+  }
+
+  if(activeStreamRecordings.has(streamId)){
+    try{active.proc.kill("SIGKILL")}catch{}
+    await new Promise(r=>setTimeout(r,1000));
+  }
+
+  await Promise.race([
+    active.finish(),
+    new Promise(r=>setTimeout(r,8000))
+  ]);
+
+  activeStreamRecordings.delete(streamId);
 }
 function randomStreamKey(){return crypto.randomBytes(24).toString("base64url");}
 function randomViewerToken(){return crypto.randomBytes(24).toString("base64url");}
@@ -2272,4 +2347,5 @@ app.get("/editor.html",(req,res)=>{
 
 app.use((req,res)=>res.sendFile(path.join(ROOT,"index.html")));
 
-initDb().then(async()=>{await ensureBucketCors();app.listen(PORT,"0.0.0.0",()=>console.log("FBI Client File Studio listening on port "+PORT))}).catch(e=>{console.error(e);process.exit(1)});
+initDb().then(async()=>{
+  await finalizeStaleOfflineRecordings();await ensureBucketCors();app.listen(PORT,"0.0.0.0",()=>console.log("FBI Client File Studio listening on port "+PORT))}).catch(e=>{console.error(e);process.exit(1)});
