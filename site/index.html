@@ -905,8 +905,10 @@ async function loadStreams(){
     renderedStreamSignature=signature;
     renderSelectedStream();
   } else if(s){
-    const viewers=document.querySelector('#streamDetailViewers');
-    if(viewers)viewers.textContent=Number(s.current_viewers||0)+" watching";
+    const n=Number(s.current_viewers||0);
+    const viewers=document.querySelector('#studioViewers'),rack=document.querySelector('#rackViewers');
+    if(viewers)viewers.textContent=String(n);
+    if(rack)rack.textContent=String(n);
   }
 }
 function streamStatusBadge(s){
@@ -1168,7 +1170,6 @@ function renderSelectedStream(){
   const watchOpen=function(){window.open(s.viewer_url,'_blank','noopener')};
   document.querySelector('#openWatchHero').onclick=watchOpen;
   document.querySelector('#studioWatchBtn').onclick=watchOpen;
-  document.querySelector('#openWatch').onclick=watchOpen;
   document.querySelector('#studioCopyBtn').onclick=function(){copyText('Server: '+s.rtmp_server+'\nStream Key: '+s.stream_key)};
   document.querySelector('#copyRtmp').onclick=function(){copyText(s.rtmp_server)};
   document.querySelector('#copyRtmp2').onclick=function(){copyText(s.rtmp_server)};
