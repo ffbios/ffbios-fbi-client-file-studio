@@ -486,7 +486,7 @@ async function startStreamRecording(row){
   const filename=safeName((row.name||"live-stream")+"-"+new Date().toISOString().replace(/[:.]/g,"-")+".mp4");
   const storageKey="recordings/"+row.id+"/"+id+"/"+filename;
   await pool.query("INSERT INTO stream_recordings(id,stream_id,filename,storage_key,status,started_at) VALUES($1,$2,$3,$4,'recording',now())",[id,row.id,filename,storageKey]);
-  const proc=spawn(ffmpegPath,["-hide_banner","-loglevel","warning","-fflags","nobuffer","-flags","low_delay","-i",input,"-map","0:v:0","-map","0:a:0?","-c:v","copy","-c:a","copy","-movflags","+frag_keyframe+empty_moov+default_base_moof","-f","mp4","pipe:1"],{stdio:["ignore","pipe","pipe"]});
+  const proc=spawn(ffmpegPath,["-hide_banner","-loglevel","warning","-fflags","nobuffer","-flags","low_delay","-i",input,"-map","0:v:0","-map","0:a:0?","-c:v","libx264","-preset","veryfast","-crf","18","-pix_fmt","yuv420p","-profile:v","high","-c:a","aac","-b:a","160k","-ar","48000","-ac","2","-movflags","+frag_keyframe+empty_moov+default_base_moof","-f","mp4","pipe:1"],{stdio:["ignore","pipe","pipe"]});
   const PassThrough=require("stream").PassThrough;
   const pass=new PassThrough();
   let bytes=0,stderr="";
