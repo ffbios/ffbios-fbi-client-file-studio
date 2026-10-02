@@ -1393,6 +1393,18 @@ refresh();loadComments();setInterval(loadComments,5000);setInterval(refresh,1500
 
 app.get("/api/storage",admin,async(req,res)=>{
   try{
+    if(String(process.env.CLEAR_PENDING_UPLOADS_ONCE||"").trim()==="1"){
+      const pending=await pool.query("SELECT id,storage_key,multipart_upload_id,mode FROM upload_sessions WHERE status='active'");
+      for(const u of pending.rows){
+        if(u.mode==="multipart"&&u.multipart_upload_id){
+          await s3.send(new AbortMultipartUploadCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id})).catch(()=>{});
+        }else if(s3Ready()){
+          await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:u.storage_key})).catch(()=>{});
+        }
+      }
+      if(pending.rowCount)await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE status='active'");
+      console.log("Cleared "+pending.rowCount+" pending upload session(s) for a fresh upload.");
+    }
     const r=await pool.query(`
       SELECT
         COALESCE((SELECT sum(size_bytes) FROM files),0)::numeric AS used_bytes,
