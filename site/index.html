@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#0a0a0b">
+<meta name="theme-color" content="#0a0a0b"><meta name="fbi-live-ui-version" content="2026-10-02-video-fix-2">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="/manifest.webmanifest">
-<title>FBI Client File Studio</title>
+<title>FBI Client File Studio</title><script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <style>
 :root{--bg:#09090a;--panel:#141416;--panel2:#1b1b1e;--border:#29292e;--text:#f6f6f7;--muted:#9b9ba4;--gold:#d4af37;--gold2:#f4d56d;--green:#4ade80;--red:#fb7185;--blue:#60a5fa;--shadow:0 18px 50px rgba(0,0,0,.28);--r:18px}
 *{box-sizing:border-box}html,body{margin:0;background:linear-gradient(180deg,#080809,#111114);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif}button,input,textarea{font:inherit}button{cursor:pointer}body{min-height:100vh}
@@ -204,7 +204,7 @@
 .stream-fullscreen-mode .studio-tool-popover .stream-danger{display:flex!important;margin:7px 0 0}
 .stream-fullscreen-mode .studio-tool-popover #streamRecordings{max-height:290px;overflow:auto}
 .stream-fullscreen-mode .studio-tool-popover .file{padding:7px}
-.stream-fullscreen-mode .feed-frame-clean{width:100%;height:100%;display:block;border:0;background:#000}
+.stream-fullscreen-mode .feed-frame-clean{width:100%;height:100%;display:block;border:0;background:#000}.stream-fullscreen-mode .feed-video-wrap{position:relative;width:100%;height:100%;background:#000;overflow:hidden}.stream-fullscreen-mode .feed-video-clean{width:100%;height:100%;display:block;background:#000;object-fit:contain}.feed-video-status{position:absolute;left:8px;bottom:8px;padding:5px 7px;border-radius:6px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.1);color:#c7c7cd;font-size:8px;pointer-events:none}.rack-head-actions{display:flex;justify-content:space-between;align-items:center;gap:6px}.rack-add-channel{border:1px solid #3a3a40;background:#19191c;color:#e9d276;border-radius:6px;padding:4px 6px;font-size:6px;font-weight:850;cursor:pointer}.rack-add-channel:hover{background:#25252a;border-color:#d3b13e}
 @media(max-width:1100px){
  .stream-fullscreen-mode{padding:12px 14px 10px!important}
  .stream-fullscreen-mode #content{height:calc(100vh - 76px)}
@@ -1035,9 +1035,11 @@ function renderSelectedStream(){
   if(!s){pane.innerHTML='<div class="stream-empty">Select a live channel or create a new stream.</div>';return}
 
   const watch=esc(s.viewer_url||''),rtmp=esc(s.rtmp_server||''),key=esc(s.stream_key||'');
-  const live=s.status==='live'&&!!s.viewer_url;
-  const frameHtml=live?'<iframe class="feed-frame-clean" id="streamPreviewFrame" src="'+watch+'" title="FBI Live Feed" scrolling="no" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>':'<div class="offline"><div><b>OFFLINE</b><br><span>Waiting for the encoder signal.</span></div></div>';
-  const programHtml=live?'<iframe class="feed-frame-clean" id="streamProgramFrame" src="'+watch+'" title="FBI Live Program" scrolling="no" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>':'<div class="offline"><div><b>PROGRAM OFFLINE</b><br><span>Waiting for the encoder signal.</span></div></div>';
+  const streamToken=s.viewer_url?String(s.viewer_url).split('/watch/').pop().split(/[?#]/)[0]:'';
+  const playbackUrl=streamToken?('/api/public/stream/'+encodeURIComponent(streamToken)+'/hls/index.m3u8'):'';
+  const live=s.status==='live'&&!!playbackUrl;
+  const frameHtml=live?'<div class="feed-video-wrap"><video class="feed-video-clean" id="streamPreviewVideo" autoplay muted playsinline preload="auto"></video><div class="feed-video-status" id="previewVideoStatus">CONNECTING TO LIVE FEED…</div></div>':'<div class="offline"><div><b>OFFLINE</b><br><span>Waiting for the encoder signal.</span></div></div>';
+  const programHtml=live?'<div class="feed-video-wrap"><video class="feed-video-clean" id="streamProgramVideo" autoplay muted playsinline preload="auto"></video><div class="feed-video-status" id="programVideoStatus">CONNECTING TO LIVE FEED…</div></div>':'<div class="offline"><div><b>PROGRAM OFFLINE</b><br><span>Waiting for the encoder signal.</span></div></div>';
 
   if(window.__studioDurationTimer)clearInterval(window.__studioDurationTimer);
   if(window.__studioAudioState&&window.__studioAudioState.raf)cancelAnimationFrame(window.__studioAudioState.raf);
@@ -1091,7 +1093,7 @@ function renderSelectedStream(){
             '<button class="rack-btn" id="studioCopyBtn">COPY SETUP</button>'+
             '<button class="rack-btn" id="studioMuteBtn">MUTE</button>'+
           '</div></div></div>'+
-          '<div class="rack-panel"><div class="rack-head">CHANNEL STATUS</div><div class="rack-body rack-info">'+
+          '<div class="rack-panel"><div class="rack-head rack-head-actions"><span>CHANNEL STATUS</span><button type="button" class="rack-add-channel" id="liveAddChannel">＋ ADD CHANNEL</button></div><div class="rack-body rack-info">'+
             '<div class="rack-row"><span>Signal</span><b>'+(live?'ON AIR':'OFFLINE')+'</b></div>'+
             '<div class="rack-row"><span>Viewers</span><b id="rackViewers">'+Number(s.current_viewers||0)+'</b></div>'+
             '<div class="rack-row"><span>Recording</span><b>'+(s.record_enabled?'ARMED':'OFF')+'</b></div>'+
@@ -1141,30 +1143,9 @@ function renderSelectedStream(){
       '</div>'+
     '</div>';
 
-  function cleanFeedFrame(frame){
-    if(!frame)return;
-    const hide=()=>{
-      try{
-        const doc=frame.contentDocument||frame.contentWindow.document;
-        if(!doc)return;
-        ['.comments','.comment-form','.foot','.head','.playerbar'].forEach(sel=>{doc.querySelectorAll(sel).forEach(function(el){el.style.display='none'});});
-        const wrap=doc.querySelector('.wrap');if(wrap){wrap.style.maxWidth='none';wrap.style.width='100%';wrap.style.padding='0';}
-        const layout=doc.querySelector('.layout');if(layout){layout.style.display='block';layout.style.width='100%';}
-        const player=doc.querySelector('.player');if(player){player.style.border='0';player.style.borderRadius='0';player.style.boxShadow='none';player.style.width='100%';player.style.height='100%';}
-        const shell=doc.querySelector('.video-shell');if(shell){shell.style.aspectRatio='auto';shell.style.height='100%';shell.style.width='100%';}
-        const v=doc.querySelector('#video');if(v){v.style.width='100%';v.style.height='100%';v.style.objectFit='contain';v.muted=true;}
-      }catch(e){}
-    };
-    frame.addEventListener('load',hide,{once:true});
-    setTimeout(hide,900);setTimeout(hide,2200);
-    return hide;
+  function setVideoStatus(id,text){
+    const e=document.getElementById(id);if(e)e.textContent=text||'';
   }
-
-  const previewFrame=document.querySelector('#streamPreviewFrame');
-  const programFrame=document.querySelector('#streamProgramFrame');
-  cleanFeedFrame(previewFrame);
-  cleanFeedFrame(programFrame);
-
   function dbFromAnalyser(analyser){
     const data=new Uint8Array(analyser.fftSize);analyser.getByteTimeDomainData(data);
     let sum=0;for(let i=0;i<data.length;i++){const x=(data[i]-128)/128;sum+=x*x}
@@ -1195,46 +1176,85 @@ function renderSelectedStream(){
       if(old&&old.raf)cancelAnimationFrame(old.raf);
       if(old&&old.ctx){try{old.ctx.close()}catch{}}
       const AudioCtx=window.AudioContext||window.webkitAudioContext;if(!AudioCtx)throw new Error('Web Audio unavailable');
-      const ctx=new AudioCtx();
-      const source=ctx.createMediaElementSource(sourceVideo);
-      const splitter=ctx.createChannelSplitter(2);
-      const left=ctx.createAnalyser(),right=ctx.createAnalyser();
-      left.fftSize=1024;right.fftSize=1024;left.smoothingTimeConstant=.78;right.smoothingTimeConstant=.78;
+      const ctx=new AudioCtx(),source=ctx.createMediaElementSource(sourceVideo),splitter=ctx.createChannelSplitter(2),left=ctx.createAnalyser(),right=ctx.createAnalyser();
+      left.fftSize=right.fftSize=1024;left.smoothingTimeConstant=right.smoothingTimeConstant=.78;
       source.connect(splitter);splitter.connect(left,0);splitter.connect(right,1);
       window.__studioAudioState={ctx,video:sourceVideo,raf:0,source,splitter,left,right};
-      const tick=function(){
-        if(!window.__studioAudioState||window.__studioAudioState.video!==sourceVideo)return;
-        let l=dbFromAnalyser(left),r=dbFromAnalyser(right);
-        paintAudio(l,r);
-        const st=document.getElementById('mixMonitorState');if(st)st.textContent=ctx.state==='running'?'ACTIVE':'CLICK MONITOR';
-        window.__studioAudioState.raf=requestAnimationFrame(tick);
-      };
       ctx.resume().catch(function(){});
+      const tick=function(){
+        const st=window.__studioAudioState;if(!st||st.video!==sourceVideo)return;
+        paintAudio(dbFromAnalyser(left),dbFromAnalyser(right));
+        const m=document.getElementById('mixMonitorState');if(m)m.textContent=ctx.state==='running'?'ACTIVE':'CLICK MONITOR';
+        st.raf=requestAnimationFrame(tick);
+      };
       tick();
+      document.addEventListener('pointerdown',function(){if(window.__studioAudioState?.ctx?.state==='suspended')window.__studioAudioState.ctx.resume().catch(function(){})});
     }catch(e){
       const st=document.getElementById('mixMonitorState');if(st)st.textContent='UNAVAILABLE';
-      const db=document.getElementById('studioAudioDb');if(db)db.textContent='MONITOR UNAVAILABLE';
+      const d=document.getElementById('studioAudioDb');if(d)d.textContent='MONITOR UNAVAILABLE';
+      console.warn('Studio audio monitor:',e);
     }
   }
-  function bindFrameMedia(frame){
-    if(!frame)return;
-    const find=()=>{
-      try{
-        const doc=frame.contentDocument||frame.contentWindow.document;
-        const v=doc&&doc.querySelector('#video');
-        if(v){
-          v.muted=true;
-          startStudioAudioMonitor(v);
-        }
-      }catch(e){}
-    };
-    frame.addEventListener('load',find,{once:false});
-    setTimeout(find,1200);setTimeout(find,3000);
+  async function startStudioHls(video,url,statusId){
+    if(!video||!url)return;
+    try{
+      if(video.__studioHls){try{video.__studioHls.destroy()}catch{}video.__studioHls=null}
+      setVideoStatus(statusId,'CONNECTING TO LIVE FEED…');
+      if(window.Hls&&window.Hls.isSupported()){
+        const hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:4,liveMaxLatencyDurationCount:10,maxBufferLength:30,maxMaxBufferLength:60,backBufferLength:45,capLevelToPlayerSize:true,startLevel:-1});
+        video.__studioHls=hls;
+        let retry=0;
+        const reconnect=function(){
+          if(retry)return;
+          retry=setTimeout(function(){retry=0;startStudioHls(video,url,statusId)},1500);
+        };
+        hls.on(Hls.Events.MANIFEST_PARSED,function(){setVideoStatus(statusId,'LIVE');const p=video.play();if(p&&p.catch)p.catch(function(){});});
+        hls.on(Hls.Events.FRAG_BUFFERED,function(){setVideoStatus(statusId,'LIVE');const p=video.play();if(p&&p.catch)p.catch(function(){})});
+        hls.on(Hls.Events.ERROR,function(_,data){
+          if(!data)return;
+          if(data.fatal){
+            setVideoStatus(statusId,'RECONNECTING…');
+            try{hls.destroy()}catch{}
+            video.__studioHls=null;
+            reconnect();
+          }
+        });
+        video.addEventListener('playing',function(){setVideoStatus(statusId,'LIVE')});
+        video.addEventListener('stalled',function(){setVideoStatus(statusId,'BUFFERING…')});
+        hls.loadSource(url);hls.attachMedia(video);
+        return;
+      }
+      if(video.canPlayType('application/vnd.apple.mpegurl')){
+        video.src=url;video.load();
+        const play=function(){const p=video.play();if(p&&p.catch)p.catch(function(){});setVideoStatus(statusId,'LIVE')};
+        video.addEventListener('loadedmetadata',play,{once:true});video.addEventListener('stalled',function(){setVideoStatus(statusId,'BUFFERING…')});play();
+        return;
+      }
+      throw new Error('HLS playback is not supported in this browser.');
+    }catch(e){
+      setVideoStatus(statusId,'PLAYBACK ERROR');
+      console.warn('Studio HLS playback:',e);
+      setTimeout(function(){startStudioHls(video,url,statusId)},1500);
+    }
   }
-  bindFrameMedia(programFrame);
+
+  const previewVideo=document.querySelector('#streamPreviewVideo');
+  const programVideo=document.querySelector('#streamProgramVideo');
+  if(previewVideo&&programVideo&&playbackUrl){
+    startStudioHls(previewVideo,playbackUrl,'previewVideoStatus');
+    startStudioHls(programVideo,playbackUrl,'programVideoStatus');
+    setTimeout(function(){startStudioAudioMonitor(programVideo)},1200);
+  }
 
   let muted=true;
   const watchOpen=function(){window.open(s.viewer_url,'_blank','noopener')};
+  const openChannelCreator=function(){
+    const modal=document.querySelector('#streamModal');if(!modal)return;
+    modal.classList.add('show');
+    setTimeout(function(){document.querySelector('#streamName').focus()},50);
+  };
+  const addChannel=document.querySelector('#liveAddChannel');
+  if(addChannel)addChannel.onclick=openChannelCreator;
   document.querySelector('#openWatchHero').onclick=watchOpen;
   document.querySelector('#studioWatchBtn').onclick=watchOpen;
   document.querySelector('#studioCopyBtn').onclick=function(){copyText('Server: '+s.rtmp_server+'\nStream Key: '+s.stream_key)};
@@ -1243,16 +1263,13 @@ function renderSelectedStream(){
   document.querySelector('#copyKey').onclick=function(){copyText(s.stream_key)};
   document.querySelector('#toggleKey').onclick=function(){const i=document.querySelector('#streamKey');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'Show':'Hide'};
   document.querySelector('#studioFullscreenBtn').onclick=function(){
-    const frame=document.querySelector('#streamProgramFrame');
-    if(frame&&frame.requestFullscreen)frame.requestFullscreen().catch(function(){watchOpen()});else watchOpen();
+    const video=document.querySelector('#streamProgramVideo');
+    if(video&&video.requestFullscreen)video.requestFullscreen().catch(function(){watchOpen()});else watchOpen();
   };
   document.querySelector('#studioMuteBtn').onclick=function(){
-    try{
-      const frame=document.querySelector('#streamProgramFrame');
-      const v=frame&&frame.contentDocument&&frame.contentDocument.querySelector('#video');
-      if(!v){toast('Program feed is not ready');return}
-      v.muted=!v.muted;muted=v.muted;this.textContent=v.muted?'MUTE':'UNMUTE';
-    }catch(e){toast('Program feed is not ready')}
+    const video=document.querySelector('#streamProgramVideo');
+    if(!video){toast('Program feed is not ready');return}
+    video.muted=!video.muted;muted=video.muted;this.textContent=video.muted?'MUTE':'UNMUTE';
   };
   document.querySelector('#studioMonitorAudio').onclick=function(){
     const st=window.__studioAudioState;
