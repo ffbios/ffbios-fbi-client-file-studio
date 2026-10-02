@@ -355,8 +355,9 @@ async function saveProject(){
 
 let uploadQueue=[];
 let uploadTicker=null;
-const PART_CONCURRENCY=12;
-const FILE_CONCURRENCY=2;
+const IS_COARSE_CLIENT=window.matchMedia?.("(pointer:coarse)")?.matches&&Math.min(window.innerWidth||1200,window.screen?.width||1200)<900;
+const PART_CONCURRENCY=IS_COARSE_CLIENT?4:8;
+const FILE_CONCURRENCY=IS_COARSE_CLIENT?1:2;
 const MIN_PART_SIZE=64*1024*1024;
 const MAX_HASH_BEFORE_UPLOAD=512*1000*1000;
 const MAX_PARTS=10000;
@@ -447,14 +448,17 @@ function renderUploadQueue(){
 }
 function xhrPut(url,blob,headers,item,onProgress){
   return new Promise(function(resolve,reject){
-    var x=new XMLHttpRequest();item.xhrs.add(x);x.open("PUT",url,true);x.timeout=0;
+    var x=new XMLHttpRequest(),stallTimer=0,settled=false;
+    item.xhrs.add(x);x.open("PUT",url,true);x.timeout=20*60*1000;
+    function clearStall(){if(stallTimer){clearTimeout(stallTimer);stallTimer=0}}
+    function armStall(){clearStall();stallTimer=setTimeout(function(){try{x.abort()}catch{}},120000)}
     Object.keys(headers||{}).forEach(function(k){x.setRequestHeader(k,headers[k])});
-    x.upload.onprogress=function(e){if(e.lengthComputable)onProgress(e.loaded)};
-    x.onload=function(){item.xhrs.delete(x);if(x.status>=200&&x.status<300)resolve({etag:x.getResponseHeader("ETag")||""});else reject(new Error("Upload returned HTTP "+x.status))};
-    x.onerror=function(){item.xhrs.delete(x);reject(new Error("Network error during upload"))};
-    x.onabort=function(){item.xhrs.delete(x);reject(new Error("Upload paused"))};
-    x.ontimeout=function(){item.xhrs.delete(x);reject(new Error("Upload timed out"))};
-    x.send(blob);
+    x.upload.onprogress=function(e){if(e.lengthComputable)onProgress(e.loaded);armStall()};
+    x.onload=function(){clearStall();item.xhrs.delete(x);if(x.status>=200&&x.status<300)resolve({etag:x.getResponseHeader("ETag")||"");else reject(new Error("Upload returned HTTP "+x.status))};
+    x.onerror=function(){clearStall();item.xhrs.delete(x);reject(new Error("Network error during upload"))};
+    x.onabort=function(){clearStall();item.xhrs.delete(x);reject(new Error(item.paused?"Upload paused":"Upload stalled; retrying"))};
+    x.ontimeout=function(){clearStall();item.xhrs.delete(x);reject(new Error("Upload timed out; retrying"))};
+    armStall();x.send(blob);
   });
 }
 function wait(ms){return new Promise(function(r){setTimeout(r,ms)})}
