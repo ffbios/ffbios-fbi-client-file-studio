@@ -1853,103 +1853,6 @@ app.post("/api/uploads/:id/complete",admin,async(req,res)=>{
     res.json({ok:true,file:fileRow});
   }catch(e){console.error("Admin upload finalization failed:",e);res.status(500).json({error:"Upload reached storage but could not be registered in the project. Please resume the upload; it will safely continue from the stored data."})}
 });
-app.get("/api/uploads/pending",admin,async(req,res)=>{
-  try{
-    if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
-    const q=await pool.query(`
-      SELECT u.id,u.project_id,u.original_name,u.relative_path,u.size_bytes,u.part_size,u.mode,
-             u.multipart_upload_id,u.status,u.created_at,u.updated_at,p.name AS project_name
-      FROM upload_sessions u
-      JOIN projects p ON p.id=u.project_id
-      WHERE u.status='active' AND u.updated_at>=now()-interval '7 days'
-      ORDER BY u.updated_at DESC
-    `);
-    const uploads=[];
-    for(const u of q.rows){
-      let uploaded=0,parts=0,objectReady=false;
-      if(u.mode==="multipart"&&u.multipart_upload_id){
-        try{
-          let marker;
-          do{
-            const r=await s3.send(new ListPartsCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,PartNumberMarker:marker,MaxParts:1000}));
-            for(const part of (r.Parts||[])){parts++;uploaded+=Number(part.Size||0);}
-            marker=r.IsTruncated?String(r.NextPartNumberMarker||""):undefined;
-          }while(marker);
-        }catch(e){}
-      }else{
-        try{
-          const h=await headObjectWithRetry({Bucket:bucket(),Key:u.storage_key},2,250);
-          uploaded=Number(h.ContentLength||0);objectReady=uploaded===Number(u.size_bytes);
-        }catch(e){}
-      }
-      uploads.push({
-        id:u.id,project_id:u.project_id,project_name:u.project_name,original_name:u.original_name,
-        relative_path:u.relative_path,size_bytes:Number(u.size_bytes||0),part_size:Number(u.part_size||0),
-        mode:u.mode,uploaded_bytes:uploaded,parts,expected_parts:u.mode==="multipart"?Math.ceil(Number(u.size_bytes)/Number(u.part_size)):1,
-        complete:objectReady||(u.mode==="multipart"&&uploaded===Number(u.size_bytes)),
-        created_at:u.created_at,updated_at:u.updated_at
-      });
-    }
-    res.json({uploads});
-  }catch(e){console.error("Pending uploads lookup failed:",e);res.status(500).json({error:"Could not inspect pending uploads."})}
-});
-
-app.post("/api/uploads/recover",admin,async(req,res)=>{
-  try{
-    if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
-    const q=await pool.query(`
-      SELECT u.*,p.name AS project_name
-      FROM upload_sessions u JOIN projects p ON p.id=u.project_id
-      WHERE u.status='active' AND u.updated_at>=now()-interval '7 days'
-      ORDER BY u.updated_at DESC
-    `);
-    const recovered=[],partial=[];
-    for(const u of q.rows){
-      let parts=[],uploaded=0;
-      if(u.mode==="multipart"&&u.multipart_upload_id){
-        try{
-          let marker;
-          do{
-            const r=await s3.send(new ListPartsCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,PartNumberMarker:marker,MaxParts:1000}));
-            for(const part of (r.Parts||[])){
-              uploaded+=Number(part.Size||0);
-              parts.push({ETag:String(part.ETag||"").replace(/^"+|"+$/g,""),PartNumber:Number(part.PartNumber)});
-            }
-            marker=r.IsTruncated?String(r.NextPartNumberMarker||""):undefined;
-          }while(marker);
-        }catch(e){parts=[];uploaded=0}
-        const expected=Math.ceil(Number(u.size_bytes)/Number(u.part_size));
-        if(parts.length===expected&&uploaded===Number(u.size_bytes)){
-          parts.sort((a,b)=>a.PartNumber-b.PartNumber);
-          await s3.send(new CompleteMultipartUploadCommand({
-            Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,
-            MultipartUpload:{Parts:parts}
-          })).catch(async()=>{
-            try{await headObjectWithRetry({Bucket:bucket(),Key:u.storage_key},3,300)}catch(e){throw e}
-          });
-        }
-      }
-      const head=await headObjectWithRetry({Bucket:bucket(),Key:u.storage_key},3,300).catch(()=>null);
-      const actual=head?Number(head.ContentLength||0):0;
-      if(actual===Number(u.size_bytes)){
-        const ins=await pool.query(
-          "INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING *",
-          [uid(),u.project_id,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,actual,u.relative_path,u.content_fingerprint||null]
-        );
-        const fileRow=ins.rows[0]||(await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key])).rows[0];
-        if(fileRow){
-          await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
-          await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[u.project_id]);
-          recovered.push({id:u.id,file:fileRow});
-          continue;
-        }
-      }
-      partial.push({id:u.id,original_name:u.original_name,project_name:u.project_name,uploaded_bytes:uploaded,size_bytes:Number(u.size_bytes||0)});
-    }
-    res.json({ok:true,recovered,partial});
-  }catch(e){console.error("Pending upload recovery failed:",e);res.status(500).json({error:e.message||"Could not recover pending uploads."})}
-});
-
 app.post("/api/uploads/:id/abort",admin,async(req,res)=>{
   try{
     var q=await pool.query("SELECT * FROM upload_sessions WHERE id=$1",[req.params.id]);
@@ -2107,3 +2010,148 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
     if(head.ContentLength){
       const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:thumbKey}));
       const bytes=got.Body?.transformToByteArray?Buffer.from(await got.Body.transformToByteArray()):Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject)}));
+      setThumbCache(cacheKey,bytes);
+      return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(bytes);
+    }
+  }catch(_e){}
+  const webp=await generateThumbnail(out.f,width,height);
+  setThumbCache(cacheKey,webp);
+  try{
+    await s3.send(new PutObjectCommand({Bucket:bucket(),Key:thumbKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(out.f.id),generated_by:"fbi-client-file-studio-media-aware"}}));
+  }catch(err){console.warn("Could not persist public thumbnail",err?.message||err)}
+  res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(webp);
+ }catch(e){console.error("Thumbnail generation failed",e?.stack||e);res.status(500).send("Unable to generate thumbnail");}
+});
+app.get("/api/public/preview/:id",async(req,res)=>{
+ try{
+  const out=await signedFileUrl(req.params.id,String(req.query.token||""));
+  if(!out)return res.status(404).send("Invalid or expired delivery link.");
+  if(!/^image\//i.test(out.f.mime_type||""))return res.status(415).send("Image preview only.");
+  const width=Math.max(600,Math.min(1800,Number(req.query.w||1400)));
+  const height=Math.max(400,Math.min(1200,Number(req.query.h||1000)));
+  const cacheKey=out.f.id+":preview:"+width+"x"+height;
+  const cached=getThumbCache(cacheKey);
+  if(cached){
+    return res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(cached.buffer);
+  }
+  const previewKey="__previews/"+crypto.createHash("sha1").update(String(out.f.id)+"|"+width+"|"+height).digest("hex")+".webp";
+  try{
+    const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:previewKey}));
+    if(head.ContentLength){
+      const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:previewKey}));
+      const bytes=got.Body?.transformToByteArray ? Buffer.from(await got.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
+        const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject);
+      }));
+      setThumbCache(cacheKey,bytes);
+      return res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(bytes);
+    }
+  }catch(_e){}
+  const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}));
+  const input=obj.Body?.transformToByteArray ? Buffer.from(await obj.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
+    const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject);
+  }));
+  const webp=await sharp(input).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:82,method:4}).toBuffer();
+  setThumbCache(cacheKey,webp);
+  try{await s3.send(new PutObjectCommand({Bucket:bucket(),Key:previewKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(out.f.id),generated_by:"fbi-client-file-studio"}}))}catch(err){console.warn("Could not persist preview",err?.message||err)}
+  res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(webp);
+ }catch(e){
+  console.error("Image preview generation failed",e?.stack||e);
+  res.status(500).send("Unable to generate preview");
+ }
+});
+
+app.get("/api/public/file/:id",async(req,res)=>{
+ try{
+  const out=await signedFileUrl(req.params.id,String(req.query.token||""));if(!out)return res.status(404).send("Invalid or expired delivery link.");
+  const settings=await loadSettings();
+  if(settingBool(settings.log_downloads)){
+    await pool.query("INSERT INTO downloads(project_id,file_id,user_agent,ip_address) VALUES($1,$2,$3,$4)",[out.f.project_id,out.f.id,String(req.headers["user-agent"]||"").slice(0,1000),clientIp(req)]);
+  }
+  const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}),{expiresIn:900,responseContentDisposition:req.query.download==="1"?`attachment; filename*=UTF-8''${encodeURIComponent(out.f.original_name)}`:`inline; filename*=UTF-8''${encodeURIComponent(out.f.original_name)}`});
+  res.redirect(url);
+ }catch(e){console.error(e);res.status(500).send("Unable to serve file")}
+});
+
+app.get("/share/:token/manifest.webmanifest",async(req,res)=>{
+  try{
+    const tokenValue=String(req.params.token||"");
+    const q=await pool.query("SELECT id,name,expires_at FROM projects WHERE share_token=$1 AND shared=true",[tokenValue]);
+    if(!q.rowCount)return res.status(404).type("text/plain").send("Delivery not found");
+    const p=q.rows[0];
+    if(p.expires_at&&new Date(p.expires_at).getTime()<Date.now())return res.status(404).type("text/plain").send("Delivery expired");
+    const short=String(p.name||"FBI Client Delivery").trim().slice(0,24)||"FBI Client Delivery";
+    const manifest={
+      name:"FBI Client Delivery",
+      short_name:short,
+      start_url:"/share/"+encodeURIComponent(tokenValue),
+      scope:"/share/",
+      display:"standalone",
+      orientation:"any",
+      background_color:"#09090a",
+      theme_color:"#0a0a0b",
+      description:"Secure client delivery from Film Beyond Imagination.",
+      icons:[
+        {src:"/pwa-icon.svg",sizes:"any",type:"image/svg+xml",purpose:"any maskable"}
+      ]
+    };
+    res.type("application/manifest+json").send(JSON.stringify(manifest));
+  }catch(e){
+    console.error(e);
+    res.status(500).type("text/plain").send("Unable to build delivery manifest");
+  }
+});
+
+app.get("/manifest.webmanifest",(req,res)=>{
+  res.type("application/manifest+json").sendFile(path.join(ROOT,"manifest.webmanifest"));
+});
+app.get("/official-logo.png",(req,res)=>{
+  res.type("image/png").set("Cache-Control","public, max-age=31536000, immutable").sendFile(path.join(ROOT,"official-logo.png"));
+});
+app.get("/official-logo.svg",(req,res)=>{
+  res.type("image/svg+xml").set("Cache-Control","public, max-age=31536000, immutable").sendFile(path.join(ROOT,"official-logo.svg"));
+});
+app.get("/pwa-icon.svg",(req,res)=>{
+  res.type("image/svg+xml").sendFile(path.join(ROOT,"pwa-icon.svg"));
+});
+app.get("/sw.js",(req,res)=>{
+  res.type("application/javascript").set("Cache-Control","no-cache").sendFile(path.join(ROOT,"sw.js"));
+});
+app.post("/portal",async(req,res)=>{
+ try{
+  const mode=String(req.body.auth_mode||"signup");
+  const email=String(req.body.email||"").trim().toLowerCase();
+  const password=String(req.body.password||"");
+  const page=(title,message,href,text)=>res.status(400).type("html").send("<!doctype html><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>"+title+"</title><body style=\"font-family:system-ui;padding:40px;background:#09090a;color:#fff\"><h2>"+title+"</h2><p>"+message+"</p><p><a href=\""+href+"\" style=\"color:#f4d56d\">"+text+"</a></p></body>");
+  if(mode==="login"){
+   const r=await pool.query("SELECT id,email,full_name,password_hash FROM users WHERE email=$1",[email]);
+   if(!r.rowCount||!(await userPasswordMatches(password,r.rows[0].password_hash)))return page("Sign in failed","Invalid email or password.","/portal?mode=login","Back to sign in");
+   const u={id:r.rows[0].id,email:r.rows[0].email,full_name:r.rows[0].full_name};
+   res.setHeader("Set-Cookie","fbi_user_session="+encodeURIComponent(userSession(u))+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000");
+   return res.redirect(303,"/portal");
+  }
+  const fullName=String(req.body.full_name||"").trim().slice(0,120);
+  if(!fullName)return page("Account creation failed","Full name is required.","/portal","Back to account creation");
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return page("Account creation failed","Enter a valid email address.","/portal","Back to account creation");
+  if(password.length<10)return page("Account creation failed","Password must be at least 10 characters.","/portal","Back to account creation");
+  const existing=await pool.query("SELECT id FROM users WHERE email=$1",[email]);
+  if(existing.rowCount)return page("Account already exists","Use the sign-in option for this email.","/portal?mode=login","Sign in");
+  const id=uid(),hash=await hashUserPassword(password);
+  const r=await pool.query("INSERT INTO users(id,email,full_name,password_hash) VALUES($1,$2,$3,$4) RETURNING id,email,full_name",[id,email,fullName,hash]);
+  res.setHeader("Set-Cookie","fbi_user_session="+encodeURIComponent(userSession(r.rows[0]))+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000");
+  return res.redirect(303,"/portal");
+ }catch(e){console.error("Portal form fallback failed:",e);return res.status(500).type("html").send("<!doctype html><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>Portal error</title><body style=\"font-family:system-ui;padding:40px;background:#09090a;color:#fff\"><h2>Portal error</h2><p>Please try again.</p><p><a href=\"/portal\" style=\"color:#f4d56d\">Back to portal</a></p></body>")}
+});
+app.get("/portal.html",(req,res)=>{res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.type("html").sendFile(path.join(ROOT,"portal.html"))});
+app.get("/portal",(req,res)=>{res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.type("html").sendFile(path.join(ROOT,"portal.html"))});
+app.get("/",(req,res)=>{res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.set("Pragma","no-cache");res.set("Expires","0");res.type("html").sendFile(path.join(ROOT,"index.html"))});
+app.get("/editor.html",(req,res)=>{
+  if(!validSession(req))return res.redirect("/");
+  res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma","no-cache");
+  res.set("Expires","0");
+  res.type("html").sendFile(path.join(ROOT,"editor.html"));
+});
+
+app.use((req,res)=>res.sendFile(path.join(ROOT,"index.html")));
+
+initDb().then(async()=>{await ensureBucketCors();app.listen(PORT,"0.0.0.0",()=>console.log("FBI Client File Studio listening on port "+PORT))}).catch(e=>{console.error(e);process.exit(1)});
