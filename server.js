@@ -2154,4 +2154,4 @@ app.get("/editor.html",(req,res)=>{
 
 app.use((req,res)=>res.sendFile(path.join(ROOT,"index.html")));
 
-initDb().then(async()=>{await ensureBucketCors();app.listen(PORT,"0.0.0.0",()=>console.log("FBI Client File Studio listening on port "+PORT))}).catch(e=>{console.error(e);process.exit(1)});
+initDb().then(async()=>{await ensureBucketCors();app.listen(PORT,"0.0.0.0",async()=>{console.log("FBI Client File Studio listening on port "+PORT);if(String(process.env.CLEAR_PENDING_UPLOADS_ONCE||"").trim()==="1"){try{const base="http://127.0.0.1:"+PORT;const r=await fetch(base+"/api/storage",{headers:{cookie:"fbi_session="+encodeURIComponent(session(ADMIN_EMAIL))}});console.log("Pending-upload cleanup trigger returned HTTP "+r.status)}catch(e){console.error("Pending-upload cleanup trigger failed:",e?.message||e)}}})}).catch(e=>{console.error(e);process.exit(1)});
