@@ -1906,6 +1906,20 @@ async function signedFileUrl(fileId,tokenValue=null){
  return {f,url};
 }
 
+
+app.get("/api/admin/snapshot",async(req,res)=>{
+  const expected=String(process.env.FBI_ADMIN_SHARED_TOKEN||"").trim();
+  const supplied=String(req.headers["x-fbi-admin-token"]||"").trim();
+  if(!expected||!supplied||supplied!==expected)return res.status(401).json({error:"Unauthorized"});
+  try{
+    const projects=await pool.query("SELECT id,name,client_name,client_email,note,shared,expires_at,created_at,updated_at,archived FROM projects ORDER BY updated_at DESC");
+    const files=await pool.query("SELECT id,project_id,original_name,relative_path,mime_type,size_bytes,created_at FROM files ORDER BY created_at DESC");
+    const downloads=await pool.query("SELECT COUNT(*)::int AS total FROM downloads");
+    const projectRows=projects.rows.map(p=>({...p,files:files.rows.filter(f=>f.project_id===p.id)}));
+    return res.json({ok:true,source:"FBI Client File Studio",savedAt:Date.now(),projectCount:projectRows.length,fileCount:files.rows.length,downloadCount:downloads.rows[0]?.total||0,projects:projectRows});
+  }catch(e){console.error(e);return res.status(500).json({error:e.message||"Unable to load file data"});}
+});
+
 app.get("/api/admin/file/:id",admin,async(req,res)=>{
  try{
   const out=await signedFileUrl(req.params.id);if(!out)return res.status(404).send("File not found");
