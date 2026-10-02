@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#0a0a0b"><meta name="fbi-live-ui-version" content="2026-10-02-video-fix-3">
+<meta name="theme-color" content="#0a0a0b"><meta name="fbi-live-ui-version" content="2026-10-02-video-fix-4">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -1041,7 +1041,7 @@ function renderSelectedStream(){
   const frameHtml=live?'<div class="feed-video-wrap"><video class="feed-video-clean" id="streamPreviewVideo" autoplay muted playsinline preload="auto"></video><div class="feed-video-status" id="previewVideoStatus">CONNECTING TO LIVE FEED…</div></div>':'<div class="offline"><div><b>OFFLINE</b><br><span>Waiting for the encoder signal.</span></div></div>';
   const programHtml=live?'<div class="feed-video-wrap"><video class="feed-video-clean" id="streamProgramVideo" autoplay muted playsinline preload="auto"></video><div class="feed-video-status" id="programVideoStatus">CONNECTING TO LIVE FEED…</div></div>':'<div class="offline"><div><b>PROGRAM OFFLINE</b><br><span>Waiting for the encoder signal.</span></div></div>';
 
-  if(window.__studioDurationTimer)clearInterval(window.__studioDurationTimer);
+  if(window.__studioDurationTimer)clearInterval(window.__studioDurationTimer);if(window.__studioAudioState&&window.__studioAudioState.raf)cancelAnimationFrame(window.__studioAudioState.raf);stopStudioHls(document.querySelector('#streamPreviewVideo'));stopStudioHls(document.querySelector('#streamProgramVideo'));
   if(window.__studioAudioState&&window.__studioAudioState.raf)cancelAnimationFrame(window.__studioAudioState.raf);
 
   pane.innerHTML=
@@ -1197,46 +1197,81 @@ function renderSelectedStream(){
   }
   async function startStudioHls(video,url,statusId){
     if(!video||!url)return;
+    // Keep a single long-lived HLS instance. The viewer page uses the same
+    // public HLS endpoint, but its recovery logic is intentionally non-destructive:
+    // recover the existing MediaSource instead of repeatedly destroying/recreating
+    // the player, which is what was causing the control monitor to flash black.
     try{
       if(video.__studioHls){try{video.__studioHls.destroy()}catch{}video.__studioHls=null}
       setVideoStatus(statusId,'CONNECTING TO LIVE FEED…');
+      video.muted=true;video.autoplay=true;video.playsInline=true;
       if(window.Hls&&window.Hls.isSupported()){
         const hls=new Hls({
           enableWorker:true,
           lowLatencyMode:false,
           liveSyncDurationCount:4,
-          liveMaxLatencyDurationCount:10,
-          maxBufferLength:30,
-          maxMaxBufferLength:60,
-          backBufferLength:45,
-          capLevelToPlayerSize:true,
-          startLevel:-1
+          liveMaxLatencyDurationCount:12,
+          maxLiveSyncPlaybackRate:1.08,
+          maxBufferLength:45,
+          maxMaxBufferLength:90,
+          backBufferLength:60,
+          maxBufferHole:0.5,
+          liveSyncOnStallIncrease:2
         });
         video.__studioHls=hls;
-        let retry=0;
-        const reconnect=function(){
-          if(retry)return;
-          retry=setTimeout(function(){retry=0;startStudioHls(video,url,statusId)},1500);
+        let retryTimer=0;
+        let destroyed=false;
+        const play=function(){if(destroyed)return;const p=video.play();if(p&&p.catch)p.catch(function(){})};
+        const scheduleRecheck=function(ms){
+          if(retryTimer)return;
+          retryTimer=setTimeout(function(){retryTimer=0;if(video.__studioHls===hls&&!hls.destroyed){try{hls.startLoad(-1)}catch{}play()}},ms||800);
         };
         hls.on(Hls.Events.MANIFEST_PARSED,function(){
-          setVideoStatus(statusId,'LIVE');
-          const p=video.play();if(p&&p.catch)p.catch(function(){});
+          setVideoStatus(statusId,'LIVE');play();
         });
         hls.on(Hls.Events.FRAG_BUFFERED,function(){
-          setVideoStatus(statusId,'LIVE');
-          const p=video.play();if(p&&p.catch)p.catch(function(){});
+          setVideoStatus(statusId,'LIVE');play();
+        });
+        hls.on(Hls.Events.BUFFER_STALLED_ERROR,function(){
+          setVideoStatus(statusId,'BUFFERING…');
+          scheduleRecheck(400);
         });
         hls.on(Hls.Events.ERROR,function(_,data){
           if(!data)return;
+          if(data.fatal&&data.type===Hls.ErrorTypes.NETWORK_ERROR){
+            setVideoStatus(statusId,'NETWORK RECOVERY…');
+            try{hls.startLoad(-1)}catch{}
+            scheduleRecheck(800);
+            return;
+          }
+          if(data.fatal&&data.type===Hls.ErrorTypes.MEDIA_ERROR){
+            setVideoStatus(statusId,'RECOVERING PLAYBACK…');
+            try{hls.recoverMediaError();play();return}catch{}
+            try{hls.swapAudioCodec();hls.recoverMediaError();play();return}catch{}
+            scheduleRecheck(1000);
+            return;
+          }
           if(data.fatal){
             setVideoStatus(statusId,'RECONNECTING…');
-            try{hls.destroy()}catch{}
-            video.__studioHls=null;
-            reconnect();
+            scheduleRecheck(1200);
           }
         });
         video.addEventListener('playing',function(){setVideoStatus(statusId,'LIVE')});
-        video.addEventListener('stalled',function(){setVideoStatus(statusId,'BUFFERING…')});
+        video.addEventListener('waiting',function(){setVideoStatus(statusId,'BUFFERING…');scheduleRecheck(500)});
+        video.addEventListener('stalled',function(){setVideoStatus(statusId,'BUFFERING…');scheduleRecheck(500)});
+        video.addEventListener('error',function(){setVideoStatus(statusId,'RECOVERING…');scheduleRecheck(800)});
+        // Watchdog: do not blank the video or tear down the MediaSource. Ask HLS.js
+        // to continue loading and ask the existing video element to resume.
+        video.__studioWatchdog=setInterval(function(){
+          if(video.__studioHls!==hls||hls.destroyed)return;
+          if(video.readyState<3||video.paused||video.ended){
+            try{hls.startLoad(-1)}catch{}
+            play();
+          }else if(video.buffered&&video.buffered.length){
+            const end=video.buffered.end(video.buffered.length-1);
+            if(end-video.currentTime>20){try{video.currentTime=Math.max(0,end-4)}catch{}}
+          }
+        },1500);
         hls.loadSource(url);hls.attachMedia(video);
         return hls;
       }
@@ -1244,47 +1279,23 @@ function renderSelectedStream(){
         video.src=url;video.load();
         const play=function(){const p=video.play();if(p&&p.catch)p.catch(function(){});setVideoStatus(statusId,'LIVE')};
         video.addEventListener('loadedmetadata',play,{once:true});
-        video.addEventListener('stalled',function(){setVideoStatus(statusId,'BUFFERING…')});
+        video.addEventListener('waiting',function(){setVideoStatus(statusId,'BUFFERING…')});
+        video.addEventListener('stalled',function(){setVideoStatus(statusId,'BUFFERING…');setTimeout(play,500)});
         play();return null;
       }
       throw new Error('HLS playback is not supported in this browser.');
     }catch(e){
-      setVideoStatus(statusId,'PLAYBACK ERROR');
+      setVideoStatus(statusId,'PLAYBACK RECOVERY…');
       console.warn('Studio HLS playback:',e);
       setTimeout(function(){startStudioHls(video,url,statusId)},1500);
     }
   }
 
-  const previewVideo=document.querySelector('#streamPreviewVideo');
-  const programVideo=document.querySelector('#streamProgramVideo');
-  if(previewVideo&&programVideo&&playbackUrl){
-    // One HLS connection only. The Program monitor is the live decoder; Preview
-    // mirrors its decoded frames, avoiding two HLS sessions competing for the
-    // same public stream session.
-    startStudioHls(programVideo,playbackUrl,'programVideoStatus');
-    const mirrorPreview=function(){
-      try{
-        if(typeof programVideo.captureStream==='function'){
-          const ms=programVideo.captureStream();
-          previewVideo.srcObject=ms;
-          previewVideo.muted=true;
-          const p=previewVideo.play();if(p&&p.catch)p.catch(function(){});
-          setVideoStatus('previewVideoStatus','LIVE');
-          return true;
-        }
-      }catch(e){console.warn('Preview mirror:',e)}
-      return false;
-    };
-    programVideo.addEventListener('playing',function(){
-      setVideoStatus('programVideoStatus','LIVE');
-      mirrorPreview();
-      startStudioAudioMonitor(programVideo);
-    },{once:false});
-    programVideo.addEventListener('loadeddata',function(){
-      mirrorPreview();
-      startStudioAudioMonitor(programVideo);
-    },{once:true});
-    setTimeout(function(){mirrorPreview();startStudioAudioMonitor(programVideo)},1800);
+  function stopStudioHls(video){
+    if(!video)return;
+    if(video.__studioWatchdog){clearInterval(video.__studioWatchdog);video.__studioWatchdog=null}
+    if(video.__studioHls){try{video.__studioHls.destroy()}catch{}video.__studioHls=null}
+    try{video.pause();video.removeAttribute('src');video.load()}catch{}
   }
 
   let muted=true;
