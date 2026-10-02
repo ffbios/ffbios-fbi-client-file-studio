@@ -682,7 +682,7 @@ async function renderStoragePage(){
   try{
     const d=await api('/api/storage'),s=d.storage||{};
     let pendingData={uploads:[]};
-    try{pendingData=await api('/api/uploads/pending')}catch(e){}
+    try{pendingData=(await api('/api/uploads/pending'))||{uploads:[]};if(!Array.isArray(pendingData.uploads))pendingData.uploads=[]}catch(e){pendingData={uploads:[]};}
     const pct=Number(s.usage_percent||0);
     c.innerHTML='<div class="storagehero">'+
       '<div class="storow"><div><div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:.08em">FBI Cloud Storage</div><div class="used">'+esc(s.format_used)+'</div></div>'+
