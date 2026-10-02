@@ -114,6 +114,24 @@
 @media(max-width:900px){.streamgrid{grid-template-columns:1fr}.stream-channel-card{max-height:260px}.streamlower{grid-template-columns:1fr}.streammetrics{grid-template-columns:1fr 1fr}}
 @media(max-width:640px){.streamstudio-top{padding:11px;display:block}.streamstudio-top-actions{margin-top:9px}.streamstudio-top-actions .btn{flex:1}.streammetrics{grid-template-columns:1fr}.streamhero-bottom{padding:9px;display:block}.streamhero-actions{margin-top:7px}.streamhero-actions .btn{width:100%}.streamplayer,.streamplayer iframe{height:220px!important}.credrow{grid-template-columns:1fr}}
 
+
+/* Final compactness pass for the live control room */
+.streamstudio-top-main h1{display:none}
+.streamstudio-top-main{min-width:0}
+.streamstage,.stream-stage{max-height:none!important;overflow:visible!important;padding-right:0!important}
+.stream-settings{border:1px solid var(--border);background:#111113}
+.stream-settings summary{list-style:none;cursor:pointer}
+.stream-settings summary::-webkit-details-marker{display:none}
+.stream-settings-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px}
+.stream-settings-summary>div{min-width:0}
+.stream-settings-summary b{display:block;font-size:10px}
+.stream-settings-summary span{display:block;color:var(--muted);font-size:8px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stream-settings-summary:after{content:"＋";color:var(--muted);font-size:16px;margin-left:auto;flex:0 0 auto}
+.stream-settings[open] .stream-settings-summary:after{content:"−"}
+.stream-settings-summary #saveStream{margin-left:auto;flex:0 0 auto}
+.stream-settings .body{padding:11px 12px}
+@media(min-width:1101px){.streamgrid{height:calc(100vh - 214px);max-height:calc(100vh - 214px)}}
+
 /* FBI media-library shell */
 .media-manager{display:grid;grid-template-columns:235px minmax(0,1fr);min-height:calc(100vh - 145px);border:1px solid var(--border);border-radius:16px;overflow:hidden;background:#111113;box-shadow:var(--shadow)}
 .media-sidebar{background:#0d0d0f;border-right:1px solid var(--border);padding:14px 10px;display:flex;flex-direction:column;gap:14px}
