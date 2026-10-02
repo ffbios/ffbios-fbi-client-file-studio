@@ -207,7 +207,107 @@
 @media(max-width:1050px){.projects-page{grid-template-columns:260px minmax(0,1fr)}.project-summary-strip{grid-template-columns:repeat(2,1fr)}.workspace-search{width:170px}.admin-media-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}}
 @media(max-width:760px){.projects-page{grid-template-columns:1fr}.projects-library{max-height:370px}.workspace-header{align-items:flex-start;flex-wrap:wrap}.workspace-search{width:100%;order:3}.workspace-spacer{display:none}.project-summary-strip{grid-template-columns:1fr 1fr}.admin-media-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
-<style>.streamrow-actions{display:flex;align-items:center;gap:6px}.stream-delete-btn{padding:4px 6px!important;border-radius:8px!important;background:#fff3f1!important;color:#9b3838!important;border-color:rgba(155,56,56,.15)!important;line-height:1}</style></head>
+<style>
+/* FBI Live Streaming UI refresh: presentation only. Streaming/API engine is untouched. */
+.streamstudio{display:grid;gap:16px;min-height:calc(100vh - 155px)}
+.streamstudio-top{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;padding:18px 20px;border:1px solid rgba(255,255,255,.07);border-radius:20px;background:
+ radial-gradient(circle at 86% 10%,rgba(212,175,55,.16),transparent 34%),
+ linear-gradient(135deg,#181719,#101012 60%,#0d0d0f);box-shadow:0 22px 60px rgba(0,0,0,.28);overflow:hidden;position:relative}
+.streamstudio-top:after{content:"";position:absolute;inset:auto -8% -55% 34%;height:180px;background:radial-gradient(circle,rgba(244,213,109,.12),transparent 65%);pointer-events:none}
+.streamstudio-kicker{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--gold2)}
+.streamstudio-top-main h1{margin:7px 0 5px;font-size:24px;line-height:1.12;letter-spacing:-.02em}
+.streamstudio-top-main p{margin:0;max-width:720px;color:var(--muted);font-size:11px;line-height:1.5}
+.streamstudio-top-actions{display:flex;gap:8px;align-items:center;position:relative;z-index:1}
+.streamstudio-top-actions .btn{white-space:nowrap}
+.streamgrid{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
+.stream-channel-card{border:1px solid var(--border);background:linear-gradient(180deg,#151517,#101012);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;position:sticky;top:16px}
+.stream-channel-head{padding:15px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.stream-channel-head h2{margin:0;font-size:15px}
+.stream-channel-head p{margin:4px 0 0;color:var(--muted);font-size:9px;line-height:1.45}
+.stream-channel-count{padding:5px 8px;border:1px solid var(--border);border-radius:999px;background:#0d0d0f;color:#bbb;font-size:8px;white-space:nowrap}
+.stream-channel-actions{padding:11px 12px;border-bottom:1px solid var(--border)}
+.stream-channel-actions .btn{width:100%}
+.streamlist{display:grid;gap:7px;padding:10px;max-height:calc(100vh - 310px);overflow:auto}
+.streamrow{border:1px solid var(--border);background:linear-gradient(180deg,#151518,#111113);border-radius:13px;padding:11px;cursor:pointer;transition:transform .16s ease,border-color .16s ease,background .16s ease,box-shadow .16s ease}
+.streamrow:hover{transform:translateY(-1px);border-color:rgba(244,213,109,.35);background:linear-gradient(180deg,#1a1813,#141416)}
+.streamrow.sel{border-color:rgba(244,213,109,.72);background:linear-gradient(180deg,#1d1a11,#151416);box-shadow:inset 3px 0 var(--gold2),0 10px 28px rgba(0,0,0,.16)}
+.streamrow .stitle{font-size:11px;font-weight:800;line-height:1.25;padding-right:7px}
+.streamrow .smeta{font-size:8px;color:var(--muted);margin-top:6px;line-height:1.55}
+.streamrow-actions{display:flex;align-items:center;gap:6px}
+.stream-delete-btn{padding:4px 6px!important;border-radius:8px!important;background:#fff3f1!important;color:#9b3838!important;border-color:rgba(155,56,56,.15)!important;line-height:1}
+.livebadge{font-size:8px;padding:4px 7px;border-radius:999px;border:1px solid var(--border);color:#a8a8af;background:#111113;white-space:nowrap}
+.livebadge.live{color:#62f08d;border-color:rgba(74,222,128,.34);background:rgba(74,222,128,.07);box-shadow:0 0 0 3px rgba(74,222,128,.05)}
+.stream-stage{min-width:0}
+.streamstudio-layout{display:block}
+.streamstudio-layout>.stream-stage{min-width:0}
+.streamhero{border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,#161619,#0f0f11);border-radius:20px;padding:13px;box-shadow:0 24px 70px rgba(0,0,0,.3);overflow:hidden}
+.streamhero-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:3px 4px 12px}
+.streamhero-title{font-size:12px;font-weight:800}
+.streamhero-meta{font-size:8px;color:var(--muted);margin-top:4px}
+.streamhero-badge{font-size:8px;font-weight:800;letter-spacing:.08em;padding:6px 9px;border-radius:999px;border:1px solid var(--border);background:#101012;color:#aaa}
+.streamhero-badge.live{color:#67f28e;border-color:rgba(74,222,128,.35);background:rgba(74,222,128,.07);box-shadow:0 0 18px rgba(74,222,128,.08)}
+.streamplayer{background:#050506;border:1px solid #25252a;border-radius:15px;overflow:hidden;min-height:0;aspect-ratio:16/9;display:grid;place-items:center;position:relative}
+.streamplayer:before{content:"LIVE PREVIEW";position:absolute;top:10px;left:11px;z-index:2;padding:4px 7px;border-radius:999px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);color:#8e8e96;font-size:7px;letter-spacing:.1em}
+.streamplayer iframe{width:100%;height:100%;min-height:0;border:0;display:block;background:#050506}
+.streamplayer .offline{width:100%;height:100%;min-height:320px;padding:55px 20px;text-align:center;color:var(--muted);font-size:10px;display:grid;place-items:center;background:
+ radial-gradient(circle at center,rgba(212,175,55,.055),transparent 42%),#070709}
+.streamplayer .offline b{display:block;color:#d7d7dc;font-size:13px;letter-spacing:.05em;margin-bottom:5px}
+.streamplayer .offline span{display:block;max-width:420px;line-height:1.5}
+.streamhero-bottom{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 4px 3px}
+.streamhero-glass{min-width:0}
+.streamhero-glass h3{margin:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.streamhero-glass p{margin:4px 0 0;color:var(--muted);font-size:8px}
+.streamhero-actions{display:flex;gap:7px;flex-wrap:wrap}
+.streammetrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:11px}
+.streammetric{border:1px solid var(--border);border-radius:13px;background:linear-gradient(180deg,#151517,#101012);padding:12px 13px;min-width:0}
+.streammetric small{display:block;color:#85858d;font-size:8px;text-transform:uppercase;letter-spacing:.1em}
+.streammetric b{display:block;font-size:18px;margin-top:5px;line-height:1.1}
+.streammetric span{display:block;color:var(--muted);font-size:8px;margin-top:4px;line-height:1.4}
+.streamlower{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(280px,.95fr);gap:11px;margin-top:11px}
+.streamglass{border:1px solid var(--border);background:linear-gradient(180deg,#151517,#101012);border-radius:16px;padding:13px;min-width:0}
+.streamglass-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px}
+.streamglass-head h3{margin:0;font-size:12px}
+.streamglass-head p{margin:3px 0 0;color:var(--muted);font-size:8px;line-height:1.45}
+.streamsetup{display:grid;gap:8px}
+.credrow{display:grid;grid-template-columns:68px minmax(0,1fr) auto;gap:7px;align-items:center}
+.credrow label{font-size:8px;color:#888890;text-transform:uppercase;letter-spacing:.07em}
+.credrow input{width:100%;background:#0b0b0d;border:1px solid #2b2b30;color:#ddd;border-radius:9px;padding:9px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:8px}
+.streamcode{border:1px solid #242429;background:#0b0b0d;border-radius:10px;padding:10px;font:8px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;color:#cfcfd4;white-space:pre-wrap;word-break:break-word}
+.streamStatusLine{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.streamstatus-pill{border:1px solid var(--border);background:#111113;color:#aaa;border-radius:999px;padding:5px 7px;font-size:7px}
+.streamstatus-pill:first-child{color:#d8d8de}
+.stream-settings{margin-top:11px;border-radius:16px}
+.stream-danger{margin-top:11px;border:1px solid rgba(251,113,133,.18);background:linear-gradient(180deg,rgba(251,113,133,.05),rgba(251,113,133,.025));border-radius:14px;padding:12px;display:flex;justify-content:space-between;gap:12px;align-items:center}
+.stream-danger b{display:block;font-size:10px}
+.stream-danger span{display:block;color:#9e858a;font-size:8px;margin-top:3px}
+.stream-danger>div:last-child{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:1050px){
+  .streamgrid{grid-template-columns:250px minmax(0,1fr)}
+  .streamlower{grid-template-columns:1fr}
+}
+@media(max-width:900px){
+  .streamstudio-top{padding:15px}
+  .streamgrid{grid-template-columns:1fr}
+  .stream-channel-card{position:static}
+  .streamlist{max-height:none}
+}
+@media(max-width:640px){
+  .streamstudio-top{flex-direction:column}
+  .streamstudio-top-actions{width:100%}
+  .streamstudio-top-actions .btn{flex:1}
+  .streammetrics{grid-template-columns:1fr}
+  .streamhero-bottom{align-items:flex-start;flex-direction:column}
+  .streamhero-actions{width:100%}
+  .streamhero-actions .btn{flex:1}
+  .credrow{grid-template-columns:1fr}
+  .credrow .mini{width:max-content}
+  .stream-danger{align-items:flex-start;flex-direction:column}
+  .stream-danger>div:last-child{justify-content:flex-start}
+}
+@media(prefers-reduced-motion:reduce){
+  .streamrow{transition:none}
+}
+</style></head>
 <body>
 <div id="root"></div>
 <script>
@@ -1083,21 +1183,25 @@ function renderStreamsPage(){
   if(!content)return;
   content.innerHTML=
     '<div class="streamstudio">'+
-      '<div class="streamstudio-top"><div class="streamstudio-top-main"><div class="streamstudio-kicker">FBI Live Broadcast Studio</div><h1>Live Streaming</h1><p>All your existing live channels are available here. Select one to manage it, or create a new channel when needed.</p></div><div class="streamstudio-top-actions"><button class="btn primary" id="newStreamTop">＋ New Stream</button></div></div>'+
+      '<div class="stream-overview viewgrid">'+
+        '<div class="card"><small>Channels</small><strong id="streamCount">0</strong><span>Configured broadcast channels</span></div>'+
+        '<div class="card"><small>Live Now</small><strong id="liveCount">0</strong><span>Channels currently on air</span></div>'+
+        '<div class="card"><small>Viewers Now</small><strong id="viewerCount">0</strong><span>Current connected viewers</span></div>'+
+        '<div class="card"><small>Viewer Sessions</small><strong id="streamHistoryCount">0</strong><span>Total viewer sessions recorded</span></div>'+
+      '</div>'+
       '<div class="streamgrid">'+
         '<aside class="stream-channel-card">'+
           '<div class="stream-channel-head"><div><h2>Live Channels</h2><p>Select a channel to manage its broadcast.</p></div><span class="stream-channel-count" id="streamChannelCount">0 channels</span></div>'+
           '<div class="stream-channel-actions"><button class="btn primary" id="newStreamLibrary">＋ New Stream</button></div>'+
           '<div id="streamList" class="streamlist"></div>'+
         '</aside>'+
-        '<section class="stream-stage" id="streamDetail"><div class="empty">Select a live channel from the list.</div></section>'+
+        '<section class="stream-stage" id="streamDetail"><div class="empty">Select a live channel from the list to open its broadcast control room.</div></section>'+
       '</div>'+
     '</div>';
   const openStreamCreator=function(){
     document.querySelector('#streamModal').classList.add('show');
     setTimeout(function(){document.querySelector('#streamName').focus()},50);
   };
-  document.querySelector('#newStreamTop').onclick=openStreamCreator;
   document.querySelector('#newStreamLibrary').onclick=openStreamCreator;
   renderedStreamSignature='';
   loadStreams();
