@@ -478,15 +478,17 @@ function streamEncodedRtmpUrl(row){
 const activeStreamRecordings=new Map();
 async function startStreamRecording(row){
   if(activeStreamRecordings.has(row.id)||!row.record_enabled||!ffmpegPath||!s3Ready())return;
-  // Record directly from the incoming RTMP feed instead of depending on
-  // an optional /encoded relay.
-  const input=streamInputRtmpUrl(row);
+  // Capture the same HLS feed the public viewer is already using. This avoids
+  // depending on an optional RTMP/encoded relay that may not be reachable
+  // from the Railway application container.
+  const inputBase=streamInputHlsUrl(row);
+  const input=inputBase&&inputBase.startsWith("http")?inputBase+"/index.m3u8":streamInputRtmpUrl(row);
   if(!input)return;
   const id=uid();
   const filename=safeName((row.name||"live-stream")+"-"+new Date().toISOString().replace(/[:.]/g,"-")+".mp4");
   const storageKey="recordings/"+row.id+"/"+id+"/"+filename;
   await pool.query("INSERT INTO stream_recordings(id,stream_id,filename,storage_key,status,started_at) VALUES($1,$2,$3,$4,'recording',now())",[id,row.id,filename,storageKey]);
-  const proc=spawn(ffmpegPath,["-hide_banner","-loglevel","warning","-fflags","nobuffer","-flags","low_delay","-i",input,"-map","0:v:0","-map","0:a:0?","-c:v","libx264","-preset","veryfast","-crf","18","-pix_fmt","yuv420p","-profile:v","high","-c:a","aac","-b:a","160k","-ar","48000","-ac","2","-movflags","+frag_keyframe+empty_moov+default_base_moof","-f","mp4","pipe:1"],{stdio:["ignore","pipe","pipe"]});
+  const proc=spawn(ffmpegPath,["-hide_banner","-loglevel","warning","-reconnect","1","-reconnect_streamed","1","-reconnect_delay_max","3","-i",input,"-map","0:v:0","-map","0:a:0?","-c:v","libx264","-preset","veryfast","-crf","18","-pix_fmt","yuv420p","-profile:v","high","-c:a","aac","-b:a","160k","-ar","48000","-ac","2","-movflags","+frag_keyframe+empty_moov+default_base_moof","-f","mp4","pipe:1"],{stdio:["ignore","pipe","pipe"]});
   const PassThrough=require("stream").PassThrough;
   const pass=new PassThrough();
   let bytes=0,stderr="";
@@ -505,8 +507,8 @@ async function startStreamRecording(row){
       try{if(!proc.stdout.readableEnded)pass.end()}catch{}
       try{
         await uploadDone;
-        const status=code===0||code===null?"completed":"failed";
-        await pool.query("UPDATE stream_recordings SET status=$2,ended_at=now(),size_bytes=$3,error=$4 WHERE id=$1",[id,status,bytes,status==="failed"?stderr:""]);
+        const status=code===0&&bytes>0?"completed":"failed";
+        await pool.query("UPDATE stream_recordings SET status=$2,ended_at=now(),size_bytes=$3,error=$4 WHERE id=$1",[id,status,bytes,status==="failed"?(stderr||"Recording produced no media data."):""]);
       }catch(err){
         await pool.query("UPDATE stream_recordings SET status='failed',ended_at=now(),size_bytes=$2,error=$3 WHERE id=$1",[id,bytes,String(err.message||err)]);
       }
@@ -514,12 +516,6 @@ async function startStreamRecording(row){
     });
   });
   activeStreamRecordings.set(row.id,{id,proc,finish});
-}
-async function stopStreamRecording(streamId){
-  const active=activeStreamRecordings.get(streamId);
-  if(!active)return;
-  try{active.proc.kill("SIGINT")}catch{}
-  await Promise.race([active.finish,new Promise(r=>setTimeout(r,20000))]);
 }
 function randomStreamKey(){return crypto.randomBytes(24).toString("base64url");}
 function randomViewerToken(){return crypto.randomBytes(24).toString("base64url");}
@@ -1137,14 +1133,16 @@ app.get("/api/public/stream/:token/replay",async(req,res)=>{
     const r=await publicStreamByToken(req.params.token);
     if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
     const stream=r.rows[0];
-    const q=await pool.query("SELECT id,filename,status,size_bytes,started_at,ended_at,created_at,storage_key FROM stream_recordings WHERE stream_id=$1 ORDER BY created_at DESC LIMIT 1",[stream.id]);
+    const q=await pool.query("SELECT id,filename,status,size_bytes,started_at,ended_at,created_at,storage_key FROM stream_recordings WHERE stream_id=$1 AND status='completed' AND size_bytes>0 ORDER BY ended_at DESC NULLS LAST,created_at DESC LIMIT 1",[stream.id]);
     const recording=q.rows[0];
-    if(!recording)return res.json({available:false,status:"none"});
-    if(recording.status!=="completed"||!s3Ready())return res.json({available:false,status:recording.status});
+    if(!recording||!s3Ready())return res.json({available:false,status:recording?"completed":"none"});
+    const meta=await headObjectWithRetry({Bucket:bucket(),Key:recording.storage_key});
+    const total=Number(meta.ContentLength||recording.size_bytes||0);
+    if(!Number.isFinite(total)||total<=0)return res.json({available:false,status:"empty"});
     const play_url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:recording.storage_key,ResponseContentType:"video/mp4",ResponseContentDisposition:"inline"}),{expiresIn:3600});
-    res.json({available:true,status:"completed",play_url,recording:{id:recording.id,filename:recording.filename,size_bytes:recording.size_bytes,started_at:recording.started_at,ended_at:recording.ended_at}});
+    res.json({available:true,status:"completed",play_url,recording:{id:recording.id,filename:recording.filename,size_bytes:total,started_at:recording.started_at,ended_at:recording.ended_at}});
   }catch(e){
-    console.error("Public replay load failed:",e);
+    console.error("Public replay load failed:",e?.stack||e);
     res.status(500).json({error:"Could not load the stream replay."});
   }
 });
@@ -1154,39 +1152,56 @@ app.get("/api/public/stream/:token/replay/file",async(req,res)=>{
     const r=await publicStreamByToken(req.params.token);
     if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
     const stream=r.rows[0];
-    const q=await pool.query("SELECT id,filename,status,size_bytes,storage_key FROM stream_recordings WHERE stream_id=$1 AND status='completed' ORDER BY ended_at DESC NULLS LAST,created_at DESC LIMIT 1",[stream.id]);
+    const recordingId=String(req.query.recordingId||"").trim();
+    const query=recordingId
+      ? "SELECT id,filename,status,size_bytes,storage_key FROM stream_recordings WHERE stream_id=$1 AND id=$2 LIMIT 1"
+      : "SELECT id,filename,status,size_bytes,storage_key FROM stream_recordings WHERE stream_id=$1 AND status='completed' AND size_bytes>0 ORDER BY ended_at DESC NULLS LAST,created_at DESC LIMIT 1";
+    const q=recordingId
+      ? await pool.query(query,[stream.id,recordingId])
+      : await pool.query(query,[stream.id]);
     const recording=q.rows[0];
-    if(!recording||!s3Ready())return res.status(404).json({error:"Replay file is not available yet."});
-    const meta=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:recording.storage_key}));
+    if(!recording)return res.status(404).json({error:"Replay recording was not found."});
+    if(recording.status!=="completed")return res.status(409).json({error:"Replay recording is still being finalized."});
+    if(!s3Ready())return res.status(503).json({error:"Replay storage is not ready."});
+    const meta=await headObjectWithRetry({Bucket:bucket(),Key:recording.storage_key});
     const total=Number(meta.ContentLength||recording.size_bytes||0);
-    if(!total)return res.status(404).json({error:"Replay file is empty."});
+    if(!Number.isFinite(total)||total<=0)return res.status(404).json({error:"Replay file is empty."});
     const range=String(req.headers.range||"").match(/^bytes=(\d*)-(\d*)$/i);
     let start=0,end=total-1;
     if(range){
-      if(range[1])start=Math.max(0,Number(range[1]));
-      if(range[2])end=Math.min(total-1,Number(range[2]));
+      const requestedStart=range[1]?Number(range[1]):0;
+      const requestedEnd=range[2]?Number(range[2]):total-1;
+      if(!Number.isFinite(requestedStart)||!Number.isFinite(requestedEnd))return res.status(416).set("Content-Range","bytes */"+total).end();
       if(!range[1]&&range[2]){
-        const suffix=Math.max(0,Number(range[2]));
+        const suffix=Math.max(0,requestedEnd);
         start=Math.max(0,total-suffix);end=total-1;
+      }else{
+        start=Math.max(0,requestedStart);
+        end=Math.min(total-1,requestedEnd);
       }
       if(start>=total||start>end)return res.status(416).set("Content-Range","bytes */"+total).end();
     }
     const partial=!!range;
+    const contentLength=end-start+1;
+    res.status(partial?206:200);
+    res.set({
+      "Content-Type":"video/mp4",
+      "Content-Length":String(contentLength),
+      "Accept-Ranges":"bytes",
+      "Cache-Control":"no-store",
+      ...(partial?{"Content-Range":"bytes "+start+"-"+end+"/"+total}:{}),
+      "Content-Disposition":"inline; filename=\""+String(recording.filename||"replay.mp4").replace(/["\\]/g,"_")+"\"
+    });
+    res.setHeader("X-FBI-Replay-Recording",String(recording.id));
+    res.setHeader("X-FBI-Replay-Bytes",String(total));
+    if(req.method==="HEAD")return res.end();
     const get=await s3.send(new GetObjectCommand({
       Bucket:bucket(),
       Key:recording.storage_key,
       ...(partial?{Range:"bytes="+start+"-"+end}:{}),
-      ResponseContentType:"video/mp4"
+      ResponseContentType:"video/mp4",
+      ResponseContentDisposition:"inline"
     }));
-    res.status(partial?206:200);
-    res.set({
-      "Content-Type":"video/mp4",
-      "Content-Length":String(end-start+1),
-      "Accept-Ranges":"bytes",
-      "Cache-Control":"public, max-age=3600",
-      ...(partial?{"Content-Range":"bytes "+start+"-"+end+"/"+total}:{}),
-      "Content-Disposition":"inline; filename=\""+String(recording.filename||"replay.mp4").replace(/["\\]/g,"_")+"\""
-    });
     if(get.Body&&typeof get.Body.pipe==="function")get.Body.pipe(res);
     else if(get.Body&&typeof get.Body.transformToByteArray==="function")res.end(Buffer.from(await get.Body.transformToByteArray()));
     else res.end();
@@ -1431,6 +1446,8 @@ body{margin:0;background:#09090a;color:#f6f6f7;font-family:Inter,system-ui,sans-
   .foot{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
 }</style></head><body><div class="wrap"><div class="head"><div class="brand">FILM BEYOND IMAGINATION • FBI Live</div><div style="margin-top:8px"><span class="badge" id="status">Checking live status…</span></div><h1>${title}</h1><p id="viewers">FBI Live Stream</p></div><div class="layout"><section><div class="card player"><video id="video" controls playsinline autoplay muted></video><div id="offline" class="offline" style="display:none"></div><div class="mobile-live-ui"><span class="mobile-live-status" id="mobileLiveStatus">CONNECTING…</span><span class="mobile-viewer-badge"><b id="mobileViewerCount">0</b> watching</span><div id="mobileFloatingComments" class="mobile-floating-comments"></div><div id="mobileReactionFloaters" class="mobile-reaction-floaters"></div><div class="mobile-reaction-rail"><button type="button" class="mobile-reaction-btn" data-mobile-reaction="👏" aria-label="Clap">👏</button><button type="button" class="mobile-reaction-btn" data-mobile-reaction="❤️" aria-label="Love">❤️</button><button type="button" class="mobile-reaction-btn heart" data-mobile-reaction="❤️" aria-label="Send heart">♥</button></div></div><div class="playerbar"><span class="nowq" id="streamState">Connecting…</span></div></div></section><aside class="card comments"><div class="comments-head"><h2>Live Comments</h2><span class="badge" id="commentCount">0</span></div><div id="commentList" class="comment-list"><div style="color:#777;font-size:9px;padding:10px 0">No comments yet.</div></div><form id="commentForm" class="comment-form"><input id="commentName" maxlength="60" placeholder="Your name"><textarea id="commentText" maxlength="500" placeholder="Write a comment…"></textarea><div class="comment-tools"><div class="emoji-popover" id="emojiPopover"><button type="button" class="emoji-open" id="emojiOpen" title="Add emoji">😊</button><emoji-picker id="emojiPicker" locale="en"></emoji-picker></div><button type="submit">Post Comment</button></div><div class="statusline" id="commentStatus"></div></form></aside></div><div class="foot">FBI Live • Live broadcast and viewer comments</div></div><script>
 const token=${tokenJs},hlsUrl=${JSON.stringify(hls)};const video=document.getElementById("video"),emojiOpen=document.getElementById("emojiOpen"),emojiPopover=document.getElementById("emojiPopover"),emojiPicker=document.getElementById("emojiPicker"),offline=document.getElementById("offline"),statusEl=document.getElementById("status"),viewers=document.getElementById("viewers"),streamState=document.getElementById("streamState"),commentList=document.getElementById("commentList"),commentCount=document.getElementById("commentCount"),commentForm=document.getElementById("commentForm"),commentName=document.getElementById("commentName"),commentText=document.getElementById("commentText"),commentStatus=document.getElementById("commentStatus");const sessionKey=crypto.randomUUID();let player=null,live=false,replayMode=false,replayTimer=0;const mobileFloatingComments=document.getElementById("mobileFloatingComments"),mobileReactionFloaters=document.getElementById("mobileReactionFloaters"),mobileViewerCount=document.getElementById("mobileViewerCount"),mobileLiveStatus=document.getElementById("mobileLiveStatus");let mobileReactionIndex=0;const mobileLiveUi=document.querySelector(".mobile-live-ui");let mobileReactionHideTimer=0;function revealMobileReactions(){if(!mobileLiveUi)return;mobileLiveUi.classList.add("show-reactions");clearTimeout(mobileReactionHideTimer);mobileReactionHideTimer=setTimeout(function(){mobileLiveUi.classList.remove("show-reactions")},3200)}video.addEventListener("pointerup",revealMobileReactions);
+video.addEventListener("loadedmetadata",function(){if(replayMode)streamState.textContent="Replay ready"});
+video.addEventListener("error",function(){if(!replayMode)return;const err=video.error;streamState.textContent=err?"Replay playback error ("+String(err.code)+")":"Replay playback error"});
 function renderMobileOverlay(rows){
   if(mobileFloatingComments)mobileFloatingComments.innerHTML=(rows||[]).slice(-5).map(function(x,i){return '<div class="mobile-floating-comment" style="animation-delay:'+(i*60)+'ms"><b>'+esc(x.display_name)+'</b><span>'+esc(x.comment)+'</span><time>'+esc(fmtTime(x.created_at))+'</time></div>'}).join('');
 }
@@ -1485,7 +1502,8 @@ async function loadReplay(){
     video.style.display="block";
     offline.style.display="none";
     video.muted=false;
-    video.src="/api/public/stream/"+encodeURIComponent(token)+"/replay/file";
+    const replayRecordingId=d.recording&&d.recording.id?encodeURIComponent(d.recording.id):"";
+    video.src="/api/public/stream/"+encodeURIComponent(token)+"/replay/file"+(replayRecordingId?"?recordingId="+replayRecordingId:"");
     video.load();
     statusEl.textContent="REPLAY";
     statusEl.className="badge live";
