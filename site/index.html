@@ -888,8 +888,14 @@ async function uploadMultipart(item,session){
     if(item.restartedLegacy)toast("Old upload session replaced. Continuing with the stable uploader…");
     startUploadHeartbeat(item);
     if(session.deduplicated){
+      stopUploadHeartbeat(item);
       item.status="deduplicated";item.loadedBytes=item.totalBytes;item.completedAt=Date.now();item.completionRemark="✓ FILE ALREADY STORED — no new upload required";renderUploadQueue();
       await loadProjects();await openProject(item.projectId);toast("Already stored: "+item.file.name);return;
+    }
+    if(session.alreadyCompleted){
+      stopUploadHeartbeat(item);
+      item.status="completed";item.loadedBytes=item.totalBytes;item.completedAt=Date.now();item.error="";item.completionRemark="✓ FILE ALREADY STORED — recovered successfully";renderUploadQueue();
+      await loadProjects();await openProject(item.projectId);toast("Already completed: "+item.file.name);return;
     }
     if(session.mode==="single")await uploadSingle(item,session);else await uploadMultipart(item,session);
     stopUploadHeartbeat(item);
@@ -900,8 +906,8 @@ async function uploadMultipart(item,session){
     if(item.paused){item.status="paused";renderUploadQueue();return}
     if(e&&e.code==="UPLOAD_SESSION_GONE"&&(item.sessionRecoveryAttempts||0)<2){
       item.sessionRecoveryAttempts=(item.sessionRecoveryAttempts||0)+1;
-      item.sessionId=null;item.mode=null;item.resumed=false;item.error="";item.completionRemark="";
-      item.loadedBytes=0;item.partLoaded=new Map();item.status="queued";
+      item.sessionId=null;item.mode=null;item.resumed=false;item.alreadyCompleted=false;item.error="";item.completionRemark="";
+      item.loadedBytes=0;item.partLoaded=new Map();item.checksums=[];item.fingerprint=item.fingerprint||"";item.status="queued";
       toast("Cloud upload session was lost. Reconnecting and resuming safely…");
       return uploadOne(item);
     }
