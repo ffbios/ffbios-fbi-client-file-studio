@@ -238,19 +238,30 @@ async function listMultipartPartsDetailed(u){
   if(!s3Ready()||!u?.multipart_upload_id)return [];
   const parts=[];let marker=0;
   while(true){
-    const r=await s3.send(new ListPartsCommand({
-      Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,
-      PartNumberMarker:marker||undefined,MaxParts:1000
-    }));
-    for(const p of r.Parts||[]){
-      parts.push({
-        partNumber:Number(p.PartNumber),
-        etag:String(p.ETag||""),
-        size:Number(p.Size||0)
-      });
+    try{
+      const r=await s3.send(new ListPartsCommand({
+        Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,
+        PartNumberMarker:marker||undefined,MaxParts:1000
+      }));
+      for(const p of r.Parts||[]){
+        parts.push({
+          partNumber:Number(p.PartNumber),
+          etag:String(p.ETag||""),
+          size:Number(p.Size||0)
+        });
+      }
+      if(!r.IsTruncated)break;
+      marker=r.NextPartNumberMarker;
+    }catch(e){
+      const code=String(e?.Code||e?.name||"");
+      const status=Number(e?.$metadata?.httpStatusCode||0);
+      if(code==="NoSuchUpload"||code==="InvalidUploadId"||status===404){
+        const gone=new Error("The cloud multipart session is no longer available.");
+        gone.code="UPLOAD_SESSION_GONE";
+        throw gone;
+      }
+      throw e;
     }
-    if(!r.IsTruncated)break;
-    marker=r.NextPartNumberMarker;
   }
   return parts.sort((a,b)=>a.partNumber-b.partNumber);
 }
@@ -1747,19 +1758,27 @@ app.get("/api/uploads/pending",admin,async(req,res)=>{
       ORDER BY u.updated_at DESC
       LIMIT 100
     `);
-    const uploads=await Promise.all(q.rows.map(async function(u){
-      const state=await inspectPendingUpload(u);
-      const pct=u.size_bytes?Math.min(100,state.uploadedBytes/Number(u.size_bytes)*100):0;
-      return {
-        id:u.id,project_id:u.project_id,project_name:u.project_name,client_name:u.client_name||"",
-        archived:!!u.archived,original_name:u.original_name,relative_path:u.relative_path||"",
-        mime_type:u.mime_type,size_bytes:Number(u.size_bytes||0),part_size:Number(u.part_size||0),
-        mode:u.mode,status:u.status,created_at:u.created_at,updated_at:u.updated_at,
-        uploaded_bytes:state.uploadedBytes,total_parts:state.totalParts,completed_parts:state.completedParts,
-        missing_parts:state.missingParts,progress_percent:pct,complete_ready:!!state.completeReady
-      };
+    const rows=await Promise.all(q.rows.map(async function(u){
+      try{
+        const state=await inspectPendingUpload(u);
+        const pct=u.size_bytes?Math.min(100,state.uploadedBytes/Number(u.size_bytes)*100):0;
+        return {
+          id:u.id,project_id:u.project_id,project_name:u.project_name,client_name:u.client_name||"",
+          archived:!!u.archived,original_name:u.original_name,relative_path:u.relative_path||"",
+          mime_type:u.mime_type,size_bytes:Number(u.size_bytes||0),part_size:Number(u.part_size||0),
+          mode:u.mode,status:u.status,created_at:u.created_at,updated_at:u.updated_at,
+          uploaded_bytes:state.uploadedBytes,total_parts:state.totalParts,completed_parts:state.completedParts,
+          missing_parts:state.missingParts,progress_percent:pct,complete_ready:!!state.completeReady
+        };
+      }catch(e){
+        if(e&&e.code==="UPLOAD_SESSION_GONE"){
+          await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]).catch(function(){});
+          return null;
+        }
+        throw e;
+      }
     }));
-    res.json({uploads});
+    res.json({uploads:rows.filter(Boolean)});
   }catch(e){
     console.error("Pending upload inspection failed:",e);
     res.status(500).json({error:"Could not load pending uploads."});
@@ -1778,7 +1797,16 @@ app.post("/api/uploads/:id/finalize-pending",admin,async(req,res)=>{
       return res.json({ok:true,file:done.rows[0]||null,alreadyCompleted:true});
     }
 
-    const state=await inspectPendingUpload(u);
+    let state;
+    try{
+      state=await inspectPendingUpload(u);
+    }catch(e){
+      if(e&&e.code==="UPLOAD_SESSION_GONE"){
+        await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]).catch(function(){});
+        return res.status(410).json({error:"The cloud multipart session is no longer available. Select the original file again to start a fresh upload.",code:"UPLOAD_SESSION_GONE"});
+      }
+      throw e;
+    }
     if(!state.completeReady){
       return res.status(409).json({
         ok:false,ready:false,uploadedBytes:state.uploadedBytes,
