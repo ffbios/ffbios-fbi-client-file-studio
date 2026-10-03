@@ -534,8 +534,8 @@ async function saveProject(){
 
 let uploadQueue=[];
 let uploadTicker=null;
-const PART_CONCURRENCY=12;
-const FILE_CONCURRENCY=2;
+const PART_CONCURRENCY=4;
+const FILE_CONCURRENCY=1;
 const MIN_PART_SIZE=64*1024*1024;
 const MAX_HASH_BEFORE_UPLOAD=512*1000*1000;
 const MAX_PARTS=10000;
@@ -612,7 +612,7 @@ function renderUploadQueue(){
   var html="";
   list.forEach(function(item){
     var p=uploadStats(item);
-    var action=item.status==="paused"?"<button class='mini' data-upresume='"+item.id+"'>Resume</button>":(item.status==="queued"||item.status==="checking"||item.status==="deduplicated"?"":"<button class='mini' data-uppause='"+item.id+"'>Pause</button>");
+    var action=(item.status==="paused"||item.status==="error")?"<button class='mini' data-upresume='"+item.id+"'>Resume</button>":(item.status==="queued"||item.status==="checking"||item.status==="deduplicated"?"":"<button class='mini' data-uppause='"+item.id+"'>Pause</button>");
     html+="<div class='upload-item'><div class='utop'><div class='uname'>"+esc(item.relativePath)+"</div><div>"+p.pct.toFixed(0)+"%</div></div>";
     html+="<div class='ustatus'>"+(item.completionRemark?esc(item.completionRemark):esc(item.status))+(item.mode&& !item.completionRemark?" • "+esc(item.mode):"")+" • "+fmt(Math.min(item.loadedBytes,item.totalBytes))+" / "+fmt(item.totalBytes)+(item.completionRemark?"":" • "+(p.rate?fmtRate(p.rate):"--")+" • ETA "+etaText(p.eta))+(item.error?"<br><span style='color:#fca5a5'>"+esc(item.error)+"</span>":"")+"</div>";
     html+="<div class='ubar'><i style='width:"+p.pct+"%'></i></div>";
@@ -626,29 +626,63 @@ function renderUploadQueue(){
 }
 function xhrPut(url,blob,headers,item,onProgress){
   return new Promise(function(resolve,reject){
-    var x=new XMLHttpRequest();item.xhrs.add(x);x.open("PUT",url,true);x.timeout=0;
+    var x=new XMLHttpRequest();
+    var settled=false,lastProgressAt=Date.now(),watchdog=0;
+    item.xhrs.add(x);x.open("PUT",url,true);x.timeout=0;
     Object.keys(headers||{}).forEach(function(k){x.setRequestHeader(k,headers[k])});
-    x.upload.onprogress=function(e){if(e.lengthComputable)onProgress(e.loaded)};
-    x.onload=function(){item.xhrs.delete(x);if(x.status>=200&&x.status<300)resolve({etag:x.getResponseHeader("ETag")||""});else reject(new Error("Upload returned HTTP "+x.status))};
-    x.onerror=function(){item.xhrs.delete(x);reject(new Error("Network error during upload"))};
-    x.onabort=function(){item.xhrs.delete(x);reject(new Error("Upload paused"))};
-    x.ontimeout=function(){item.xhrs.delete(x);reject(new Error("Upload timed out"))};
+    function finish(ok,value){
+      if(settled)return;
+      settled=true;
+      if(watchdog)clearInterval(watchdog);
+      item.xhrs.delete(x);
+      ok?resolve(value):reject(value);
+    }
+    x.upload.onprogress=function(e){
+      if(e.lengthComputable){
+        lastProgressAt=Date.now();
+        onProgress(e.loaded);
+      }
+    };
+    x.onload=function(){
+      if(x.status>=200&&x.status<300)finish(true,{etag:x.getResponseHeader("ETag")||""});
+      else finish(false,new Error("Upload returned HTTP "+x.status));
+    };
+    x.onerror=function(){finish(false,new Error("Network error during upload"))};
+    x.onabort=function(){finish(false,new Error("Upload paused"))};
+    x.ontimeout=function(){finish(false,new Error("Upload timed out"))};
+    watchdog=setInterval(function(){
+      if(!settled&&Date.now()-lastProgressAt>60000){
+        finish(false,new Error("Upload connection stalled; retrying…"));
+        try{x.abort()}catch{}
+      }
+    },10000);
     x.send(blob);
   });
 }
 function wait(ms){return new Promise(function(r){setTimeout(r,ms)})}
 async function retry(fn,max){
-  var last=null;max=max||3;
-  for(var i=0;i<max;i++){try{return await fn()}catch(e){last=e;if(i<max-1)await wait(800*(i+1))}}
+  var last=null;max=max||5;
+  for(var i=0;i<max;i++){
+    try{return await fn()}catch(e){
+      last=e;
+      if(i<max-1)await wait(Math.min(30000,1500*Math.pow(2,i)+Math.floor(Math.random()*750)));
+    }
+  }
   throw last;
 }
 async function uploadSingle(item,session){
   item.loadedBytes=0;renderUploadQueue();
   var headers={"Content-Type":item.file.type||"application/octet-stream"};
   if(item.fileChecksum)headers["x-amz-checksum-sha256"]=item.fileChecksum;
-  await retry(function(){return xhrPut(session.url,item.file,headers,item,function(n){item.loadedBytes=n;scheduleUploadQueueRender()})});
+  await retry(function(){return xhrPut(session.url,item.file,headers,item,function(n){item.loadedBytes=n;scheduleUploadQueueRender()})},5);
   if(item.paused)throw new Error("Upload paused");
-  await api("/api/uploads/"+item.sessionId+"/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+  await retry(function(){
+    return api("/api/uploads/"+item.sessionId+"/complete",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:"{}"
+    });
+  },5);
   item.loadedBytes=item.totalBytes;
 }
 async function getPartUrls(sessionId,requests){
@@ -659,23 +693,25 @@ async function getPartUrls(sessionId,requests){
 async function uploadMultipart(item,session){
   var partSize=Number(session.partSize);
   var totalParts=Math.ceil(item.file.size/partSize);
-  var state=await api("/api/uploads/"+item.sessionId+"/state");
+  var state=await retry(function(){return api("/api/uploads/"+item.sessionId+"/state")},5);
   var completed=new Map((state.parts||[]).map(function(p){return [Number(p.partNumber),p]}));
   item.loadedBytes=0;item.partLoaded=new Map();var parts=[];
   completed.forEach(function(p,pn){
     var a=(pn-1)*partSize,b=Math.min(item.file.size,a+partSize);
-    item.partLoaded.set(pn,Math.max(0,b-a));parts.push({partNumber:pn,etag:p.etag});
+    item.partLoaded.set(pn,Math.max(0,b-a));
+    parts.push({partNumber:pn,etag:p.etag});
   });
   item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(a,b){return a+b},0);
-  var missing=[];for(var pn=1;pn<=totalParts;pn++)if(!completed.has(pn))missing.push(pn);
+  var missing=[];
+  for(var pn=1;pn<=totalParts;pn++)if(!completed.has(pn))missing.push(pn);
   renderUploadQueue();
   var cursor=0;
   while(cursor<missing.length){
     if(item.paused)throw new Error("Upload paused");
-    var batch=missing.slice(cursor,cursor+25);
+    var batch=missing.slice(cursor,cursor+8);
     cursor+=batch.length;
     var requests=batch.map(function(partNumber){return {partNumber:partNumber,checksum:((item.checksums||[])[partNumber-1]||"")};});
-    var signedParts=await retry(function(){return getPartUrls(item.sessionId,requests)},3);
+    var signedParts=await retry(function(){return getPartUrls(item.sessionId,requests)},5);
     var nextIndex=0;
     async function uploadPartWorker(){
       while(true){
@@ -684,18 +720,34 @@ async function uploadMultipart(item,session){
         if(pos>=batch.length)return;
         var partNumber=batch[pos];
         var signed=signedParts.find(function(x){return Number(x.partNumber)===partNumber});
-        if(!signed||!signed.url)throw new Error("Could not prepare upload part "+partNumber);
         var start=(partNumber-1)*partSize,end=Math.min(item.file.size,start+partSize),blob=item.file.slice(start,end);
-        var headers={};
-        if(signed.checksum)headers["x-amz-checksum-sha256"]=signed.checksum;
-        var out=await retry(function(){
-          return xhrPut(signed.url,blob,headers,item,function(n){
-            var previous=item.partLoaded.get(partNumber)||0;
-            item.partLoaded.set(partNumber,Math.max(previous,n));
+        if(!signed||!signed.url)throw new Error("Could not prepare upload part "+partNumber);
+
+        function requestPart(url,checksum){
+          var headers={};
+          if(checksum)headers["x-amz-checksum-sha256"]=checksum;
+          item.partLoaded.set(partNumber,0);
+          item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(a,b){return a+b},0);
+          scheduleUploadQueueRender();
+          return xhrPut(url,blob,headers,item,function(n){
+            item.partLoaded.set(partNumber,n);
             item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(a,b){return a+b},0);
             scheduleUploadQueueRender();
           });
-        },3);
+        }
+
+        var out;
+        try{
+          out=await retry(function(){return requestPart(signed.url,signed.checksum)},5);
+        }catch(firstError){
+          // A transient failure, or an expired presigned URL, gets one fresh
+          // signed URL before we give up this part.
+          var freshList=await retry(function(){return getPartUrls(item.sessionId,[{partNumber:partNumber,checksum:((item.checksums||[])[partNumber-1]||"")}])},5);
+          var fresh=freshList.find(function(x){return Number(x.partNumber)===partNumber});
+          if(!fresh||!fresh.url)throw firstError;
+          out=await retry(function(){return requestPart(fresh.url,fresh.checksum)},5);
+        }
+
         var existingIndex=parts.findIndex(function(p){return p.partNumber===partNumber});
         if(existingIndex>=0)parts[existingIndex]={partNumber:partNumber,etag:out.etag};
         else parts.push({partNumber:partNumber,etag:out.etag});
@@ -706,11 +758,16 @@ async function uploadMultipart(item,session){
     await Promise.all(workers);
   }
   if(item.paused)throw new Error("Upload paused");
-  await api("/api/uploads/"+item.sessionId+"/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({parts:parts})});
+  await retry(function(){
+    return api("/api/uploads/"+item.sessionId+"/complete",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({parts:parts})
+    });
+  },5);
   item.loadedBytes=item.totalBytes;
-}
-async function uploadOne(item){
-  item.startedAt=Date.now();item.status="queued";renderUploadQueue();
+}async function uploadOne(item){
+  item.startedAt=item.startedAt||Date.now();item.status="queued";renderUploadQueue();
   try{
     if(item.file.size<=MAX_HASH_BEFORE_UPLOAD){
       await prepareIntegrity(item);
@@ -718,10 +775,16 @@ async function uploadOne(item){
       item.checksums=[];item.fingerprint="";item.fileChecksum=null;item.status="uploading";item.loadedBytes=0;
       renderUploadQueue();
     }
-    var session=await api("/api/uploads/init",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      projectId:item.projectId,name:item.file.name,relativePath:item.relativePath,size:item.file.size,mimeType:item.file.type||"application/octet-stream",
-      fingerprint:item.fingerprint||"",checksum:item.fileChecksum||""
-    })});
+    var session=await retry(function(){
+      return api("/api/uploads/init",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          projectId:item.projectId,name:item.file.name,relativePath:item.relativePath,size:item.file.size,mimeType:item.file.type||"application/octet-stream",
+          fingerprint:item.fingerprint||"",checksum:item.fileChecksum||""
+        })
+      });
+    },5);
     item.sessionId=session.uploadId;item.mode=session.mode;item.resumed=!!session.resumed;
     if(session.deduplicated){
       item.status="deduplicated";item.loadedBytes=item.totalBytes;item.completedAt=Date.now();item.completionRemark="✓ FILE ALREADY STORED — no new upload required";renderUploadQueue();
@@ -758,7 +821,7 @@ function pauseUpload(id){
 }
 function resumeUpload(id){
   var item=uploadQueue.find(function(x){return x.id===id});if(!item)return;
-  item.paused=false;item.status="queued";pumpUploads();
+  item.paused=false;item.error="";item.completionRemark="";item.status="queued";item.startedAt=Date.now();pumpUploads();
 }
 async function cancelUpload(id){
   var item=uploadQueue.find(function(x){return x.id===id});if(!item)return;
@@ -873,12 +936,68 @@ async function renderStoragePage(){
       '<div class="viewgrid">'+
       '<div class="panel span8"><div class="ph"><div><h2>Storage Details</h2><p>Live storage accounting from the Studio database.</p></div><button class="btn" id="refreshStorage">Refresh</button></div><div class="body">'+
       '<div class="barline"><span>Used</span><div class="bar"><i style="width:'+Math.min(100,pct)+'%"></i></div><b style="text-align:right">'+pct.toFixed(2)+'%</b></div>'+
-      '<div style="height:14px"></div><div class="smallnote"><b>'+esc(s.format_used)+'</b> is the total size of completed files recorded in the Studio.<br><b>'+esc(s.format_reserved)+'</b> is temporarily reserved for active uploads.<br><b>'+esc(s.format_available)+'</b> is available after completed storage and active upload reservations.<br>Files are stored as original bytes. No media quality reduction is applied.</div></div></div>'+
+      '<div style="height:14px"></div><div class="smallnote"><b>'+esc(s.format_used)+'</b> is the total size of completed files recorded in the Studio.<br><b>'+esc(s.format_reserved)+'</b> is reserved by active uploads, including transfers that need to be resumed.<br><b>'+esc(s.format_available)+'</b> is available after completed storage and active upload reservations.<br>Files are stored as original bytes. No media quality reduction is applied.</div></div></div>'+
       '<div class="panel span4"><div class="ph"><div><h2>Storage Status</h2><p>Current cloud storage connection.</p></div></div><div class="body">'+
       '<div class="pillline"><span class="statusdot '+(s.storage_ready?'ok':'')+'"></span><b>'+(s.storage_ready?'Connected':'Not ready')+'</b></div><div style="height:10px"></div>'+
-      '<div class="smallnote">Bucket: <b>'+esc(s.bucket_name||'Configured bucket')+'</b><br>Region: <b>'+esc(s.bucket_region||'Configured region')+'</b><br>Policy: <b>Lossless original bytes</b><br>Transfers: <b>Resumable and duplicate-aware</b></div></div></div></div>';
+      '<div class="smallnote">Bucket: <b>'+esc(s.bucket_name||'Configured bucket')+'</b><br>Region: <b>'+esc(s.bucket_region||'Configured region')+'</b><br>Policy: <b>Lossless original bytes</b><br>Transfers: <b>Resumable and duplicate-aware</b></div></div></div></div>'+
+      '<div style="height:14px"></div>'+
+      '<div class="panel"><div class="ph"><div><h2>Pending Uploads</h2><p>Every interrupted or unfinished upload is listed here by project and filename. Select the same original file again in its project to resume stored parts, or finalize it when all parts have arrived.</p></div><button class="btn" id="refreshPending">Refresh</button></div><div class="body"><div id="pendingUploads"><div class="empty">Loading pending uploads...</div></div></div></div>';
     document.querySelector('#refreshStorage').onclick=function(){renderStoragePage()};
+    document.querySelector('#refreshPending').onclick=function(){renderStoragePage()};
+    await loadPendingUploads();
   }catch(e){c.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}
+}
+async function loadPendingUploads(){
+  const box=document.querySelector('#pendingUploads');if(!box)return;
+  try{
+    const d=await api('/api/uploads/pending'),rows=d.uploads||[];
+    if(!rows.length){
+      box.innerHTML='<div class="empty">No unfinished uploads. Your storage is clear.</div>';
+      return;
+    }
+    box.innerHTML='<div class="tablewrap"><table class="table"><thead><tr><th>Project</th><th>File</th><th>Progress</th><th>Uploaded</th><th>Last Activity</th><th>Action</th></tr></thead><tbody>'+
+      rows.map(function(x){
+        const pct=Number(x.progress_percent||0);
+        const last=x.updated_at?new Date(x.updated_at).toLocaleString():'';
+        const label=x.complete_ready?'<button class="btn primary" data-finalize-pending="'+x.id+'">Finalize</button>':'<button class="btn" data-open-pending="'+x.project_id+'">Open Project</button>';
+        return '<tr><td><b>'+esc(x.project_name||'Untitled project')+'</b>'+(x.client_name?' <span class="muted">• '+esc(x.client_name)+'</span>':'')+(x.archived?' <span class="muted">(archived)</span>':'')+'</td>'+
+          '<td><b>'+esc(x.original_name)+'</b><br><span class="muted">'+esc(x.relative_path||'')+'</span></td>'+
+          '<td style="min-width:150px"><div style="display:flex;justify-content:space-between;gap:8px"><span>'+pct.toFixed(1)+'%</span><span>'+Number(x.completed_parts||0)+' / '+Number(x.total_parts||0)+' parts</span></div><div class="bar" style="margin-top:6px"><i style="width:'+Math.min(100,Math.max(0,pct))+'%"></i></div></td>'+
+          '<td>'+fmt(x.uploaded_bytes||0)+' / '+fmt(x.size_bytes||0)+'</td>'+
+          '<td class="muted">'+esc(last)+'</td>'+
+          '<td><div style="display:flex;flex-wrap:wrap;gap:6px">'+label+' <button class="btn danger" data-cancel-pending="'+x.id+'">Cancel</button></div></td></tr>';
+      }).join('')+
+    '</tbody></table></div>'+
+    '<div class="smallnote" style="margin-top:10px"><b>How resume works:</b> keep the original file on your computer, open its project and select that same file again. The Studio matches the active session by project, filename, path and file size, then skips the parts already stored in the cloud.</div>';
+    box.querySelectorAll('[data-open-pending]').forEach(function(btn){
+      btn.onclick=function(){
+        showView('projects').then(function(){openProject(btn.dataset.openPending)});
+      };
+    });
+    box.querySelectorAll('[data-finalize-pending]').forEach(function(btn){
+      btn.onclick=async function(){
+        btn.disabled=true;
+        try{
+          const out=await api('/api/uploads/'+btn.dataset.finalizePending+'/finalize-pending',{method:'POST'});
+          toast(out.recovered?'Pending upload finalized and added to the project.':'Upload finalized.');
+          await renderStoragePage();
+        }catch(e){toast(e.message)}finally{btn.disabled=false}
+      };
+    });
+    box.querySelectorAll('[data-cancel-pending]').forEach(function(btn){
+      btn.onclick=async function(){
+        if(!confirm('Cancel this pending upload and remove its partial cloud data?'))return;
+        btn.disabled=true;
+        try{
+          await api('/api/uploads/'+btn.dataset.cancelPending+'/abort',{method:'POST'});
+          toast('Pending upload cancelled.');
+          await renderStoragePage();
+        }catch(e){toast(e.message)}finally{btn.disabled=false}
+      };
+    });
+  }catch(e){
+    box.innerHTML='<div class="empty">'+esc(e.message||'Could not load pending uploads.')+'</div>';
+  }
 }
 async function renderDownloadsPage(){
   const c=document.querySelector('#content');
