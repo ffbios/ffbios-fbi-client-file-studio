@@ -964,6 +964,20 @@ app.delete("/api/portal/projects/:id",portalUser,async(req,res)=>{
   res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not completely delete the project."})}
 });
+app.get("/api/portal/media/:id",portalUser,async(req,res)=>{
+  try{
+    const r=await pool.query("SELECT * FROM files WHERE id=$1 AND project_id IN (SELECT id FROM projects WHERE owner_id=$2)",[req.params.id,req.portalUser.id]);
+    if(!r.rowCount)return res.status(404).send("File not found.");
+    await streamStoredObject(req,res,r.rows[0]);
+  }catch(e){console.error("Portal media stream failed:",e?.stack||e);res.status(500).send("Unable to stream file.")}
+});
+app.head("/api/portal/media/:id",portalUser,async(req,res)=>{
+  try{
+    const r=await pool.query("SELECT * FROM files WHERE id=$1 AND project_id IN (SELECT id FROM projects WHERE owner_id=$2)",[req.params.id,req.portalUser.id]);
+    if(!r.rowCount)return res.status(404).end();
+    await streamStoredObject(req,res,r.rows[0]);
+  }catch(e){console.error("Portal media HEAD failed:",e?.stack||e);res.status(500).end()}
+});
 app.get("/api/portal/file/:id",portalUser,async(req,res)=>{
  try{const r=await pool.query("SELECT * FROM files WHERE id=$1 AND project_id IN (SELECT id FROM projects WHERE owner_id=$2)",[req.params.id,req.portalUser.id]);if(!r.rowCount)return res.status(404).send("File not found.");const f=r.rows[0];const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:900});res.redirect(url);}
  catch(e){console.error(e);res.status(500).send("Unable to serve file.")}
@@ -2576,6 +2590,66 @@ async function signedFileUrl(fileId,tokenValue=null){
  return {f,url};
 }
 
+
+async function streamStoredObject(req,res,f){
+  const head=await headObjectWithRetry({Bucket:bucket(),Key:f.storage_path},4,300);
+  const size=Number(head.ContentLength||f.size_bytes||0);
+  if(!Number.isFinite(size)||size<0)throw new Error("Stored object size is unavailable.");
+  const contentType=String(head.ContentType||f.mime_type||"application/octet-stream");
+  res.set("Accept-Ranges","bytes");
+  res.set("X-Content-Type-Options","nosniff");
+  res.set("Content-Type",contentType);
+  res.set("Cache-Control","private, max-age=0, must-revalidate");
+  res.set("Content-Disposition","inline; filename*=UTF-8''"+encodeURIComponent(f.original_name||"file"));
+  if(req.method==="HEAD"){
+    res.set("Content-Length",String(size));
+    return res.status(200).end();
+  }
+  const range=String(req.headers.range||"").trim();
+  if(!range){
+    res.set("Content-Length",String(size));
+    const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}));
+    if(obj.Body?.pipe)obj.Body.pipe(res);
+    else for await(const chunk of obj.Body){if(!res.write(chunk))await new Promise(r=>res.once("drain",r))}
+    return;
+  }
+  const m=/^bytes=(\d*)-(\d*)$/i.exec(range);
+  if(!m)return res.status(416).set("Content-Range","bytes */"+size).end();
+  let start=m[1]===""?Math.max(0,size-Number(m[2]||"0")):Number(m[1]);
+  let end=m[2]===""?size-1:Number(m[2]);
+  if(!Number.isFinite(start)||!Number.isFinite(end)||start<0||end<start||start>=size)return res.status(416).set("Content-Range","bytes */"+size).end();
+  end=Math.min(end,size-1);
+  const length=end-start+1;
+  const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:f.storage_path,Range:"bytes="+start+"-"+end}));
+  res.status(206);
+  res.set("Content-Range","bytes "+start+"-"+end+"/"+size);
+  res.set("Content-Length",String(length));
+  if(obj.Body?.pipe)obj.Body.pipe(res);
+  else for await(const chunk of obj.Body){if(!res.write(chunk))await new Promise(r=>res.once("drain",r))}
+}
+
+async function publicFileRecord(fileId,tokenValue){
+  const q=await pool.query("SELECT f.*,p.shared,p.share_token,p.expires_at FROM files f JOIN projects p ON p.id=f.project_id WHERE f.id=$1",[fileId]);
+  if(!q.rowCount)return null;
+  const f=q.rows[0];
+  if(f.share_token!==tokenValue||!f.shared||(f.expires_at&&new Date(f.expires_at).getTime()<Date.now()))return null;
+  return f;
+}
+
+app.get("/api/admin/media/:id",admin,async(req,res)=>{
+  try{
+    const q=await pool.query("SELECT * FROM files WHERE id=$1",[req.params.id]);
+    if(!q.rowCount)return res.status(404).send("File not found");
+    await streamStoredObject(req,res,q.rows[0]);
+  }catch(e){console.error("Admin media stream failed:",e?.stack||e);res.status(500).send("Unable to stream file")}
+});
+app.head("/api/admin/media/:id",admin,async(req,res)=>{
+  try{
+    const q=await pool.query("SELECT * FROM files WHERE id=$1",[req.params.id]);
+    if(!q.rowCount)return res.status(404).end();
+    await streamStoredObject(req,res,q.rows[0]);
+  }catch(e){console.error("Admin media HEAD failed:",e?.stack||e);res.status(500).end()}
+});
 app.get("/api/admin/file/:id",admin,async(req,res)=>{
  try{
   const out=await signedFileUrl(req.params.id);if(!out)return res.status(404).send("File not found");
@@ -2690,6 +2764,20 @@ app.get("/api/public/preview/:id",async(req,res)=>{
  }
 });
 
+app.get("/api/public/media/:id",async(req,res)=>{
+  try{
+    const f=await publicFileRecord(req.params.id,String(req.query.token||""));
+    if(!f)return res.status(404).send("Invalid or expired delivery link.");
+    await streamStoredObject(req,res,f);
+  }catch(e){console.error("Public media stream failed:",e?.stack||e);res.status(500).send("Unable to stream file")}
+});
+app.head("/api/public/media/:id",async(req,res)=>{
+  try{
+    const f=await publicFileRecord(req.params.id,String(req.query.token||""));
+    if(!f)return res.status(404).end();
+    await streamStoredObject(req,res,f);
+  }catch(e){console.error("Public media HEAD failed:",e?.stack||e);res.status(500).end()}
+});
 app.get("/api/public/file/:id",async(req,res)=>{
  try{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));if(!out)return res.status(404).send("Invalid or expired delivery link.");
