@@ -2447,50 +2447,90 @@ app.post("/api/uploads/:id/abort",admin,async(req,res)=>{
   }catch(e){console.error(e);res.status(500).json({error:"Could not cancel upload."})}
 });
 
-app.post("/api/projects/:id/files",admin,(req,res)=>{
- if(!s3Ready())return res.status(503).json({error:"Cloud file storage is not ready yet. Try again in a moment."});
- const projectId=req.params.id;
- const bb=Busboy({headers:req.headers,limits:{files:100,fileSize:MAX_FILE_SIZE}});
- const jobs=[];const staged=[];let uploadError=null;
+app.post("/api/projects/:id/files",admin,async(req,res)=>{
+ try{
+  if(!s3Ready())return res.status(503).json({error:"Cloud file storage is not ready yet. Try again in a moment."});
+  const projectId=req.params.id;
+  const project=await pool.query("SELECT id FROM projects WHERE id=$1 AND archived=false",[projectId]);
+  if(!project.rowCount)return res.status(404).json({error:"Project not found"});
 
- bb.on("field",()=>{});
- bb.on("file",(field,file,info)=>{
-   if(field!=="files"){file.resume();return}
-   const id=uid();
-   const originalName=String(info.filename||"file");
-   const storagePath=`projects/${projectId}/${id}/${safeName(originalName)}`;
-   let tooLarge=false;
-   file.on("limit",()=>{tooLarge=true;uploadError=new Error("A file exceeded the 10 GB limit.")});
-   const uploader=new Upload({
-     client:s3,
-     params:{Bucket:bucket(),Key:storagePath,Body:file,ContentType:info.mimeType||"application/octet-stream"}
-   });
-   const job=uploader.done().then(async()=>{
-     if(tooLarge)throw new Error("A file exceeded the 10 GB limit.");
-     const head=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:storagePath}));
-     const size=Number(head.ContentLength||0);
-     const r=await pool.query("INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",[id,projectId,originalName,path.basename(storagePath),storagePath,info.mimeType||"application/octet-stream",size]);
-     staged.push({id,storagePath});
-     return r.rows[0];
-   }).catch(e=>{uploadError=e;throw e});
-   jobs.push(job);
- });
- bb.on("finish",async()=>{
-   try{
-     const project=await pool.query("SELECT id FROM projects WHERE id=$1",[projectId]);if(!project.rowCount)throw new Error("Project not found");
-     const results=await Promise.all(jobs);
-     await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[projectId]);
-     res.json({files:results});
-   }catch(e){
-     console.error(e);
-     for(const x of staged)await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:x.storagePath})).catch(()=>{});
-     res.status(400).json({error:uploadError?.message||e.message||"Upload failed"});
-   }
- });
- bb.on("error",e=>{console.error(e);if(!res.headersSent)res.status(400).json({error:e.message||"Upload failed"})});
- req.pipe(bb);
+  const bb=Busboy({headers:req.headers,limits:{files:100,fileSize:MAX_FILE_SIZE}});
+  const jobs=[];
+  const cloudKeys=new Set();
+  const staged=[];
+  let uploadError=null;
+
+  bb.on("field",()=>{});
+  bb.on("file",(field,file,info)=>{
+    if(field!=="files"){file.resume();return}
+    const id=uid();
+    const originalName=String(info.filename||"file");
+    const storagePath=`projects/${projectId}/${id}/${safeName(originalName)}`;
+    cloudKeys.add(storagePath);
+    let tooLarge=false;
+    file.on("limit",()=>{
+      tooLarge=true;
+      uploadError=new Error("A file exceeded the supported 5 TB limit.");
+    });
+
+    const uploader=new Upload({
+      client:s3,
+      params:{
+        Bucket:bucket(),
+        Key:storagePath,
+        Body:file,
+        ContentType:info.mimeType||"application/octet-stream"
+      }
+    });
+
+    const job=uploader.done().then(async()=>{
+      if(tooLarge)throw new Error("A file exceeded the supported 5 TB limit.");
+      const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:storagePath}));
+      const size=Number(head.ContentLength||0);
+      if(!Number.isFinite(size)||size<0||size>MAX_FILE_SIZE){
+        throw new Error("Uploaded file size is outside the supported range.");
+      }
+      const r=await pool.query(
+        "INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+        [id,projectId,originalName,path.basename(storagePath),storagePath,info.mimeType||"application/octet-stream",size]
+      );
+      staged.push({id,storagePath});
+      return r.rows[0];
+    }).catch(e=>{
+      uploadError=e;
+      throw e;
+    });
+    jobs.push(job);
+  });
+
+  bb.on("finish",async()=>{
+    try{
+      const results=await Promise.all(jobs);
+      await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[projectId]);
+      res.json({files:results});
+    }catch(e){
+      console.error("Legacy project upload failed:",e);
+      for(const key of cloudKeys){
+        if(!staged.some(x=>x.storagePath===key)||uploadError){
+          await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:key})).catch(()=>{});
+        }
+      }
+      res.status(400).json({error:uploadError?.message||e.message||"Upload failed"});
+    }
+  });
+
+  bb.on("error",async e=>{
+    console.error("Legacy project upload parser failed:",e);
+    for(const key of cloudKeys)await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:key})).catch(()=>{});
+    if(!res.headersSent)res.status(400).json({error:e.message||"Upload failed"});
+  });
+
+  req.pipe(bb);
+ }catch(e){
+  console.error("Legacy project upload setup failed:",e);
+  if(!res.headersSent)res.status(500).json({error:"Could not start upload"});
+ }
 });
-
 app.delete("/api/files/:id",admin,async(req,res)=>{
  try{
   const r=await pool.query("SELECT * FROM files WHERE id=$1",[req.params.id]);if(!r.rowCount)return res.status(404).json({error:"File not found"});
