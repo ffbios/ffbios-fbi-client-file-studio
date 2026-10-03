@@ -791,14 +791,22 @@ async function uploadMultipart(item,session){
         var signed=await retry(function(){
           return getPartUrls(item.sessionId,window.map(function(n){return {partNumber:n,checksum:""}}));
         },5);
-        var got=new Set();
+        // Build the entire signed window locally first. Never advance
+        // nextToSign or mutate the live queue until every requested part has a
+        // valid URL, otherwise a partial response can permanently skip parts.
+        var expected=new Set(window),incoming=new Map();
         signed.forEach(function(x){
           var n=Number(x.partNumber);
-          if(!x.url||got.has(n))return;
-          got.add(n);signedByPart.set(n,x);signedQueue.push(n);
+          if(!x.url||!expected.has(n)||incoming.has(n))return;
+          incoming.set(n,x);
+        });
+        if(incoming.size!==window.length)throw new Error("Could not prepare all requested upload parts.");
+        window.forEach(function(n){
+          var signedPart=incoming.get(n);
+          signedByPart.set(n,signedPart);
+          signedQueue.push(n);
         });
         nextToSign+=window.length;
-        if(got.size!==window.length)throw new Error("Could not prepare all requested upload parts.");
       }
     })();
     try{return await fillPromise}finally{fillPromise=null}
