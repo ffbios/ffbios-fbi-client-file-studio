@@ -721,7 +721,15 @@ async function getPartUrls(sessionId,requests){
 async function uploadMultipart(item,session){
   var partSize=Number(session.partSize);
   var totalParts=Math.ceil(item.file.size/partSize);
-  var state=await retry(function(){return api("/api/uploads/"+item.sessionId+"/state")},5);
+  async function getUploadState(){
+    try{
+      return await api("/api/uploads/"+item.sessionId+"/state");
+    }catch(e){
+      if(e&&e.code==="UPLOAD_SESSION_GONE")e.nonRetryable=true;
+      throw e;
+    }
+  }
+  var state=await retry(getUploadState,5);
   var completed=new Map((state.parts||[]).map(function(p){return [Number(p.partNumber),p]}));
   item.loadedBytes=0;item.partLoaded=new Map();var partsByNumber=new Map();
 
@@ -806,7 +814,16 @@ async function uploadMultipart(item,session){
 
   var workers=[];
   for(var wi=0;wi<Math.min(PART_CONCURRENCY,missing.length);wi++)workers.push(worker());
-  await Promise.all(workers);
+  try{
+    await Promise.all(workers);
+  }catch(e){
+    // Do not start a new session while old workers are still putting parts.
+    // Abort active browser requests, wait for every worker to settle, then let
+    // the session-recovery path restart cleanly.
+    Array.from(item.xhrs||[]).forEach(function(x){try{x.abort()}catch{}});
+    await Promise.allSettled(workers);
+    throw e;
+  }
 
   if(item.paused)throw new Error("Upload paused");
   var parts=Array.from(partsByNumber.values()).sort(function(x,y){return x.partNumber-y.partNumber});
