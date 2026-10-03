@@ -2510,10 +2510,12 @@ app.post("/api/projects/:id/files",admin,async(req,res)=>{
       res.json({files:results});
     }catch(e){
       console.error("Legacy project upload failed:",e);
-      for(const key of cloudKeys){
-        if(!staged.some(x=>x.storagePath===key)||uploadError){
-          await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:key})).catch(()=>{});
-        }
+      for(const key of cloudKeys)await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:key})).catch(()=>{});
+      const stagedIds=staged.map(x=>x.id).filter(Boolean);
+      if(stagedIds.length){
+        await pool.query("DELETE FROM files WHERE project_id=$1 AND id=ANY($2::uuid[])",[projectId,stagedIds]).catch(function(dbErr){
+          console.error("Could not roll back failed legacy upload records:",dbErr);
+        });
       }
       res.status(400).json({error:uploadError?.message||e.message||"Upload failed"});
     }
