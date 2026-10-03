@@ -531,7 +531,7 @@ function renderProjectMedia(files){
   const list=(files||[]).filter(f=>{const hay=(f.original_name+' '+(f.relative_path||'')).toLowerCase();return !q||hay.includes(q)});
   if(!list.length){box.innerHTML='<div class="empty" style="grid-column:1/-1">No matching files in this project.</div>';return}
   box.innerHTML=list.map(f=>{
-    const url='/api/admin/file/'+f.id;
+    const url='/api/admin/media/'+f.id;
     const mime=String(f.mime_type||'').toLowerCase();
     let thumb='<div class="thumbico">'+icon(f.original_name)+'</div>';
     if(/^image\//.test(mime))thumb='<img src="/api/admin/thumb/'+f.id+'?w=360&h=540" loading="lazy" decoding="async" alt="">';
@@ -1841,7 +1841,7 @@ function studioView(initialView,initialStream){
 }
 
 function previewAdmin(f){
- const url='/api/admin/file/'+f.id;
+ const url='/api/admin/media/'+f.id;
  const modal=document.createElement('div');modal.className='viewer show';modal.innerHTML=`<div class="viewerbox"><div class="vh"><b>${esc(f.original_name)}</b><button class="close">×</button></div><div class="vc">${isImage(f)?`<img src="${url}">`:isVideo(f)?`<video controls src="${url}"></video>`:isPdf(f)?`<iframe src="${url}"></iframe>`:`<div class="empty">No inline preview. <a href="${url}&download=1" style="color:var(--gold2)">Download file</a></div>`}</div></div>`;
  document.body.appendChild(modal);modal.querySelector('.close').onclick=()=>modal.remove();modal.onclick=e=>{if(e.target===modal)modal.remove()};
 }
@@ -1902,7 +1902,7 @@ async function clientView(token){
       return '<img src="/api/public/thumb/'+id+'?token='+encoded+'&w=420&h=540" alt="" loading="'+loading+'" decoding="async" fetchpriority="'+priority+'">';
     }
     if(/^video\//.test(mime)){
-      return '<video src="'+esc(u)+'" muted autoplay loop playsinline preload="metadata" data-gallery-video></video><span class="playbadge">▶</span>';
+      return '<video src="/api/public/media/'+id+'?token='+encoded+'" muted autoplay loop playsinline preload="metadata" controlslist="nodownload" data-gallery-video></video><span class="playbadge">▶</span>';
     }
     if(/^audio\//.test(mime))return '<div class="fileicon">♪</div>';
     return '<div class="fileicon">'+esc(icon(f.original_name))+'</div>';
@@ -2009,9 +2009,9 @@ function clientPreview(f,direction){
  const previewHtml=isImg
    ?'<div class="fast-preview"><img id="previewFast" src="'+thumb+'" decoding="async" fetchpriority="high" alt=""><div class="previewloading" id="previewLoading">Loading preview…</div></div>'
    :isVid
-     ?'<div class="fast-preview"><div class="previewloading" id="previewLoading">Loading video…</div><video id="previewVideo" controls autoplay playsinline preload="metadata" src="'+esc(u)+'"></video></div>'
+     ?'<div class="fast-preview"><div class="previewloading" id="previewLoading">Loading video…</div><video id="previewVideo" controls autoplay playsinline preload="metadata" src="/api/public/media/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(tokenValue)+'"></video></div>'
      :isAud
-       ?'<div class="fast-preview"><div class="previewloading" id="previewLoading">Loading audio…</div><audio id="previewAudio" controls autoplay preload="metadata" src="'+esc(u)+'"></audio></div>'
+       ?'<div class="fast-preview"><div class="previewloading" id="previewLoading">Loading audio…</div><audio id="previewAudio" controls autoplay preload="metadata" src="/api/public/media/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(tokenValue)+'"></audio></div>'
        :isPdf
          ?'<iframe src="'+esc(u)+'"></iframe>'
          :'<div class="empty">Preview is not available for this file type in the browser.</div>';
