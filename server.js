@@ -2600,7 +2600,7 @@ async function streamStoredObject(req,res,f){
   res.set("X-Content-Type-Options","nosniff");
   res.set("Content-Type",contentType);
   res.set("Cache-Control","private, max-age=0, must-revalidate");
-  res.set("Content-Disposition","inline; filename*=UTF-8''"+encodeURIComponent(f.original_name||"file"));
+  res.set("Content-Disposition",(String(req.query.download||"") === "1" ? "attachment" : "inline")+"; filename*=UTF-8''"+encodeURIComponent(f.original_name||"file"));
   if(req.method==="HEAD"){
     res.set("Content-Length",String(size));
     return res.status(200).end();
