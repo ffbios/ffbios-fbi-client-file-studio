@@ -559,6 +559,37 @@ async function sha256Base64(blob){
   var digest=await crypto.subtle.digest("SHA-256",await blob.arrayBuffer());
   return bytesToBase64(new Uint8Array(digest));
 }
+async function prepareLargeFileIdentity(item){
+  // Avoid hashing an entire multi-GB file before upload. Instead derive a
+  // stable content identity from 8 MiB samples at the start, middle and end.
+  // This is used only to bind a resumable session to the selected file.
+  const sampleSize=Math.min(8*1024*1024,Math.floor(item.file.size/3)||1);
+  const points=item.file.size<=sampleSize*3
+    ? [0,Math.max(0,item.file.size-sampleSize)]
+    : [0,Math.floor((item.file.size-sampleSize)/2),item.file.size-sampleSize];
+  item.status="checking";
+  item.loadedBytes=0;
+  renderUploadQueue();
+  const rawHashes=[];
+  for(const start of points){
+    if(item.paused)throw new Error("Upload paused");
+    const blob=item.file.slice(start,Math.min(item.file.size,start+sampleSize));
+    rawHashes.push(new Uint8Array(await crypto.subtle.digest("SHA-256",await blob.arrayBuffer())));
+  }
+  const header=new TextEncoder().encode(String(item.file.size)+":"+String(item.file.lastModified||0)+":"+String(item.file.name||"")+":"+String(item.relativePath||"")+":sample-v2:");
+  const combined=new Uint8Array(header.length+rawHashes.length*32);
+  let offset=0;
+  combined.set(header,offset);offset+=header.length;
+  rawHashes.forEach(function(bytes){combined.set(bytes,offset);offset+=bytes.length});
+  item.fingerprint=bytesToBase64(new Uint8Array(await crypto.subtle.digest("SHA-256",combined)));
+  item.checksums=[];
+  item.fileChecksum=null;
+  item.integrityPartSize=0;
+  item.loadedBytes=0;
+  item.status="uploading";
+  renderUploadQueue();
+}
+
 async function prepareIntegrity(item){
   var partSize=chooseLocalPartSize(item.file.size||1);
   var totalParts=Math.max(1,Math.ceil(item.file.size/partSize));
@@ -841,8 +872,7 @@ async function uploadMultipart(item,session){
     if(item.file.size<=MAX_HASH_BEFORE_UPLOAD){
       await prepareIntegrity(item);
     }else{
-      item.checksums=[];item.fingerprint="";item.fileChecksum=null;item.status="uploading";item.loadedBytes=0;
-      renderUploadQueue();
+      await prepareLargeFileIdentity(item);
     }
     var session=await retry(function(){
       return api("/api/uploads/init",{
@@ -889,7 +919,17 @@ async function pumpUploads(){
 function uploadFiles(list){
   if(!list||!list.length||!current)return;
   Array.from(list).forEach(function(file){
-    uploadQueue.push({id:crypto.randomUUID(),projectId:current.id,file:file,relativePath:file.webkitRelativePath||file.name,totalBytes:file.size,loadedBytes:0,status:"queued",xhrs:new Set(),checksums:[]});
+    var relativePath=file.webkitRelativePath||file.name;
+    var duplicate=uploadQueue.some(function(x){
+      return x.projectId===current.id && x.status!=="cancelled" &&
+        x.file && x.file.name===file.name && x.file.size===file.size &&
+        (x.relativePath||x.file.name)===relativePath;
+    });
+    if(duplicate){
+      toast("This file is already in the upload queue: "+file.name);
+      return;
+    }
+    uploadQueue.push({id:crypto.randomUUID(),projectId:current.id,file:file,relativePath:relativePath,totalBytes:file.size,loadedBytes:0,status:"queued",xhrs:new Set(),checksums:[]});
   });
   if(!uploadTicker)uploadTicker=setInterval(renderUploadQueue,500);
   renderUploadQueue();pumpUploads();
