@@ -2088,6 +2088,31 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
             multipartUploadId:u.multipart_upload_id,resumed:true
           });
         }
+
+        // A multipart session can disappear because it was already completed
+        // just before the browser lost the final response. Before creating a
+        // replacement session, check whether the final object already exists.
+        let recoveredObject=null;
+        try{
+          recoveredObject=await headObjectWithRetry({Bucket:bucket(),Key:u.storage_key},3,300);
+        }catch{}
+        if(recoveredObject&&Number(recoveredObject.ContentLength||0)===Number(u.size_bytes)){
+          const existingFile=await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key]);
+          let fileRow=existingFile.rows[0];
+          if(!fileRow){
+            const ins=await pool.query(
+              "INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING *",
+              [uid(),u.project_id,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,Number(recoveredObject.ContentLength),u.relative_path,u.content_fingerprint||null]
+            );
+            fileRow=ins.rows[0]||(await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key])).rows[0];
+          }
+          if(fileRow){
+            await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
+            await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[u.project_id]);
+            return res.json({uploadId:u.id,mode:"multipart",size:Number(u.size_bytes),resumed:true,alreadyCompleted:true,file:fileRow});
+          }
+        }
+
         await s3.send(new AbortMultipartUploadCommand({
           Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id
         })).catch(function(){});
