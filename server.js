@@ -131,8 +131,8 @@ const SESSION_SECRET=process.env.SESSION_SECRET||crypto.randomBytes(32).toString
 const PUBLIC_BASE_URL=(process.env.PUBLIC_BASE_URL||"").replace(/\/+$/,"");
 const MAX_FILE_SIZE=5*1000*1000*1000*1000;
 const STORAGE_QUOTA_BYTES=Number(process.env.STORAGE_QUOTA_BYTES||100000000000000);
-const MIN_PART_SIZE=8*1024*1024;
-const TURBO_PART_SIZE=8*1024*1024;
+const MIN_PART_SIZE=16*1024*1024;
+const TURBO_PART_SIZE=16*1024*1024;
 const MAX_PARTS=10000;
 const PRESIGN_SECONDS=24*60*60;
 const UPLOAD_PROTOCOL_VERSION=3;
@@ -215,9 +215,9 @@ const s3=s3Ready()?new S3Client({
 const bucket=()=>process.env.S3_BUCKET;
 
 function choosePartSize(size){
-  // Stability-first multipart sizing. 64 MiB parts keep individual requests
-  // manageable on slower or less reliable client networks while remaining far
-  // below the S3-compatible 10,000-part limit for multi-terabyte files.
+  // Use 16 MiB parts as the normal floor. This keeps multipart requests
+  // reasonably large for throughput while staying well below the 10,000-part
+  // limit for the application's multi-terabyte file ceiling.
   var part=MIN_PART_SIZE;
   while(Math.ceil(size/part)>MAX_PARTS) part*=2;
   return part;
@@ -316,6 +316,24 @@ async function ensureBucketCors(){
   }
 }
 
+
+async function multipartUploadAlive(u){
+  if(!s3Ready()||!u?.multipart_upload_id)return false;
+  try{
+    await s3.send(new ListPartsCommand({
+      Bucket:bucket(),
+      Key:u.storage_key,
+      UploadId:u.multipart_upload_id,
+      MaxParts:1
+    }));
+    return true;
+  }catch(e){
+    const code=String(e?.Code||e?.name||"");
+    const status=Number(e?.$metadata?.httpStatusCode||0);
+    if(code==="NoSuchUpload"||code==="InvalidUploadId"||status===404)return false;
+    throw e;
+  }
+}
 
 async function initDb(){
   if(!process.env.DATABASE_URL)throw new Error("DATABASE_URL is missing");
@@ -2047,8 +2065,8 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
     if(existing.rowCount){
       var u=existing.rows[0];
       if(Number(u.upload_protocol_version||0)!==UPLOAD_PROTOCOL_VERSION){
-        // Retire sessions created by the older multipart protocol. Selecting the
-        // same file again then creates a clean v2 session automatically.
+        // Retire sessions created by an older multipart protocol. Selecting the
+        // same file again then creates a clean current-protocol session automatically.
         if(u.mode==="multipart"&&u.multipart_upload_id){
           await s3.send(new AbortMultipartUploadCommand({
             Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id
@@ -2059,10 +2077,22 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
         await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
         restartedLegacy=true;
       }else if(u.mode==="multipart"){
-        return res.json({
-          uploadId:u.id,mode:u.mode,partSize:Number(u.part_size),size:Number(u.size_bytes),
-          multipartUploadId:u.multipart_upload_id,resumed:true
-        });
+        // The database row can outlive the underlying S3 multipart session.
+        // Validate the real object-storage upload before handing the session
+        // back to the browser. If it is gone, retire the stale row and create
+        // a clean multipart session below.
+        const alive=await multipartUploadAlive(u);
+        if(alive){
+          return res.json({
+            uploadId:u.id,mode:u.mode,partSize:Number(u.part_size),size:Number(u.size_bytes),
+            multipartUploadId:u.multipart_upload_id,resumed:true
+          });
+        }
+        await s3.send(new AbortMultipartUploadCommand({
+          Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id
+        })).catch(function(){});
+        await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
+        restartedLegacy=true;
       }else{
         var singleUrl=await getSignedUrl(
           s3,
