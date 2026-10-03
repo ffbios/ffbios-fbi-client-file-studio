@@ -1962,7 +1962,7 @@ app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
   }else{
    url=await getSignedUrl(s3,new PutObjectCommand({Bucket:bucket(),Key:storageKey,ContentType:mimeType}),{expiresIn:3600});
   }
-  await pool.query("INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11)",[id,projectId,originalName,relativePath,storageKey,mimeType,size,mode==="multipart"?partSize:size,multipartUploadId,mode,fingerprint||null]);
+  await pool.query("INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status,content_fingerprint,upload_protocol_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12)",[id,projectId,originalName,relativePath,storageKey,mimeType,size,mode==="multipart"?partSize:size,multipartUploadId,mode,fingerprint||null,UPLOAD_PROTOCOL_VERSION]);
   res.json({uploadId:id,mode:mode,partSize:mode==="multipart"?partSize:size,size:size,url:url,multipartUploadId:multipartUploadId});
  }catch(e){console.error(e);res.status(500).json({error:"Could not initialize cloud upload."})}
 });
