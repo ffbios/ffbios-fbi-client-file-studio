@@ -917,7 +917,7 @@ app.patch("/api/portal/projects/:id",portalUser,async(req,res)=>{
  catch(e){console.error(e);res.status(500).json({error:"Could not update project."})}
 });
 app.post("/api/portal/projects/:id/share",portalUser,async(req,res)=>{
- try{const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const r=await pool.query("UPDATE projects SET share_token=$1,shared=true,updated_at=now() WHERE id=$2 AND owner_id=$3 RETURNING *",[token(),p.id,req.portalUser.id]);res.json({project:r.rows[0],share_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/share/"+r.rows[0].share_token});}
+ try{const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const r=await pool.query("UPDATE projects SET share_token=$1,shared=true,updated_at=now() WHERE id=$2 AND owner_id=$3 RETURNING *",[token(),p.id,req.portalUser.id]);res.json({project:r.rows[0],share_url:(req.protocol+"://"+req.get("host"))+"/share/"+r.rows[0].share_token});}
  catch(e){console.error(e);res.status(500).json({error:"Could not create client share link."})}
 });
 app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
@@ -2690,7 +2690,7 @@ app.get("/api/public/share/:token",async(req,res)=>{
   if(!q.rowCount)return res.status(404).json({error:"This delivery link is invalid, disabled, or expired."});
   const p=q.rows[0];if(p.expires_at&&new Date(p.expires_at).getTime()<Date.now())return res.status(404).json({error:"This delivery link has expired."});
   const f=await pool.query("SELECT id,original_name,relative_path,mime_type,size_bytes,created_at FROM files WHERE project_id=$1 ORDER BY relative_path ASC,created_at DESC",[p.id]);
-  const base=PUBLIC_BASE_URL||`${req.protocol}://${req.get("host")}`;
+  const base=`${req.protocol}://${req.get("host")}`;
   const settings=await loadSettings();
   res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
   res.set("Pragma","no-cache");
