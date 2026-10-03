@@ -691,9 +691,9 @@ function xhrPut(url,blob,headers,item,onProgress){
     x.onabort=function(){finish(false,new Error("Upload paused"))};
     x.ontimeout=function(){finish(false,new Error("Upload timed out"))};
     watchdog=setInterval(function(){
-      // Each part is only 8 MiB on the normal path. Three minutes without a
-      // progress event means the individual connection is genuinely stalled.
-      if(!settled&&Date.now()-lastProgressAt>180000){
+      // Allow very slow but still progressing links. A part must make no upload
+      // progress for ten full minutes before we declare the connection stalled.
+      if(!settled&&Date.now()-lastProgressAt>600000){
         finish(false,new Error("Upload part stalled; reconnecting…"));
         try{x.abort()}catch{}
       }
@@ -947,7 +947,7 @@ function pauseUpload(id){
 }
 function resumeUpload(id){
   var item=uploadQueue.find(function(x){return x.id===id});if(!item)return;
-  item.paused=false;item.error="";item.completionRemark="";item.status="queued";item.startedAt=Date.now();pumpUploads();
+  item.paused=false;item.error="";item.completionRemark="";item.sessionRecoveryAttempts=0;item.status="queued";item.startedAt=Date.now();pumpUploads();
 }
 async function cancelUpload(id){
   var item=uploadQueue.find(function(x){return x.id===id});if(!item)return;
@@ -961,7 +961,7 @@ async function startFreshUpload(id){
   item.paused=true;
   Array.from(item.xhrs||[]).forEach(function(x){try{x.abort()}catch{}});
   if(item.sessionId)await api("/api/uploads/"+item.sessionId+"/abort",{method:"POST"}).catch(function(){});
-  item.sessionId=null;item.mode=null;item.resumed=false;item.loadedBytes=0;item.partLoaded=new Map();item.checksums=[];item.fingerprint="";item.fileChecksum=null;item.error="";item.completionRemark="";
+  item.sessionId=null;item.mode=null;item.resumed=false;item.sessionRecoveryAttempts=0;item.loadedBytes=0;item.partLoaded=new Map();item.checksums=[];item.fingerprint="";item.fileChecksum=null;item.error="";item.completionRemark="";
   item.paused=false;item.status="queued";item.startedAt=Date.now();
   renderUploadQueue();toast("Partial upload deleted. Starting fresh…");pumpUploads();
 }
