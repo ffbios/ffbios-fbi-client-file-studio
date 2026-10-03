@@ -90,7 +90,7 @@ async function api(url,opt={}){
     clearTimeout(timeoutId);
   }
 }
-const PART_SIZE=16*1024*1024,PART_CONCURRENCY=6,FILE_CONCURRENCY=1,MAX_HASH_BEFORE_UPLOAD=512*1000*1000,MAX_PARTS=10000;
+const PART_SIZE=64*1024*1024,PART_CONCURRENCY=3,FILE_CONCURRENCY=1,MAX_HASH_BEFORE_UPLOAD=512*1000*1000,MAX_PARTS=10000,UPLOAD_PART_STALL_MS=2*60*1000;
 function bytesToBase64(bytes){let out="";for(let i=0;i<bytes.length;i++)out+=String.fromCharCode(bytes[i]);return btoa(out)}
 async function fileFingerprint(item){
   if(item.fingerprint)return;
@@ -124,7 +124,7 @@ function put(url,blob,item,onProgress,headers={}){
     x.onload=()=>{if(x.status>=200&&x.status<300)finish(true,x.getResponseHeader("ETag")||"");else{const e=new Error("Upload HTTP "+x.status);e.httpStatus=x.status;finish(false,e)}};
     x.onerror=()=>finish(false,new Error("Network error during upload"));
     x.onabort=()=>finish(false,new Error("Upload paused"));
-    const guard=setInterval(()=>{if(!settled&&Date.now()-lastProgressAt>600000){const e=new Error("Upload part stalled; reconnecting…");finish(false,e);try{x.abort()}catch{}}},10000);
+    const guard=setInterval(()=>{if(!settled&&Date.now()-lastProgressAt>UPLOAD_PART_STALL_MS){const e=new Error("Upload part stalled; reconnecting…");finish(false,e);try{x.abort()}catch{}}},10000);
     x.addEventListener("loadend",()=>clearInterval(guard),{once:true});
     x.send(blob);
   });
