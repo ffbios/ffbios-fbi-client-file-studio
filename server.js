@@ -2177,7 +2177,16 @@ app.get("/api/uploads/:id/state",admin,async(req,res)=>{
       marker=r.NextPartNumberMarker;
     }
     res.json({uploadId:u.id,mode:u.mode,status:u.status,partSize:Number(u.part_size),size:Number(u.size_bytes),parts:parts});
-  }catch(e){console.error(e);res.status(500).json({error:"Could not read upload state."})}
+  }catch(e){
+    const code=String(e?.Code||e?.name||"");
+    const status=Number(e?.$metadata?.httpStatusCode||0);
+    if(code==="NoSuchUpload"||code==="InvalidUploadId"||status===404){
+      await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[req.params.id]).catch(function(){});
+      return res.status(410).json({error:"The cloud multipart session is no longer available.",code:"UPLOAD_SESSION_GONE"});
+    }
+    console.error(e);
+    res.status(500).json({error:"Could not read upload state."});
+  }
 });
 
 app.post("/api/uploads/:id/parts",admin,async(req,res)=>{
@@ -2188,6 +2197,11 @@ app.post("/api/uploads/:id/parts",admin,async(req,res)=>{
     var u=q.rows[0];
     await pool.query("UPDATE upload_sessions SET updated_at=now() WHERE id=$1 AND status='active'",[u.id]);
     if(u.mode!=="multipart"||!u.multipart_upload_id)return res.status(400).json({error:"This upload does not use multipart storage."});
+    const alive=await multipartUploadAlive(u);
+    if(!alive){
+      await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
+      return res.status(409).json({error:"The cloud multipart session is no longer available. A new upload session is required.",code:"UPLOAD_SESSION_GONE"});
+    }
     var requested=Array.isArray(req.body.parts)?req.body.parts.map(function(x){return {partNumber:Number(x.partNumber),checksum:String(x.checksum||"").trim()};}):[];
     if(!requested.length&&Array.isArray(req.body.partNumbers)){
       requested=req.body.partNumbers.map(function(n){return {partNumber:Number(n),checksum:""};});
