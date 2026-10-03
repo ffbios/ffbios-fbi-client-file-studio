@@ -2043,6 +2043,7 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
       "SELECT * FROM upload_sessions WHERE project_id=$1 AND original_name=$2 AND relative_path=$3 AND size_bytes=$4 AND status='active' ORDER BY created_at DESC LIMIT 1",
       [projectId,originalName,relativePath,size]
     );
+    var restartedLegacy=false;
     if(existing.rowCount){
       var u=existing.rows[0];
       if(Number(u.upload_protocol_version||0)!==UPLOAD_PROTOCOL_VERSION){
@@ -2056,6 +2057,7 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
           await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:u.storage_key})).catch(function(){});
         }
         await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
+        restartedLegacy=true;
       }else if(u.mode==="multipart"){
         return res.json({
           uploadId:u.id,mode:u.mode,partSize:Number(u.part_size),size:Number(u.size_bytes),
@@ -2109,7 +2111,7 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
       "INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status,content_fingerprint,upload_protocol_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12)",
       [id,projectId,originalName,relativePath,storageKey,mimeType,size,mode==="multipart"?partSize:size,multipartUploadId,mode,fingerprint||null,UPLOAD_PROTOCOL_VERSION]
     );
-    res.json({uploadId:id,mode,partSize,size,url,multipartUploadId,checksum:checksum||null,fingerprint:fingerprint||null});
+    res.json({uploadId:id,mode,partSize,size,url,multipartUploadId,checksum:checksum||null,fingerprint:fingerprint||null,restartedLegacy});
   }catch(e){console.error(e);res.status(500).json({error:"Could not initialize cloud upload."})}
 });
 
