@@ -286,7 +286,9 @@ async function inspectPendingUpload(u){
   }
   const partSize=Math.max(1,Number(u.part_size||MIN_PART_SIZE));
   const totalParts=Math.max(1,Math.ceil(totalSize/partSize));
-  const parts=await listMultipartPartsDetailed(u);
+  const allParts=await listMultipartPartsDetailed(u);
+  // Only expected part numbers can contribute to completion.
+  const parts=allParts.filter(function(p){return p.partNumber>=1&&p.partNumber<=totalParts});
   const byPart=new Map(parts.map(p=>[p.partNumber,p]));
   const missingParts=[];
   for(let i=1;i<=totalParts;i++)if(!byPart.has(i))missingParts.push(i);
@@ -1983,14 +1985,22 @@ app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
     await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
   }
   const id=uid(),partSize=choosePartSize(size||1),mode=size>=MIN_PART_SIZE?"multipart":"single",storageKey="projects/"+projectId+"/"+id+"/"+relativePath;
-  let multipartUploadId=null,url=null;
-  if(mode==="multipart"){
-   const created=await s3.send(new CreateMultipartUploadCommand({Bucket:bucket(),Key:storageKey,ContentType:mimeType}));
-   multipartUploadId=created.UploadId;
-  }else{
-   url=await getSignedUrl(s3,new PutObjectCommand({Bucket:bucket(),Key:storageKey,ContentType:mimeType}),{expiresIn:3600});
+  let multipartUploadId=null,url=null,createdMultipartUploadId=null;
+  try{
+    if(mode==="multipart"){
+      const created=await s3.send(new CreateMultipartUploadCommand({Bucket:bucket(),Key:storageKey,ContentType:mimeType}));
+      multipartUploadId=created.UploadId;
+      createdMultipartUploadId=multipartUploadId;
+    }else{
+      url=await getSignedUrl(s3,new PutObjectCommand({Bucket:bucket(),Key:storageKey,ContentType:mimeType}),{expiresIn:3600});
+    }
+    await pool.query("INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status,content_fingerprint,upload_protocol_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12)",[id,projectId,originalName,relativePath,storageKey,mimeType,size,mode==="multipart"?partSize:size,multipartUploadId,mode,fingerprint||null,UPLOAD_PROTOCOL_VERSION]);
+  }catch(createOrRecordError){
+    if(createdMultipartUploadId){
+      await s3.send(new AbortMultipartUploadCommand({Bucket:bucket(),Key:storageKey,UploadId:createdMultipartUploadId})).catch(function(){});
+    }
+    throw createOrRecordError;
   }
-  await pool.query("INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status,content_fingerprint,upload_protocol_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12)",[id,projectId,originalName,relativePath,storageKey,mimeType,size,mode==="multipart"?partSize:size,multipartUploadId,mode,fingerprint||null,UPLOAD_PROTOCOL_VERSION]);
   res.json({uploadId:id,mode:mode,partSize:mode==="multipart"?partSize:size,size:size,url:url,multipartUploadId:multipartUploadId});
  }catch(e){console.error(e);res.status(500).json({error:"Could not initialize cloud upload."})}
 });
@@ -2029,7 +2039,9 @@ app.post("/api/portal/uploads/:id/parts",portalUser,async(req,res)=>{
     await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
     return res.status(409).json({error:"The cloud multipart session is no longer available. A new upload session is required.",code:"UPLOAD_SESSION_GONE"});
   }
-  const requested=(Array.isArray(req.body.parts)?req.body.parts:[]).map(function(x){return {partNumber:Number(x.partNumber)}}).filter(function(x){return Number.isInteger(x.partNumber)&&x.partNumber>0&&x.partNumber<=MAX_PARTS});
+  const totalParts=Math.max(1,Math.ceil(Number(u.size_bytes||0)/Math.max(1,Number(u.part_size||MIN_PART_SIZE))));
+  const requestedRaw=(Array.isArray(req.body.parts)?req.body.parts:[]).map(function(x){return {partNumber:Number(x.partNumber)}});
+  const requested=Array.from(new Set(requestedRaw.filter(function(x){return Number.isInteger(x.partNumber)&&x.partNumber>0&&x.partNumber<=MAX_PARTS&&x.partNumber<=totalParts}).map(function(x){return x.partNumber}))).map(function(partNumber){return {partNumber:partNumber}});
   if(!requested.length||requested.length>25)return res.status(400).json({error:"Provide 1 to 25 part numbers."});
   const parts=await Promise.all(requested.map(async function(x){
    const partUrl=await getSignedUrl(s3,new UploadPartCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,PartNumber:x.partNumber}),{expiresIn:PRESIGN_SECONDS});
@@ -2215,22 +2227,33 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
     var storageKey="projects/"+projectId+"/"+id+"/"+relativePath;
     var multipartUploadId=null;
     var url=null;
-    if(mode==="multipart"){
-      // Plain multipart upload. Browser uploads do not pre-hash multi-GB files,
-      // so do not opt into composite SHA-256 checksums for those uploads.
-      var created=await s3.send(new CreateMultipartUploadCommand({
-        Bucket:bucket(),Key:storageKey,ContentType:mimeType
-      }));
-      multipartUploadId=created.UploadId;
-    }else{
-      var putInput={Bucket:bucket(),Key:storageKey,ContentType:mimeType};
-      if(checksum)putInput.ChecksumSHA256=checksum;
-      url=await getSignedUrl(s3,new PutObjectCommand(putInput),{expiresIn:3600});
+    var createdMultipartUploadId=null;
+    try{
+      if(mode==="multipart"){
+        // Plain multipart upload. Browser uploads do not pre-hash multi-GB files,
+        // so do not opt into composite SHA-256 checksums for those uploads.
+        var created=await s3.send(new CreateMultipartUploadCommand({
+          Bucket:bucket(),Key:storageKey,ContentType:mimeType
+        }));
+        multipartUploadId=created.UploadId;
+        createdMultipartUploadId=multipartUploadId;
+      }else{
+        var putInput={Bucket:bucket(),Key:storageKey,ContentType:mimeType};
+        if(checksum)putInput.ChecksumSHA256=checksum;
+        url=await getSignedUrl(s3,new PutObjectCommand(putInput),{expiresIn:3600});
+      }
+      await pool.query(
+        "INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status,content_fingerprint,upload_protocol_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12)",
+        [id,projectId,originalName,relativePath,storageKey,mimeType,size,mode==="multipart"?partSize:size,multipartUploadId,mode,fingerprint||null,UPLOAD_PROTOCOL_VERSION]
+      );
+    }catch(createOrRecordError){
+      if(createdMultipartUploadId){
+        await s3.send(new AbortMultipartUploadCommand({
+          Bucket:bucket(),Key:storageKey,UploadId:createdMultipartUploadId
+        })).catch(function(){});
+      }
+      throw createOrRecordError;
     }
-    await pool.query(
-      "INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status,content_fingerprint,upload_protocol_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12)",
-      [id,projectId,originalName,relativePath,storageKey,mimeType,size,mode==="multipart"?partSize:size,multipartUploadId,mode,fingerprint||null,UPLOAD_PROTOCOL_VERSION]
-    );
     res.json({uploadId:id,mode,partSize,size,url,multipartUploadId,checksum:checksum||null,fingerprint:fingerprint||null,restartedLegacy});
   }catch(e){console.error(e);res.status(500).json({error:"Could not initialize cloud upload."})}
 });
@@ -2296,7 +2319,9 @@ app.post("/api/uploads/:id/parts",admin,async(req,res)=>{
     if(!requested.length&&Array.isArray(req.body.partNumbers)){
       requested=req.body.partNumbers.map(function(n){return {partNumber:Number(n),checksum:""};});
     }
-    requested=requested.filter(function(x){return Number.isInteger(x.partNumber)&&x.partNumber>0&&x.partNumber<=MAX_PARTS;});
+    var totalParts=Math.max(1,Math.ceil(Number(u.size_bytes||0)/Math.max(1,Number(u.part_size||MIN_PART_SIZE))));
+    requested=requested.filter(function(x){return Number.isInteger(x.partNumber)&&x.partNumber>0&&x.partNumber<=MAX_PARTS&&x.partNumber<=totalParts;});
+    requested=Array.from(new Set(requested.map(function(x){return x.partNumber;}))).map(function(partNumber){return {partNumber:partNumber,checksum:""};});
     if(!requested.length||requested.length>25)return res.status(400).json({error:"Provide 1 to 25 part numbers."});
     var parts=[];
     for(var i=0;i<requested.length;i++){
