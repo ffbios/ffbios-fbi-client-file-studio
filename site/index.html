@@ -534,9 +534,9 @@ async function saveProject(){
 
 let uploadQueue=[];
 let uploadTicker=null;
-const PART_CONCURRENCY=4;
+const PART_CONCURRENCY=6;
 const FILE_CONCURRENCY=1;
-const MIN_PART_SIZE=8*1024*1024;
+const MIN_PART_SIZE=16*1024*1024;
 const MAX_HASH_BEFORE_UPLOAD=512*1000*1000;
 const MAX_PARTS=10000;
 
@@ -719,94 +719,73 @@ async function uploadMultipart(item,session){
     item.partLoaded.set(pn,Math.max(0,end-start));
     partsByNumber.set(pn,{partNumber:pn,etag:p.etag});
   });
-  item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(a,b){return a+b},0);
+  item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(x,y){return x+y},0);
 
   var missing=[];
   for(var pn=1;pn<=totalParts;pn++)if(!completed.has(pn))missing.push(pn);
   renderUploadQueue();
 
-  var cursor=0;
-  var signedByPart=new Map();
-
-  async function signNextWindow(){
-    if(cursor>=missing.length)return;
-    var window=missing.slice(cursor,Math.min(cursor+20,missing.length));
-    var signed=await retry(function(){
-      return getPartUrls(item.sessionId,window.map(function(partNumber){
-        return {partNumber:partNumber,checksum:""};
-      }));
-    },5);
-    signed.forEach(function(x){signedByPart.set(Number(x.partNumber),x)});
-    cursor+=window.length;
+  var nextToSign=0,signedQueue=[],signedByPart=new Map(),fillPromise=null;
+  async function ensureSignedWindow(){
+    if(fillPromise)return fillPromise;
+    fillPromise=(async function(){
+      while(signedQueue.length<PART_CONCURRENCY*2&&nextToSign<missing.length){
+        var count=Math.min(PART_CONCURRENCY*2-signedQueue.length,missing.length-nextToSign);
+        var window=missing.slice(nextToSign,nextToSign+count);
+        var signed=await retry(function(){
+          return getPartUrls(item.sessionId,window.map(function(n){return {partNumber:n,checksum:""}}));
+        },5);
+        var got=new Set();
+        signed.forEach(function(x){
+          var n=Number(x.partNumber);
+          if(!x.url||got.has(n))return;
+          got.add(n);signedByPart.set(n,x);signedQueue.push(n);
+        });
+        nextToSign+=window.length;
+        if(got.size!==window.length)throw new Error("Could not prepare all requested upload parts.");
+      }
+    })();
+    try{return await fillPromise}finally{fillPromise=null}
   }
 
-  await signNextWindow();
+  async function uploadPart(partNumber,signed){
+    var start=(partNumber-1)*partSize,end=Math.min(item.file.size,start+partSize),blob=item.file.slice(start,end);
+    var attempt=0;
+    while(true){
+      if(item.paused)throw new Error("Upload paused");
+      attempt++;
+      item.partLoaded.set(partNumber,0);
+      item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(x,y){return x+y},0);
+      scheduleUploadQueueRender();
+      try{
+        var out=await xhrPut(signed.url,blob,{},item,function(n){
+          item.partLoaded.set(partNumber,n);
+          item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(x,y){return x+y},0);
+          scheduleUploadQueueRender();
+        });
+        return out;
+      }catch(e){
+        if(attempt>=5)throw e;
+        var fresh=await retry(function(){return getPartUrls(item.sessionId,[{partNumber:partNumber,checksum:""}])},5);
+        signed=fresh&&fresh[0];
+        if(!signed||!signed.url)throw e;
+        await wait(Math.min(15000,1000*Math.pow(2,attempt-1)+Math.floor(Math.random()*500)));
+      }
+    }
+  }
 
-  var workerCursor=0;
   async function worker(){
     while(true){
       if(item.paused)throw new Error("Upload paused");
-      var pos=workerCursor++;
-      if(pos>=missing.length)return;
-      var partNumber=missing[pos];
-
-      if(!signedByPart.has(partNumber)){
-        // Rolling refill. Only request another batch when the next worker
-        // reaches an unsigned part.
-        var refill=missing.slice(Math.max(0,missing.length-signedByPart.size),Math.min(missing.length,Math.max(0,missing.length-signedByPart.size)+20));
-        if(refill.length){
-          var signed=await retry(function(){
-            return getPartUrls(item.sessionId,refill.map(function(n){return {partNumber:n,checksum:""}}));
-          },5);
-          signed.forEach(function(x){signedByPart.set(Number(x.partNumber),x)});
-        }
-      }
-
-      var start=(partNumber-1)*partSize,end=Math.min(item.file.size,start+partSize),blob=item.file.slice(start,end);
-      var checksum="";
-      var attempt=0,out=null;
-
-      while(!out){
-        if(item.paused)throw new Error("Upload paused");
-        attempt++;
-        var signed=signedByPart.get(partNumber);
-        if(!signed||!signed.url){
-          var fresh=await retry(function(){
-            return getPartUrls(item.sessionId,[{partNumber:partNumber,checksum:""}]);
-          },5);
-          signed=fresh[0];
-          if(signed)signedByPart.set(partNumber,signed);
-        }
-        if(!signed||!signed.url)throw new Error("Could not prepare upload part "+partNumber);
-
-        item.partLoaded.set(partNumber,0);
-        item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(a,b){return a+b},0);
-        scheduleUploadQueueRender();
-
-        try{
-          var headers={};
-          out=await xhrPut(signed.url,blob,headers,item,function(n){
-            item.partLoaded.set(partNumber,n);
-            item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(a,b){return a+b},0);
-            scheduleUploadQueueRender();
-          });
-        }catch(e){
-          // Every retry gets a fresh presigned URL. This avoids repeatedly
-          // hammering a possibly stale URL after a transient network failure.
-          out=null;
-          signedByPart.delete(partNumber);
-          if(attempt>=5)throw e;
-          await wait(Math.min(15000,1000*Math.pow(2,attempt-1)+Math.floor(Math.random()*500)));
-        }
-      }
-
+      await ensureSignedWindow();
+      if(!signedQueue.length)return;
+      var partNumber=signedQueue.shift();
+      var signed=signedByPart.get(partNumber);
+      signedByPart.delete(partNumber);
+      if(!signed||!signed.url)throw new Error("Could not prepare upload part "+partNumber);
+      var out=await uploadPart(partNumber,signed);
       partsByNumber.set(partNumber,{partNumber:partNumber,etag:out.etag});
-
-      // Keep the signing window topped up while workers are active.
-      var unsignedCount=missing.filter(function(n){return !signedByPart.has(n)}).length;
-      if(unsignedCount<4 && cursor<missing.length){
-        await signNextWindow();
-      }
+      await ensureSignedWindow();
     }
   }
 
@@ -815,16 +794,12 @@ async function uploadMultipart(item,session){
   await Promise.all(workers);
 
   if(item.paused)throw new Error("Upload paused");
-  var parts=Array.from(partsByNumber.values()).sort(function(a,b){return a.partNumber-b.partNumber;});
+  var parts=Array.from(partsByNumber.values()).sort(function(x,y){return x.partNumber-y.partNumber});
+  if(parts.length!==totalParts)throw new Error("Upload did not account for every multipart section.");
   await retry(function(){
     return api("/api/uploads/"+item.sessionId+"/complete",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
+      method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({parts:parts})
-    }).catch(async function(e){
-      // Server-side completion verifies the bucket's actual parts. A 409 means
-      // a part arrived after the browser lost its response; refresh state once.
-      throw e;
     });
   },5);
   item.loadedBytes=item.totalBytes;
