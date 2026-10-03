@@ -135,7 +135,7 @@ const MIN_PART_SIZE=16*1024*1024;
 const TURBO_PART_SIZE=16*1024*1024;
 const MAX_PARTS=10000;
 const PRESIGN_SECONDS=24*60*60;
-const UPLOAD_PROTOCOL_VERSION=3;
+const UPLOAD_PROTOCOL_VERSION=4;
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_URL?{rejectUnauthorized:false}:false});
 
@@ -1939,6 +1939,21 @@ app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
    const dup=await pool.query("SELECT * FROM files WHERE project_id=$1 AND content_fingerprint=$2 AND size_bytes=$3 LIMIT 1",[projectId,fingerprint,size]);
    if(dup.rowCount)return res.json({uploadId:null,deduplicated:true,mode:"deduplicated",size:size,file:dup.rows[0]});
   }
+  const existing=await pool.query("SELECT * FROM upload_sessions WHERE project_id=$1 AND original_name=$2 AND relative_path=$3 AND size_bytes=$4 AND status='active' AND content_fingerprint=$5 ORDER BY created_at DESC LIMIT 1",[projectId,originalName,relativePath,size,fingerprint||""]);
+  if(existing.rowCount){
+    const u=existing.rows[0];
+    if(Number(u.upload_protocol_version||0)===UPLOAD_PROTOCOL_VERSION){
+      if(u.mode==="multipart"&&await multipartUploadAlive(u)){
+        return res.json({uploadId:u.id,mode:u.mode,partSize:Number(u.part_size),size:Number(u.size_bytes),multipartUploadId:u.multipart_upload_id,resumed:true});
+      }
+      if(u.mode==="single"){
+        const singleUrl=await getSignedUrl(s3,new PutObjectCommand({Bucket:bucket(),Key:u.storage_key,ContentType:u.mime_type}),{expiresIn:24*60*60});
+        return res.json({uploadId:u.id,mode:"single",size:Number(u.size_bytes),url:singleUrl,resumed:true});
+      }
+    }
+    if(u.mode==="multipart"&&u.multipart_upload_id)await s3.send(new AbortMultipartUploadCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id})).catch(function(){});
+    await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
+  }
   const id=uid(),partSize=choosePartSize(size||1),mode=size>=MIN_PART_SIZE?"multipart":"single",storageKey="projects/"+projectId+"/"+id+"/"+relativePath;
   let multipartUploadId=null,url=null;
   if(mode==="multipart"){
@@ -2057,10 +2072,16 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
     var pr=await pool.query("SELECT id FROM projects WHERE id=$1 AND archived=false",[projectId]);
     if(!pr.rowCount)return res.status(404).json({error:"Project not found."});
 
-    var existing=await pool.query(
-      "SELECT * FROM upload_sessions WHERE project_id=$1 AND original_name=$2 AND relative_path=$3 AND size_bytes=$4 AND status='active' ORDER BY created_at DESC LIMIT 1",
-      [projectId,originalName,relativePath,size]
-    );
+    var existingSql="SELECT * FROM upload_sessions WHERE project_id=$1 AND original_name=$2 AND relative_path=$3 AND size_bytes=$4 AND status='active'";
+    var existingValues=[projectId,originalName,relativePath,size];
+    if(fingerprint){
+      existingSql+=" AND content_fingerprint=$5";
+      existingValues.push(fingerprint);
+    }else{
+      existingSql+=" AND content_fingerprint IS NULL";
+    }
+    existingSql+=" ORDER BY created_at DESC LIMIT 1";
+    var existing=await pool.query(existingSql,existingValues);
     var restartedLegacy=false;
     if(existing.rowCount){
       var u=existing.rows[0];
