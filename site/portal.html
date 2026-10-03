@@ -91,6 +91,233 @@ async function api(url,opt={}){
   }
 }
 const PART_SIZE=64*1024*1024,PART_CONCURRENCY=3,FILE_CONCURRENCY=1,MAX_HASH_BEFORE_UPLOAD=512*1000*1000,MAX_PARTS=10000,UPLOAD_PART_STALL_MS=2*60*1000;
+
+function setAuthMode(mode){
+  authMode=mode==="login"?"login":"signup";
+  const login=authMode==="login";
+  document.querySelector("#authTitle").textContent=login?"Sign in to your account":"Create your account";
+  document.querySelector("#authSubmit").textContent=login?"Sign In":"Create Account";
+  document.querySelector("#switchAuth").textContent=login?"Need an account? Create one":"Already have an account? Sign in";
+  document.querySelector("#nameField").style.display=login?"none":"grid";
+  document.querySelector("#authName").required=!login;
+  document.querySelector("#authName").value="";
+  document.querySelector("#authPassword").value="";
+  document.querySelector("#authError").textContent="";
+}
+
+function portalProjectUrl(token){
+  return (location.origin||"")+"/share/"+encodeURIComponent(token||"");
+}
+
+function renderPortalProjectList(){
+  const box=document.querySelector("#projectList");if(!box)return;
+  if(!projects.length){box.innerHTML='<div class="empty">No projects yet. Create your first project.</div>';return}
+  box.innerHTML=projects.map(function(p){
+    return '<button type="button" class="project '+(current&&current.id===p.id?'active':'')+'" data-project-id="'+esc(p.id)+'">'+
+      '<b>'+esc(p.name)+'</b><span>'+esc(p.client_name||"No client")+' • '+Number(p.file_count||0)+' files • '+fmt(p.total_bytes||0)+'</span></button>';
+  }).join("");
+  box.querySelectorAll("[data-project-id]").forEach(function(b){
+    b.onclick=function(){openProject(b.dataset.projectId).catch(function(e){toastPortal(e.message)})};
+  });
+}
+
+async function loadProjects(){
+  const d=await api("/api/portal/projects");
+  projects=Array.isArray(d.projects)?d.projects:[];
+  renderPortalProjectList();
+  if(current&&projects.some(function(p){return p.id===current.id}))await openProject(current.id);
+}
+
+function toastPortal(message){
+  const old=document.querySelector("#portalToast");if(old)old.remove();
+  const t=document.createElement("div");t.id="portalToast";t.textContent=String(message||"");
+  t.style.cssText="position:fixed;right:16px;bottom:16px;z-index:50;padding:10px 12px;border:1px solid var(--border);background:#18181b;color:#f4f4f5;border-radius:10px;font-size:9px;box-shadow:0 10px 30px rgba(0,0,0,.35)";
+  document.body.appendChild(t);setTimeout(function(){t.remove()},2800);
+}
+
+function mediaType(f){
+  const m=String(f&&f.mime_type||"").toLowerCase();
+  if(/^image\//.test(m))return"image";
+  if(/^video\//.test(m))return"video";
+  if(/^audio\//.test(m))return"audio";
+  if(m==="application/pdf"||/\.pdf$/i.test(f&&f.original_name||""))return"pdf";
+  return"file";
+}
+
+function portalFileUrl(f,download){
+  const base="/api/portal/media/"+encodeURIComponent(f.id);
+  return download?base+"?download=1":base;
+}
+
+function openPortalPreview(f){
+  if(!f)return;
+  const type=mediaType(f),m=document.createElement("div");
+  m.className="viewer show";
+  const src=portalFileUrl(f,false);
+  let body="";
+  if(type==="image")body='<img src="/api/portal/thumb/'+encodeURIComponent(f.id)+'?w=900&h=900" alt="">';
+  else if(type==="video")body='<video controls autoplay playsinline preload="metadata" src="'+src+'"></video>';
+  else if(type==="audio")body='<audio controls autoplay preload="metadata" src="'+src+'"></audio>';
+  else if(type==="pdf")body='<iframe src="'+src+'"></iframe>';
+  else body='<div class="empty">Browser preview is not available for this file type.<br><a href="'+portalFileUrl(f,true)+'" target="_blank" rel="noreferrer" style="color:var(--gold2)">Download file</a></div>';
+  m.innerHTML='<div class="viewerbox"><div class="vh"><b>'+esc(f.original_name)+'</b><button class="close">×</button></div><div class="vc">'+body+'</div></div>';
+  document.body.appendChild(m);
+  m.querySelector(".close").onclick=function(){m.remove()};
+  m.onclick=function(e){if(e.target===m)m.remove()};
+}
+
+function renderProjectFiles(){
+  const box=document.querySelector("#portalFiles");if(!box)return;
+  const files=current&&Array.isArray(current.files)?current.files:[];
+  if(!files.length){box.innerHTML='<div class="empty">No files in this project yet.</div>';return}
+  box.innerHTML=files.map(function(f){
+    const type=mediaType(f),thumb=type==="image"
+      ?'<img src="/api/portal/thumb/'+encodeURIComponent(f.id)+'?w=640&h=480" alt="" loading="lazy">'
+      :type==="video"
+        ?'<video src="/api/portal/media/'+encodeURIComponent(f.id)+'" muted playsinline preload="metadata"></video><span class="playbadge">▶</span>'
+        :'<div style="min-height:150px;display:grid;place-items:center;font-size:28px">'+(type==="audio"?"♪":type==="pdf"?"📕":"📎")+'</div>';
+    return '<article class="media" data-id="'+esc(f.id)+'"><div class="media-thumb">'+thumb+'</div><div class="media-body"><div class="media-name" title="'+esc(f.original_name)+'">'+esc(f.original_name)+'</div><div class="media-meta">'+fmt(f.size_bytes||0)+' • '+esc(f.mime_type||"")+'</div></div><div class="media-foot"><button type="button" data-preview="'+esc(f.id)+'">Preview</button><a href="'+portalFileUrl(f,true)+'" target="_blank" rel="noreferrer">Download</a></div></article>';
+  }).join("");
+  box.querySelectorAll("[data-preview]").forEach(function(b){
+    b.onclick=function(){const f=files.find(function(x){return x.id===b.dataset.preview});openPortalPreview(f)};
+  });
+  box.querySelectorAll(".media").forEach(function(card){
+    card.ondblclick=function(){const f=files.find(function(x){return x.id===card.dataset.id});openPortalPreview(f)};
+  });
+}
+
+function renderPortalCurrent(){
+  const panel=document.querySelector("#projectPanel");if(!panel)return;
+  if(!current){
+    panel.innerHTML='<div class="empty">Select a project or create your first one.</div>';
+    document.querySelector("#shareBtn").style.display="none";
+    document.querySelector("#deleteBtn").style.display="none";
+    return;
+  }
+  const files=current.files||[];
+  const shareUrl=current.shared?portalProjectUrl(current.share_token):"";
+  panel.innerHTML=
+    '<div class="panelhead"><div><h2>'+esc(current.name)+'</h2><p>'+esc(current.client_name||"No client")+' • '+files.length+' files</p></div><div class="spacer"></div><span class="tag">'+(current.shared?"Shared":"Private")+'</span></div>'+
+    '<div class="panelbody"><div class="upload" id="uploadDrop"><h3>Upload to this project</h3><p>Large files use resumable multipart transfer directly to cloud storage.</p><div class="upload-row"><label class="btn primary" for="portalPick">Choose Files</label><input id="portalPick" type="file" multiple></div><div class="upload-note">Original quality preserved. Uploads can resume after an interrupted connection.</div></div><div id="uploadBox"></div>'+
+    '<div class="panelhead" style="margin:0 -14px 10px"><div><h2>Project Files</h2><p>Preview, download and deliver the original files.</p></div></div><div id="portalFiles" class="gallery"></div></div>';
+  renderProjectFiles();
+  if(shareUrl){
+    document.querySelector("#shareBtn").style.display="inline-flex";
+    document.querySelector("#shareBtn").textContent="Copy Share Link";
+  }else{
+    document.querySelector("#shareBtn").style.display="inline-flex";
+    document.querySelector("#shareBtn").textContent="Create Share Link";
+  }
+  document.querySelector("#deleteBtn").style.display="none";
+  document.querySelector("#portalPick").onchange=function(){queueFiles(this.files)};
+  const drop=document.querySelector("#uploadDrop");
+  ["dragenter","dragover"].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.style.borderColor="var(--gold)"})});
+  ["dragleave","drop"].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.style.borderColor=""})});
+  drop.addEventListener("drop",function(e){queueFiles(e.dataTransfer.files)});
+}
+
+async function openProject(id){
+  const d=await api("/api/portal/projects/"+encodeURIComponent(id));
+  current={...d.project,files:Array.isArray(d.files)?d.files:[]};
+  renderPortalProjectList();
+  renderPortalCurrent();
+}
+
+async function enterPortal(user){
+  me=user||null;
+  document.querySelector("#auth").style.display="none";
+  document.querySelector("#app").classList.add("show");
+  document.querySelector("#userBox").textContent=me?(me.full_name||me.email||""): "";
+  document.querySelector("#logoutBtn").style.display="inline-flex";
+  await loadProjects();
+  if(!current&&projects.length)await openProject(projects[0].id);
+  renderPortalProjectList();
+  renderPortalCurrent();
+}
+
+function uploadRender(){
+  const box=document.querySelector("#uploadBox");if(!box||!current)return;
+  const list=Array.from(uploadItems.values()).filter(function(x){return x.projectId===current.id&&x.status!=="cancelled"});
+  if(!list.length){box.innerHTML="";return}
+  box.innerHTML=list.map(function(item){
+    const pct=item.file&&item.file.size?Math.min(100,Math.max(0,(Number(item.loaded)||0)/item.file.size*100)):0;
+    return '<div class="uploadrow"><div class="uploadtop"><b>'+esc(item.file.name)+'</b><span>'+pct.toFixed(0)+'%</span></div><div class="uploadmeta">'+esc(item.completionRemark||item.status||"Queued")+'</div><div class="progress"><i style="width:'+pct+'%"></i></div></div>';
+  }).join("");
+}
+
+document.querySelector("#authForm").addEventListener("submit",async function(e){
+  e.preventDefault();
+  const err=document.querySelector("#authError");err.textContent="";
+  try{
+    const url=authMode==="login"?"/api/portal/login":"/api/portal/register";
+    const body=authMode==="login"
+      ? {email:document.querySelector("#authEmail").value.trim(),password:document.querySelector("#authPassword").value}
+      : {full_name:document.querySelector("#authName").value.trim(),email:document.querySelector("#authEmail").value.trim(),password:document.querySelector("#authPassword").value};
+    await api(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const d=await api("/api/portal/me");await enterPortal(d.user);
+  }catch(e){err.textContent=e.message||"Unable to continue."}
+});
+
+document.querySelector("#switchAuth").addEventListener("click",function(){
+  setAuthMode(authMode==="login"?"signup":"login");
+});
+
+document.querySelector("#logoutBtn").addEventListener("click",async function(){
+  try{await api("/api/portal/logout",{method:"POST"})}catch{}
+  location.reload();
+});
+
+document.querySelector("#newProjectBtn").addEventListener("click",function(){
+  document.querySelector("#projectModal").classList.add("show");
+  document.querySelector("#pName").focus();
+});
+
+document.querySelector("#closeProject").addEventListener("click",function(){document.querySelector("#projectModal").classList.remove("show")});
+document.querySelector("#closeShare").addEventListener("click",function(){document.querySelector("#shareModal").classList.remove("show")});
+
+document.querySelector("#projectForm").addEventListener("submit",async function(e){
+  e.preventDefault();
+  try{
+    const d=await api("/api/portal/projects",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      name:document.querySelector("#pName").value.trim(),
+      client_name:document.querySelector("#pClient").value.trim(),
+      client_email:document.querySelector("#pEmail").value.trim(),
+      note:document.querySelector("#pNote").value.trim()
+    })});
+    document.querySelector("#projectModal").classList.remove("show");
+    document.querySelector("#pName").value="";
+    document.querySelector("#pClient").value="";
+    document.querySelector("#pEmail").value="";
+    document.querySelector("#pNote").value="";
+    await loadProjects();await openProject(d.project.id);
+  }catch(e){document.querySelector("#projectError").textContent=e.message}
+});
+
+document.querySelector("#shareBtn").addEventListener("click",async function(){
+  if(!current)return;
+  try{
+    if(!current.shared){
+      const d=await api("/api/portal/projects/"+encodeURIComponent(current.id)+"/share",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+      current={...current,...d.project};
+      await navigator.clipboard.writeText(d.share_url);
+      renderPortalCurrent();
+      toastPortal("Share link created and copied.");
+    }else{
+      const url=portalProjectUrl(current.share_token);
+      await navigator.clipboard.writeText(url);
+      document.querySelector("#shareModal").classList.add("show");
+      document.querySelector("#shareUrl").value=url;
+    }
+  }catch(e){toastPortal(e.message)}
+});
+
+(async function(){
+  try{
+    const d=await api("/api/portal/me");await enterPortal(d.user);
+  }catch{
+    setAuthMode(new URLSearchParams(location.search).get("mode")==="login"?"login":"signup");
+  }
+})();
 function bytesToBase64(bytes){let out="";for(let i=0;i<bytes.length;i++)out+=String.fromCharCode(bytes[i]);return btoa(out)}
 async function fileFingerprint(item){
   if(item.fingerprint)return;
