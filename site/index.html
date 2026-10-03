@@ -400,7 +400,12 @@ const api=async(url,opt={})=>{
     let d=null;
     const text=await r.text();
     if(text){try{d=JSON.parse(text)}catch{}}
-    if(!r.ok)throw new Error(d?.error||'Request failed');
+    if(!r.ok){
+      const err=new Error(d?.error||'Request failed');
+      err.status=r.status;
+      err.code=d?.code||'';
+      throw err;
+    }
     if(isShare){
       const token=decodeURIComponent(String(url).split('/').pop()||'');
       if(token&&d)try{localStorage.setItem('fbi:share:'+token,JSON.stringify(d))}catch{}
@@ -682,6 +687,7 @@ async function retry(fn,max){
   for(var i=0;i<max;i++){
     try{return await fn()}catch(e){
       last=e;
+      if(e&&e.nonRetryable)throw e;
       if(i<max-1)await wait(Math.min(30000,1500*Math.pow(2,i)+Math.floor(Math.random()*750)));
     }
   }
@@ -704,8 +710,13 @@ async function uploadSingle(item,session){
 }
 async function getPartUrls(sessionId,requests){
   var body={parts:requests.map(function(x){return {partNumber:x.partNumber,checksum:x.checksum||""}})};
-  var d=await api("/api/uploads/"+sessionId+"/parts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-  return d.parts||[];
+  try{
+    var d=await api("/api/uploads/"+sessionId+"/parts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    return d.parts||[];
+  }catch(e){
+    if(e&&e.code==="UPLOAD_SESSION_GONE")e.nonRetryable=true;
+    throw e;
+  }
 }
 async function uploadMultipart(item,session){
   var partSize=Number(session.partSize);
@@ -714,12 +725,18 @@ async function uploadMultipart(item,session){
   var completed=new Map((state.parts||[]).map(function(p){return [Number(p.partNumber),p]}));
   item.loadedBytes=0;item.partLoaded=new Map();var partsByNumber=new Map();
 
+  function setPartLoaded(partNumber,loaded){
+    var previous=Number(item.partLoaded.get(partNumber)||0);
+    var next=Math.max(0,Number(loaded)||0);
+    item.partLoaded.set(partNumber,next);
+    item.loadedBytes=Math.max(0,item.loadedBytes+(next-previous));
+  }
+
   completed.forEach(function(p,pn){
     var start=(pn-1)*partSize,end=Math.min(item.file.size,start+partSize);
-    item.partLoaded.set(pn,Math.max(0,end-start));
+    setPartLoaded(pn,Math.max(0,end-start));
     partsByNumber.set(pn,{partNumber:pn,etag:p.etag});
   });
-  item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(x,y){return x+y},0);
 
   var missing=[];
   for(var pn=1;pn<=totalParts;pn++)if(!completed.has(pn))missing.push(pn);
@@ -754,13 +771,11 @@ async function uploadMultipart(item,session){
     while(true){
       if(item.paused)throw new Error("Upload paused");
       attempt++;
-      item.partLoaded.set(partNumber,0);
-      item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(x,y){return x+y},0);
+      setPartLoaded(partNumber,0);
       scheduleUploadQueueRender();
       try{
         var out=await xhrPut(signed.url,blob,{},item,function(n){
-          item.partLoaded.set(partNumber,n);
-          item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(x,y){return x+y},0);
+          setPartLoaded(partNumber,n);
           scheduleUploadQueueRender();
         });
         return out;
@@ -836,6 +851,13 @@ async function uploadMultipart(item,session){
   }catch(e){
     stopUploadHeartbeat(item);
     if(item.paused){item.status="paused";renderUploadQueue();return}
+    if(e&&e.code==="UPLOAD_SESSION_GONE"&&(item.sessionRecoveryAttempts||0)<2){
+      item.sessionRecoveryAttempts=(item.sessionRecoveryAttempts||0)+1;
+      item.sessionId=null;item.mode=null;item.resumed=false;item.error="";item.completionRemark="";
+      item.loadedBytes=0;item.partLoaded=new Map();item.status="queued";
+      toast("Cloud upload session was lost. Reconnecting and resuming safely…");
+      return uploadOne(item);
+    }
     item.status="error";item.error=e.message||"Upload failed";renderUploadQueue();toast(item.error);
   }
 }
