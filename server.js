@@ -1979,7 +1979,15 @@ app.get("/api/portal/uploads/:id/state",portalUser,async(req,res)=>{
    if(!r.IsTruncated)break;marker=r.NextPartNumberMarker;
   }
   res.json({uploadId:u.id,mode:u.mode,status:u.status,partSize:Number(u.part_size),size:Number(u.size_bytes),parts:parts});
- }catch(e){console.error(e);res.status(500).json({error:"Could not read upload state."})}
+ }catch(e){
+  const code=String(e?.Code||e?.name||"");
+  const status=Number(e?.$metadata?.httpStatusCode||0);
+  if(code==="NoSuchUpload"||code==="InvalidUploadId"||status===404){
+    await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[req.params.id]).catch(function(){});
+    return res.status(410).json({error:"The cloud multipart session is no longer available.",code:"UPLOAD_SESSION_GONE"});
+  }
+  console.error(e);res.status(500).json({error:"Could not read upload state."});
+ }
 });
 app.post("/api/portal/uploads/:id/parts",portalUser,async(req,res)=>{
  try{
@@ -1988,6 +1996,11 @@ app.post("/api/portal/uploads/:id/parts",portalUser,async(req,res)=>{
   const u=q.rows[0];
   await pool.query("UPDATE upload_sessions SET updated_at=now() WHERE id=$1 AND status='active'",[u.id]);
   if(u.mode!=="multipart"||!u.multipart_upload_id)return res.status(400).json({error:"This upload does not use multipart storage."});
+  const alive=await multipartUploadAlive(u);
+  if(!alive){
+    await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
+    return res.status(409).json({error:"The cloud multipart session is no longer available. A new upload session is required.",code:"UPLOAD_SESSION_GONE"});
+  }
   const requested=(Array.isArray(req.body.parts)?req.body.parts:[]).map(function(x){return {partNumber:Number(x.partNumber)}}).filter(function(x){return Number.isInteger(x.partNumber)&&x.partNumber>0&&x.partNumber<=MAX_PARTS});
   if(!requested.length||requested.length>25)return res.status(400).json({error:"Provide 1 to 25 part numbers."});
   const parts=await Promise.all(requested.map(async function(x){
@@ -2016,9 +2029,6 @@ app.post("/api/portal/uploads/:id/complete",portalUser,async(req,res)=>{
   }
 
   if(u.mode==="multipart"){
-   const parts=(Array.isArray(req.body.parts)?req.body.parts:[]).map(function(p){return {ETag:String(p.etag||p.ETag||"").replace(/^"+|"+$/g,""),PartNumber:Number(p.partNumber||p.PartNumber)}}).filter(function(p){return p.ETag&&Number.isInteger(p.PartNumber)}).sort(function(a,b){return a.PartNumber-b.PartNumber});
-   if(!parts.length)return res.status(400).json({error:"Multipart upload has no completed parts."});
-
    let objectReady=false;
    try{
     await headObjectWithRetry({Bucket:bucket(),Key:u.storage_key},2,300);
@@ -2026,6 +2036,12 @@ app.post("/api/portal/uploads/:id/complete",portalUser,async(req,res)=>{
    }catch{}
 
    if(!objectReady){
+    const state=await inspectPendingUpload(u);
+    const expectedParts=Math.max(1,Math.ceil(Number(u.size_bytes||0)/Number(u.part_size||MIN_PART_SIZE)));
+    if(state.completedParts!==expectedParts||state.uploadedBytes!==Number(u.size_bytes||0)){
+      return res.status(409).json({error:"Multipart upload is not complete yet.",ready:false,uploadedBytes:state.uploadedBytes,totalSize:Number(u.size_bytes||0),completedParts:state.completedParts,totalParts:expectedParts,missingParts:state.missingParts});
+    }
+    const parts=state.parts.map(function(p){return {ETag:String(p.etag||"").replace(/^"+|"+$/g,""),PartNumber:Number(p.partNumber)}}).filter(function(p){return p.ETag&&Number.isInteger(p.PartNumber)&&p.PartNumber>0}).sort(function(a,b){return a.PartNumber-b.PartNumber});
     await s3.send(new CompleteMultipartUploadCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,MultipartUpload:{Parts:parts}}));
    }
   }
