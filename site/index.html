@@ -549,11 +549,12 @@ async function saveProject(){
 
 let uploadQueue=[];
 let uploadTicker=null;
-const PART_CONCURRENCY=6;
+const PART_CONCURRENCY=3;
 const FILE_CONCURRENCY=1;
-const MIN_PART_SIZE=16*1024*1024;
+const MIN_PART_SIZE=64*1024*1024;
 const MAX_HASH_BEFORE_UPLOAD=512*1000*1000;
 const MAX_PARTS=10000;
+const UPLOAD_PART_STALL_MS=2*60*1000;
 
 function chooseLocalPartSize(size){
   var part=MIN_PART_SIZE;
@@ -701,9 +702,9 @@ function xhrPut(url,blob,headers,item,onProgress){
     x.onabort=function(){finish(false,new Error("Upload paused"))};
     x.ontimeout=function(){finish(false,new Error("Upload timed out"))};
     watchdog=setInterval(function(){
-      // Allow very slow but still progressing links. A part must make no upload
-      // progress for ten full minutes before we declare the connection stalled.
-      if(!settled&&Date.now()-lastProgressAt>600000){
+      // A transfer that stops making progress for two full minutes is retried.
+      // Progressing uploads are never interrupted by this watchdog.
+      if(!settled&&Date.now()-lastProgressAt>UPLOAD_PART_STALL_MS){
         finish(false,new Error("Upload part stalled; reconnecting…"));
         try{x.abort()}catch{}
       }
