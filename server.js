@@ -132,9 +132,9 @@ const PUBLIC_BASE_URL=(process.env.PUBLIC_BASE_URL||"").replace(/\/+$/,"");
 const MAX_FILE_SIZE=5*1000*1000*1000*1000;
 const STORAGE_QUOTA_BYTES=Number(process.env.STORAGE_QUOTA_BYTES||100000000000000);
 const MIN_PART_SIZE=64*1024*1024;
-const TURBO_PART_SIZE=128*1024*1024;
+const TURBO_PART_SIZE=64*1024*1024;
 const MAX_PARTS=10000;
-const PRESIGN_SECONDS=1200;
+const PRESIGN_SECONDS=3600;
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_URL?{rejectUnauthorized:false}:false});
 
@@ -214,7 +214,10 @@ const s3=s3Ready()?new S3Client({
 const bucket=()=>process.env.S3_BUCKET;
 
 function choosePartSize(size){
-  var part=Number(size||0)>=512*1000*1000?TURBO_PART_SIZE:MIN_PART_SIZE;
+  // Stability-first multipart sizing. 64 MiB parts keep individual requests
+  // manageable on slower or less reliable client networks while remaining far
+  // below the S3-compatible 10,000-part limit for multi-terabyte files.
+  var part=MIN_PART_SIZE;
   while(Math.ceil(size/part)>MAX_PARTS) part*=2;
   return part;
 }
@@ -230,6 +233,62 @@ async function headObjectWithRetry(input,attempts=8,baseDelay=400){
   }
   throw last;
 }
+async function listMultipartPartsDetailed(u){
+  if(!s3Ready()||!u?.multipart_upload_id)return [];
+  const parts=[];let marker=0;
+  while(true){
+    const r=await s3.send(new ListPartsCommand({
+      Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,
+      PartNumberMarker:marker||undefined,MaxParts:1000
+    }));
+    for(const p of r.Parts||[]){
+      parts.push({
+        partNumber:Number(p.PartNumber),
+        etag:String(p.ETag||""),
+        size:Number(p.Size||0)
+      });
+    }
+    if(!r.IsTruncated)break;
+    marker=r.NextPartNumberMarker;
+  }
+  return parts.sort((a,b)=>a.partNumber-b.partNumber);
+}
+
+async function inspectPendingUpload(u){
+  const totalSize=Number(u.size_bytes||0);
+  if(u.mode!=="multipart"){
+    try{
+      const head=await headObjectWithRetry({Bucket:bucket(),Key:u.storage_key},3,400);
+      const uploadedBytes=Number(head.ContentLength||0);
+      return {
+        uploadedBytes,
+        totalParts:1,
+        completedParts:uploadedBytes===totalSize?1:0,
+        missingParts:uploadedBytes===totalSize?[]:[1],
+        completeReady:uploadedBytes===totalSize,
+        parts:[]
+      };
+    }catch{
+      return {uploadedBytes:0,totalParts:1,completedParts:0,missingParts:[1],completeReady:false,parts:[]};
+    }
+  }
+  const partSize=Math.max(1,Number(u.part_size||MIN_PART_SIZE));
+  const totalParts=Math.max(1,Math.ceil(totalSize/partSize));
+  const parts=await listMultipartPartsDetailed(u);
+  const byPart=new Map(parts.map(p=>[p.partNumber,p]));
+  const missingParts=[];
+  for(let i=1;i<=totalParts;i++)if(!byPart.has(i))missingParts.push(i);
+  const uploadedBytes=parts.reduce((sum,p)=>sum+Number(p.size||0),0);
+  return {
+    uploadedBytes,
+    totalParts,
+    completedParts:totalParts-missingParts.length,
+    missingParts,
+    completeReady:missingParts.length===0&&uploadedBytes===totalSize,
+    parts
+  };
+}
+
 function safeRelativePath(rel,name){
   var raw=String(rel||name||"").replace(/\\/g,"/");
   var parts=raw.split("/").filter(Boolean).filter(function(x){return x!=="."&&x!=="..";}).map(function(x){
@@ -1621,7 +1680,7 @@ app.get("/api/storage",admin,async(req,res)=>{
     const r=await pool.query(`
       SELECT
         COALESCE((SELECT sum(size_bytes) FROM files),0)::numeric AS used_bytes,
-        COALESCE((SELECT sum(size_bytes) FROM upload_sessions WHERE status='active' AND updated_at>=now()-interval '7 days'),0)::numeric AS reserved_bytes,
+        COALESCE((SELECT sum(size_bytes) FROM upload_sessions WHERE status='active'),0)::numeric AS reserved_bytes,
         (SELECT count(*) FROM files)::int AS file_count,
         (SELECT count(*) FROM projects WHERE archived=false)::int AS project_count
     `);
@@ -1652,6 +1711,88 @@ app.get("/api/storage",admin,async(req,res)=>{
   }catch(e){
     console.error(e);
     res.status(500).json({error:"Could not load storage information"});
+  }
+});
+
+app.get("/api/uploads/pending",admin,async(req,res)=>{
+  try{
+    const q=await pool.query(`
+      SELECT u.id,u.project_id,u.original_name,u.relative_path,u.mime_type,u.size_bytes,
+             u.part_size,u.mode,u.status,u.created_at,u.updated_at,
+             p.name AS project_name,p.client_name,p.archived
+      FROM upload_sessions u
+      JOIN projects p ON p.id=u.project_id
+      WHERE u.status='active'
+      ORDER BY u.updated_at DESC
+      LIMIT 100
+    `);
+    const uploads=await Promise.all(q.rows.map(async function(u){
+      const state=await inspectPendingUpload(u);
+      const pct=u.size_bytes?Math.min(100,state.uploadedBytes/Number(u.size_bytes)*100):0;
+      return {
+        id:u.id,project_id:u.project_id,project_name:u.project_name,client_name:u.client_name||"",
+        archived:!!u.archived,original_name:u.original_name,relative_path:u.relative_path||"",
+        mime_type:u.mime_type,size_bytes:Number(u.size_bytes||0),part_size:Number(u.part_size||0),
+        mode:u.mode,status:u.status,created_at:u.created_at,updated_at:u.updated_at,
+        uploaded_bytes:state.uploadedBytes,total_parts:state.totalParts,completed_parts:state.completedParts,
+        missing_parts:state.missingParts,progress_percent:pct,complete_ready:!!state.completeReady
+      };
+    }));
+    res.json({uploads});
+  }catch(e){
+    console.error("Pending upload inspection failed:",e);
+    res.status(500).json({error:"Could not load pending uploads."});
+  }
+});
+
+app.post("/api/uploads/:id/finalize-pending",admin,async(req,res)=>{
+  try{
+    if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
+    const q=await pool.query("SELECT * FROM upload_sessions WHERE id=$1",[req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
+    const u=q.rows[0];
+
+    if(u.status==="completed"){
+      const done=await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key]);
+      return res.json({ok:true,file:done.rows[0]||null,alreadyCompleted:true});
+    }
+
+    const state=await inspectPendingUpload(u);
+    if(!state.completeReady){
+      return res.status(409).json({
+        ok:false,ready:false,uploadedBytes:state.uploadedBytes,
+        totalSize:Number(u.size_bytes||0),missingParts:state.missingParts,
+        message:"The upload is not fully present in cloud storage yet. Resume the file upload to continue."
+      });
+    }
+
+    if(u.mode==="multipart"){
+      const parts=state.parts.map(function(p){return {ETag:String(p.etag||"").replace(/^"+|"+$/g,""),PartNumber:Number(p.partNumber)}});
+      await s3.send(new CompleteMultipartUploadCommand({
+        Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,
+        MultipartUpload:{Parts:parts}
+      }));
+    }
+
+    const head=await headObjectWithRetry({Bucket:bucket(),Key:u.storage_key},8,400);
+    const actualSize=Number(head.ContentLength||0);
+    if(actualSize!==Number(u.size_bytes)){
+      return res.status(409).json({ok:false,ready:false,error:"Uploaded size mismatch. The stored object is not complete yet."});
+    }
+
+    const ins=await pool.query(
+      "INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING *",
+      [uid(),u.project_id,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,actualSize,u.relative_path,u.content_fingerprint||null]
+    );
+    const fileRow=ins.rows[0]||(await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key])).rows[0];
+    if(!fileRow)throw new Error("Stored object is ready but the file record could not be created.");
+
+    await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
+    await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[u.project_id]);
+    res.json({ok:true,file:fileRow,recovered:true});
+  }catch(e){
+    console.error("Pending upload finalization failed:",e);
+    res.status(500).json({error:"Could not finalize the pending upload. Resume the upload and try again."});
   }
 });
 
@@ -1809,6 +1950,7 @@ app.post("/api/portal/uploads/:id/parts",portalUser,async(req,res)=>{
   const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
   if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
   const u=q.rows[0];
+  await pool.query("UPDATE upload_sessions SET updated_at=now() WHERE id=$1 AND status='active'",[u.id]);
   if(u.mode!=="multipart"||!u.multipart_upload_id)return res.status(400).json({error:"This upload does not use multipart storage."});
   const requested=(Array.isArray(req.body.parts)?req.body.parts:[]).map(function(x){return {partNumber:Number(x.partNumber)}}).filter(function(x){return Number.isInteger(x.partNumber)&&x.partNumber>0&&x.partNumber<=MAX_PARTS});
   if(!requested.length||requested.length>25)return res.status(400).json({error:"Provide 1 to 25 part numbers."});
@@ -1924,7 +2066,7 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
       }
     }
     var usage=await pool.query(
-      "SELECT COALESCE((SELECT sum(size_bytes) FROM files),0)::numeric stored, COALESCE((SELECT sum(size_bytes) FROM upload_sessions WHERE status='active' AND updated_at>=now()-interval '7 days'),0)::numeric reserved"
+      "SELECT COALESCE((SELECT sum(size_bytes) FROM files),0)::numeric stored, COALESCE((SELECT sum(size_bytes) FROM upload_sessions WHERE status='active'),0)::numeric reserved"
     );
     var stored=Number(usage.rows[0]?.stored||0),reserved=Number(usage.rows[0]?.reserved||0);
     if(stored+reserved+size>STORAGE_QUOTA_BYTES){
@@ -1984,6 +2126,7 @@ app.post("/api/uploads/:id/parts",admin,async(req,res)=>{
     var q=await pool.query("SELECT * FROM upload_sessions WHERE id=$1",[req.params.id]);
     if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
     var u=q.rows[0];
+    await pool.query("UPDATE upload_sessions SET updated_at=now() WHERE id=$1 AND status='active'",[u.id]);
     if(u.mode!=="multipart"||!u.multipart_upload_id)return res.status(400).json({error:"This upload does not use multipart storage."});
     var requested=Array.isArray(req.body.parts)?req.body.parts.map(function(x){return {partNumber:Number(x.partNumber),checksum:String(x.checksum||"").trim()};}):[];
     if(!requested.length&&Array.isArray(req.body.partNumbers)){
