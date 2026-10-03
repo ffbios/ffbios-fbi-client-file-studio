@@ -2623,7 +2623,7 @@ async function streamTsVideo(req,res,f){
     try{child.kill("SIGKILL")}catch{}
   };
   req.on("aborted",stop);
-  req.on("close",stop);
+  res.on("close",stop);
   child.stderr.on("data",c=>{stderr=(stderr+String(c||"")).slice(-12000)});
   child.on("error",e=>{
     finished=true;
