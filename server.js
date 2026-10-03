@@ -2591,7 +2591,60 @@ async function signedFileUrl(fileId,tokenValue=null){
 }
 
 
+function isTransportStreamVideo(file){
+  const name=String(file?.original_name||"").toLowerCase();
+  const mime=String(file?.mime_type||"").toLowerCase();
+  return /\.ts$/.test(name)||mime==="video/mp2t"||mime==="video/mpeg"||mime==="video/mpegts";
+}
+
+async function streamTsVideo(req,res,f){
+  if(!ffmpegPath)throw new Error("FFmpeg is not available for MPEG-TS playback.");
+  const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:3600});
+  res.set("X-Content-Type-Options","nosniff");
+  res.set("Content-Type","video/mp4");
+  res.set("Cache-Control","private, no-store");
+  res.set("Content-Disposition","inline; filename*=UTF-8''"+encodeURIComponent(String(f.original_name||"video").replace(/\.ts$/i,".mp4")));
+  // The MP4 is generated as a fragmented stream, so its final length is not
+  // known up front. Browsers can start playback while FFmpeg is still reading
+  // the source object. Seeking is handled by restarting from the source until
+  // we have a persistent converted derivative.
+  const args=[
+    "-hide_banner","-loglevel","error",
+    "-i",url,
+    "-map","0:v:0?","-map","0:a:0?",
+    "-c","copy",
+    "-movflags","+frag_keyframe+empty_moov+default_base_moof",
+    "-f","mp4","pipe:1"
+  ];
+  const child=spawn(ffmpegPath,args,{stdio:["ignore","pipe","pipe"]});
+  let stderr="",finished=false;
+  const stop=()=>{
+    if(finished)return;
+    try{child.kill("SIGKILL")}catch{}
+  };
+  req.on("aborted",stop);
+  req.on("close",stop);
+  child.stderr.on("data",c=>{stderr=(stderr+String(c||"")).slice(-12000)});
+  child.on("error",e=>{
+    finished=true;
+    console.error("MPEG-TS playback process failed:",e?.stack||e);
+    if(!res.headersSent)res.status(502).send("Unable to prepare this MPEG-TS video for browser playback.");
+    else res.end();
+  });
+  child.stdout.pipe(res);
+  child.on("close",(code,signal)=>{
+    finished=true;
+    if(code!==0 && !res.writableEnded){
+      console.error("MPEG-TS playback FFmpeg exited:",code,signal,stderr);
+      try{res.end()}catch{}
+    }
+  });
+}
+
 async function streamStoredObject(req,res,f){
+  if(isTransportStreamVideo(f) && String(req.query.download||"")!=="1"){
+    return streamTsVideo(req,res,f);
+  }
   const head=await headObjectWithRetry({Bucket:bucket(),Key:f.storage_path},4,300);
   const size=Number(head.ContentLength||f.size_bytes||0);
   if(!Number.isFinite(size)||size<0)throw new Error("Stored object size is unavailable.");
@@ -2627,7 +2680,6 @@ async function streamStoredObject(req,res,f){
   if(obj.Body?.pipe)obj.Body.pipe(res);
   else for await(const chunk of obj.Body){if(!res.write(chunk))await new Promise(r=>res.once("drain",r))}
 }
-
 async function publicFileRecord(fileId,tokenValue){
   const q=await pool.query("SELECT f.*,p.shared,p.share_token,p.expires_at FROM files f JOIN projects p ON p.id=f.project_id WHERE f.id=$1",[fileId]);
   if(!q.rowCount)return null;
