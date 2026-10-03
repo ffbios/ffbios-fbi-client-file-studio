@@ -901,7 +901,7 @@ async function uploadMultipart(item,session){
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           projectId:item.projectId,name:item.file.name,relativePath:item.relativePath,size:item.file.size,mimeType:item.file.type||"application/octet-stream",
-          fingerprint:item.fingerprint||"",checksum:item.fileChecksum||""
+          fingerprint:item.fingerprint||"",fingerprintType:item.file.size<=MAX_HASH_BEFORE_UPLOAD?"full":"sampled-v2",checksum:item.fileChecksum||""
         })
       });
     },5);
