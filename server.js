@@ -131,10 +131,11 @@ const SESSION_SECRET=process.env.SESSION_SECRET||crypto.randomBytes(32).toString
 const PUBLIC_BASE_URL=(process.env.PUBLIC_BASE_URL||"").replace(/\/+$/,"");
 const MAX_FILE_SIZE=5*1000*1000*1000*1000;
 const STORAGE_QUOTA_BYTES=Number(process.env.STORAGE_QUOTA_BYTES||100000000000000);
-const MIN_PART_SIZE=64*1024*1024;
-const TURBO_PART_SIZE=64*1024*1024;
+const MIN_PART_SIZE=32*1024*1024;
+const TURBO_PART_SIZE=32*1024*1024;
 const MAX_PARTS=10000;
-const PRESIGN_SECONDS=3600;
+const PRESIGN_SECONDS=24*60*60;
+const UPLOAD_PROTOCOL_VERSION=2;
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_URL?{rejectUnauthorized:false}:false});
 
@@ -378,6 +379,7 @@ async function initDb(){
       mode text NOT NULL,
       status text NOT NULL DEFAULT 'active',
       content_fingerprint text,
+      upload_protocol_version integer,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     );
@@ -390,6 +392,7 @@ async function initDb(){
     CREATE INDEX IF NOT EXISTS idx_files_fingerprint ON files(project_id,content_fingerprint,size_bytes);
     CREATE INDEX IF NOT EXISTS idx_upload_sessions_project ON upload_sessions(project_id);
     ALTER TABLE upload_sessions ADD COLUMN IF NOT EXISTS content_fingerprint text;
+    ALTER TABLE upload_sessions ADD COLUMN IF NOT EXISTS upload_protocol_version integer;
     CREATE INDEX IF NOT EXISTS idx_upload_sessions_active ON upload_sessions(project_id,status);
     CREATE TABLE IF NOT EXISTS streams(
       id uuid PRIMARY KEY,
@@ -2042,18 +2045,30 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
     );
     if(existing.rowCount){
       var u=existing.rows[0];
-      if(u.mode==="multipart"){
+      if(Number(u.upload_protocol_version||0)!==UPLOAD_PROTOCOL_VERSION){
+        // Retire sessions created by the older multipart protocol. Selecting the
+        // same file again then creates a clean v2 session automatically.
+        if(u.mode==="multipart"&&u.multipart_upload_id){
+          await s3.send(new AbortMultipartUploadCommand({
+            Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id
+          })).catch(function(){});
+        }else{
+          await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:u.storage_key})).catch(function(){});
+        }
+        await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
+      }else if(u.mode==="multipart"){
         return res.json({
           uploadId:u.id,mode:u.mode,partSize:Number(u.part_size),size:Number(u.size_bytes),
           multipartUploadId:u.multipart_upload_id,resumed:true
         });
+      }else{
+        var singleUrl=await getSignedUrl(
+          s3,
+          new PutObjectCommand({Bucket:bucket(),Key:u.storage_key,ContentType:u.mime_type}),
+          {expiresIn:24*60*60}
+        );
+        return res.json({uploadId:u.id,mode:"single",size:Number(u.size_bytes),url:singleUrl,resumed:true});
       }
-      var singleUrl=await getSignedUrl(
-        s3,
-        new PutObjectCommand({Bucket:bucket(),Key:u.storage_key,ContentType:u.mime_type}),
-        {expiresIn:3600}
-      );
-      return res.json({uploadId:u.id,mode:"single",size:Number(u.size_bytes),url:singleUrl,resumed:true});
     }
 
     if(fingerprint){
@@ -2079,8 +2094,10 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
     var multipartUploadId=null;
     var url=null;
     if(mode==="multipart"){
+      // Plain multipart upload. Browser uploads do not pre-hash multi-GB files,
+      // so do not opt into composite SHA-256 checksums for those uploads.
       var created=await s3.send(new CreateMultipartUploadCommand({
-        Bucket:bucket(),Key:storageKey,ContentType:mimeType,ChecksumAlgorithm:"SHA256"
+        Bucket:bucket(),Key:storageKey,ContentType:mimeType
       }));
       multipartUploadId=created.UploadId;
     }else{
@@ -2089,11 +2106,22 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
       url=await getSignedUrl(s3,new PutObjectCommand(putInput),{expiresIn:3600});
     }
     await pool.query(
-      "INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11)",
-      [id,projectId,originalName,relativePath,storageKey,mimeType,size,mode==="multipart"?partSize:size,multipartUploadId,mode,fingerprint||null]
+      "INSERT INTO upload_sessions(id,project_id,original_name,relative_path,storage_key,mime_type,size_bytes,part_size,multipart_upload_id,mode,status,content_fingerprint,upload_protocol_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12)",
+      [id,projectId,originalName,relativePath,storageKey,mimeType,size,mode==="multipart"?partSize:size,multipartUploadId,mode,fingerprint||null,UPLOAD_PROTOCOL_VERSION]
     );
     res.json({uploadId:id,mode,partSize,size,url,multipartUploadId,checksum:checksum||null,fingerprint:fingerprint||null});
   }catch(e){console.error(e);res.status(500).json({error:"Could not initialize cloud upload."})}
+});
+
+app.post("/api/uploads/:id/heartbeat",admin,async(req,res)=>{
+  try{
+    const q=await pool.query("UPDATE upload_sessions SET updated_at=now() WHERE id=$1 AND status='active' RETURNING id,updated_at",[req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Upload session not found or already completed."});
+    res.json({ok:true,updatedAt:q.rows[0].updated_at});
+  }catch(e){
+    console.error("Upload heartbeat failed:",e);
+    res.status(500).json({error:"Could not update upload heartbeat."});
+  }
 });
 
 app.get("/api/uploads/:id/state",admin,async(req,res)=>{
