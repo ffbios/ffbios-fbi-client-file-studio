@@ -303,6 +303,18 @@ document.querySelector("#projectForm").addEventListener("submit",async function(
   }catch(e){document.querySelector("#projectError").textContent=e.message}
 });
 
+document.querySelector("#shareToggle").addEventListener("click",async function(){
+  if(!current||!current.shared)return;
+  try{
+    const d=await api("/api/portal/projects/"+encodeURIComponent(current.id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({shared:false})});
+    current={...current,...d.project};
+    document.querySelector("#shareModal").classList.remove("show");
+    renderPortalCurrent();
+    await loadProjects();
+    toastPortal("Client sharing has been turned off. The same token is preserved and can be re-enabled.");
+  }catch(e){toastPortal(e.message)}
+});
+
 document.querySelector("#shareBtn").addEventListener("click",async function(){
   if(!current)return;
   try{
