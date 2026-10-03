@@ -1961,11 +1961,13 @@ app.post("/api/settings/password",admin,async(req,res)=>{
 app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
  try{
   if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
-  const projectId=String(req.body.projectId||""),originalName=String(req.body.name||"").trim(),relativePath=safeRelativePath(req.body.relativePath,originalName),size=Number(req.body.size||0),mimeType=String(req.body.mimeType||"application/octet-stream"),fingerprint=String(req.body.fingerprint||"").trim().slice(0,128);
+  const projectId=String(req.body.projectId||""),originalName=String(req.body.name||"").trim(),relativePath=safeRelativePath(req.body.relativePath,originalName),size=Number(req.body.size||0),mimeType=String(req.body.mimeType||"application/octet-stream"),fingerprint=String(req.body.fingerprint||"").trim().slice(0,128),fingerprintType=String(req.body.fingerprintType||"full").trim().toLowerCase();
   const project=await portalProjectOwned(req.portalUser.id,projectId);
   if(!project)return res.status(404).json({error:"Project not found."});
   if(!originalName||!Number.isFinite(size)||size<0||size>MAX_FILE_SIZE)return res.status(400).json({error:"Invalid file."});
-  if(fingerprint){
+  // Sample-based large-file identity is only for resumable session binding,
+  // not strong enough for duplicate detection.
+  if(fingerprint && fingerprintType==="full"){
    const dup=await pool.query("SELECT * FROM files WHERE project_id=$1 AND content_fingerprint=$2 AND size_bytes=$3 LIMIT 1",[projectId,fingerprint,size]);
    if(dup.rowCount)return res.json({uploadId:null,deduplicated:true,mode:"deduplicated",size:size,file:dup.rows[0]});
   }
@@ -2122,6 +2124,7 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
     var size=Number(req.body.size||0);
     var mimeType=String(req.body.mimeType||"application/octet-stream");
     var fingerprint=String(req.body.fingerprint||"").trim().slice(0,128);
+    var fingerprintType=String(req.body.fingerprintType||"full").trim().toLowerCase();
     var checksum=String(req.body.checksum||"").trim().slice(0,128);
     if(!projectId||!originalName)return res.status(400).json({error:"Project and file name are required."});
     if(!Number.isFinite(size)||size<0||size>MAX_FILE_SIZE)return res.status(400).json({error:"File size is outside the supported range."});
@@ -2205,7 +2208,9 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
       }
     }
 
-    if(fingerprint){
+    // The large-file identity is sample-based, so it is safe for resumable
+    // session binding but not strong enough to claim a file is a duplicate.
+    if(fingerprint && fingerprintType==="full"){
       var dup=await pool.query(
         "SELECT * FROM files WHERE project_id=$1 AND content_fingerprint=$2 AND size_bytes=$3 ORDER BY created_at DESC LIMIT 1",
         [projectId,fingerprint,size]
