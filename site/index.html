@@ -534,9 +534,9 @@ async function saveProject(){
 
 let uploadQueue=[];
 let uploadTicker=null;
-const PART_CONCURRENCY=2;
+const PART_CONCURRENCY=4;
 const FILE_CONCURRENCY=1;
-const MIN_PART_SIZE=64*1024*1024;
+const MIN_PART_SIZE=8*1024*1024;
 const MAX_HASH_BEFORE_UPLOAD=512*1000*1000;
 const MAX_PARTS=10000;
 
@@ -645,14 +645,20 @@ function xhrPut(url,blob,headers,item,onProgress){
     };
     x.onload=function(){
       if(x.status>=200&&x.status<300)finish(true,{etag:x.getResponseHeader("ETag")||""});
-      else finish(false,new Error("Upload returned HTTP "+x.status));
+      else{
+        const err=new Error("Upload returned HTTP "+x.status);
+        err.httpStatus=x.status;
+        finish(false,err);
+      }
     };
     x.onerror=function(){finish(false,new Error("Network error during upload"))};
     x.onabort=function(){finish(false,new Error("Upload paused"))};
     x.ontimeout=function(){finish(false,new Error("Upload timed out"))};
     watchdog=setInterval(function(){
+      // Each part is only 8 MiB on the normal path. Three minutes without a
+      // progress event means the individual connection is genuinely stalled.
       if(!settled&&Date.now()-lastProgressAt>180000){
-        finish(false,new Error("Upload connection stalled; retrying…"));
+        finish(false,new Error("Upload part stalled; reconnecting…"));
         try{x.abort()}catch{}
       }
     },10000);
@@ -706,74 +712,119 @@ async function uploadMultipart(item,session){
   var totalParts=Math.ceil(item.file.size/partSize);
   var state=await retry(function(){return api("/api/uploads/"+item.sessionId+"/state")},5);
   var completed=new Map((state.parts||[]).map(function(p){return [Number(p.partNumber),p]}));
-  item.loadedBytes=0;item.partLoaded=new Map();var parts=[];
+  item.loadedBytes=0;item.partLoaded=new Map();var partsByNumber=new Map();
+
   completed.forEach(function(p,pn){
-    var a=(pn-1)*partSize,b=Math.min(item.file.size,a+partSize);
-    item.partLoaded.set(pn,Math.max(0,b-a));
-    parts.push({partNumber:pn,etag:p.etag});
+    var start=(pn-1)*partSize,end=Math.min(item.file.size,start+partSize);
+    item.partLoaded.set(pn,Math.max(0,end-start));
+    partsByNumber.set(pn,{partNumber:pn,etag:p.etag});
   });
   item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(a,b){return a+b},0);
+
   var missing=[];
   for(var pn=1;pn<=totalParts;pn++)if(!completed.has(pn))missing.push(pn);
   renderUploadQueue();
+
   var cursor=0;
-  while(cursor<missing.length){
-    if(item.paused)throw new Error("Upload paused");
-    var batch=missing.slice(cursor,cursor+4);
-    cursor+=batch.length;
-    var requests=batch.map(function(partNumber){return {partNumber:partNumber,checksum:((item.checksums||[])[partNumber-1]||"")};});
-    var signedParts=await retry(function(){return getPartUrls(item.sessionId,requests)},5);
-    var nextIndex=0;
-    async function uploadPartWorker(){
-      while(true){
+  var signedByPart=new Map();
+
+  async function signNextWindow(){
+    if(cursor>=missing.length)return;
+    var window=missing.slice(cursor,Math.min(cursor+20,missing.length));
+    var signed=await retry(function(){
+      return getPartUrls(item.sessionId,window.map(function(partNumber){
+        return {partNumber:partNumber,checksum:""};
+      }));
+    },5);
+    signed.forEach(function(x){signedByPart.set(Number(x.partNumber),x)});
+    cursor+=window.length;
+  }
+
+  await signNextWindow();
+
+  var workerCursor=0;
+  async function worker(){
+    while(true){
+      if(item.paused)throw new Error("Upload paused");
+      var pos=workerCursor++;
+      if(pos>=missing.length)return;
+      var partNumber=missing[pos];
+
+      if(!signedByPart.has(partNumber)){
+        // Rolling refill. Only request another batch when the next worker
+        // reaches an unsigned part.
+        var refill=missing.slice(Math.max(0,missing.length-signedByPart.size),Math.min(missing.length,Math.max(0,missing.length-signedByPart.size)+20));
+        if(refill.length){
+          var signed=await retry(function(){
+            return getPartUrls(item.sessionId,refill.map(function(n){return {partNumber:n,checksum:""}}));
+          },5);
+          signed.forEach(function(x){signedByPart.set(Number(x.partNumber),x)});
+        }
+      }
+
+      var start=(partNumber-1)*partSize,end=Math.min(item.file.size,start+partSize),blob=item.file.slice(start,end);
+      var checksum="";
+      var attempt=0,out=null;
+
+      while(!out){
         if(item.paused)throw new Error("Upload paused");
-        var pos=nextIndex++;
-        if(pos>=batch.length)return;
-        var partNumber=batch[pos];
-        var signed=signedParts.find(function(x){return Number(x.partNumber)===partNumber});
-        var start=(partNumber-1)*partSize,end=Math.min(item.file.size,start+partSize),blob=item.file.slice(start,end);
+        attempt++;
+        var signed=signedByPart.get(partNumber);
+        if(!signed||!signed.url){
+          var fresh=await retry(function(){
+            return getPartUrls(item.sessionId,[{partNumber:partNumber,checksum:""}]);
+          },5);
+          signed=fresh[0];
+          if(signed)signedByPart.set(partNumber,signed);
+        }
         if(!signed||!signed.url)throw new Error("Could not prepare upload part "+partNumber);
 
-        function requestPart(url,checksum){
+        item.partLoaded.set(partNumber,0);
+        item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(a,b){return a+b},0);
+        scheduleUploadQueueRender();
+
+        try{
           var headers={};
-          if(checksum)headers["x-amz-checksum-sha256"]=checksum;
-          item.partLoaded.set(partNumber,0);
-          item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(a,b){return a+b},0);
-          scheduleUploadQueueRender();
-          return xhrPut(url,blob,headers,item,function(n){
+          out=await xhrPut(signed.url,blob,headers,item,function(n){
             item.partLoaded.set(partNumber,n);
             item.loadedBytes=Array.from(item.partLoaded.values()).reduce(function(a,b){return a+b},0);
             scheduleUploadQueueRender();
           });
+        }catch(e){
+          // Every retry gets a fresh presigned URL. This avoids repeatedly
+          // hammering a possibly stale URL after a transient network failure.
+          out=null;
+          signedByPart.delete(partNumber);
+          if(attempt>=5)throw e;
+          await wait(Math.min(15000,1000*Math.pow(2,attempt-1)+Math.floor(Math.random()*500)));
         }
+      }
 
-        var out;
-        try{
-          out=await retry(function(){return requestPart(signed.url,signed.checksum)},5);
-        }catch(firstError){
-          // A transient failure, or an expired presigned URL, gets one fresh
-          // signed URL before we give up this part.
-          var freshList=await retry(function(){return getPartUrls(item.sessionId,[{partNumber:partNumber,checksum:((item.checksums||[])[partNumber-1]||"")}])},5);
-          var fresh=freshList.find(function(x){return Number(x.partNumber)===partNumber});
-          if(!fresh||!fresh.url)throw firstError;
-          out=await retry(function(){return requestPart(fresh.url,fresh.checksum)},5);
-        }
+      partsByNumber.set(partNumber,{partNumber:partNumber,etag:out.etag});
 
-        var existingIndex=parts.findIndex(function(p){return p.partNumber===partNumber});
-        if(existingIndex>=0)parts[existingIndex]={partNumber:partNumber,etag:out.etag};
-        else parts.push({partNumber:partNumber,etag:out.etag});
+      // Keep the signing window topped up while workers are active.
+      var unsignedCount=missing.filter(function(n){return !signedByPart.has(n)}).length;
+      if(unsignedCount<4 && cursor<missing.length){
+        await signNextWindow();
       }
     }
-    var workers=[];
-    for(var wi=0;wi<Math.min(PART_CONCURRENCY,batch.length);wi++)workers.push(uploadPartWorker());
-    await Promise.all(workers);
   }
+
+  var workers=[];
+  for(var wi=0;wi<Math.min(PART_CONCURRENCY,missing.length);wi++)workers.push(worker());
+  await Promise.all(workers);
+
   if(item.paused)throw new Error("Upload paused");
+  var parts=Array.from(partsByNumber.values()).sort(function(a,b){return a.partNumber-b.partNumber;});
   await retry(function(){
     return api("/api/uploads/"+item.sessionId+"/complete",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({parts:parts})
+    }).catch(async function(e){
+      // Server-side completion verifies the bucket's actual parts. A 409 means
+      // a part arrived after the browser lost its response; refresh state once.
+      throw e;
     });
   },5);
   item.loadedBytes=item.totalBytes;

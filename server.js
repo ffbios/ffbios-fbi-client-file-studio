@@ -131,11 +131,11 @@ const SESSION_SECRET=process.env.SESSION_SECRET||crypto.randomBytes(32).toString
 const PUBLIC_BASE_URL=(process.env.PUBLIC_BASE_URL||"").replace(/\/+$/,"");
 const MAX_FILE_SIZE=5*1000*1000*1000*1000;
 const STORAGE_QUOTA_BYTES=Number(process.env.STORAGE_QUOTA_BYTES||100000000000000);
-const MIN_PART_SIZE=32*1024*1024;
-const TURBO_PART_SIZE=32*1024*1024;
+const MIN_PART_SIZE=8*1024*1024;
+const TURBO_PART_SIZE=8*1024*1024;
 const MAX_PARTS=10000;
 const PRESIGN_SECONDS=24*60*60;
-const UPLOAD_PROTOCOL_VERSION=2;
+const UPLOAD_PROTOCOL_VERSION=3;
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_URL?{rejectUnauthorized:false}:false});
 
@@ -2197,22 +2197,33 @@ app.post("/api/uploads/:id/complete",admin,async(req,res)=>{
     }
 
     if(u.mode==="multipart"){
-      var incoming=Array.isArray(req.body.parts)?req.body.parts:[];
-      var parts=incoming.map(function(p){
-        return {ETag:String(p.etag||p.ETag||"").replace(/^"+|"+$/g,""),PartNumber:Number(p.partNumber||p.PartNumber)};
-      }).filter(function(p){return p.ETag&&Number.isInteger(p.PartNumber)&&p.PartNumber>0;})
-        .sort(function(a,b){return a.PartNumber-b.PartNumber;});
-      if(!parts.length)return res.status(400).json({error:"Multipart upload has no completed parts."});
-      var seen=new Set(parts.map(function(p){return p.PartNumber;}));
-      if(seen.size!==parts.length)return res.status(400).json({error:"Duplicate multipart part."});
-
-      var objectReady=false;
+      // The bucket is the authoritative source of completed parts. Do not trust
+      // the browser's in-memory part list because a successful PUT can be followed
+      // by a lost response, a tab refresh, or a service restart.
+      let objectReady=false;
       try{
         await headObjectWithRetry({Bucket:bucket(),Key:u.storage_key},2,300);
         objectReady=true;
       }catch{}
 
       if(!objectReady){
+        const state=await inspectPendingUpload(u);
+        const expectedParts=Math.max(1,Math.ceil(Number(u.size_bytes||0)/Number(u.part_size||MIN_PART_SIZE)));
+        if(state.completedParts!==expectedParts || state.uploadedBytes!==Number(u.size_bytes||0)){
+          return res.status(409).json({
+            error:"Multipart upload is not complete yet.",
+            ready:false,
+            uploadedBytes:state.uploadedBytes,
+            totalSize:Number(u.size_bytes||0),
+            completedParts:state.completedParts,
+            totalParts:expectedParts,
+            missingParts:state.missingParts
+          });
+        }
+        const parts=state.parts.map(function(p){
+          return {ETag:String(p.etag||"").replace(/^"+|"+$/g,""),PartNumber:Number(p.partNumber)};
+        }).filter(function(p){return p.ETag&&Number.isInteger(p.PartNumber)&&p.PartNumber>0;})
+          .sort(function(a,b){return a.PartNumber-b.PartNumber;});
         await s3.send(new CompleteMultipartUploadCommand({
           Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,
           MultipartUpload:{Parts:parts}
