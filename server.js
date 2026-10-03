@@ -2102,7 +2102,16 @@ app.post("/api/portal/uploads/:id/complete",portalUser,async(req,res)=>{
   await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
   await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[u.project_id]);
   res.json({ok:true,file:fileRow});
- }catch(e){console.error("Portal upload finalization failed:",e);res.status(500).json({error:"Upload reached storage but could not be registered in the project. Please resume the upload; it will safely continue from the stored data."})}
+ }catch(e){
+  const code=String(e?.code||e?.Code||e?.name||"");
+  const status=Number(e?.$metadata?.httpStatusCode||0);
+  if(code==="UPLOAD_SESSION_GONE"||code==="NoSuchUpload"||code==="InvalidUploadId"||status===404){
+    await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[req.params.id]).catch(function(){});
+    return res.status(409).json({error:"The cloud multipart session is no longer available. Reconnecting safely…",code:"UPLOAD_SESSION_GONE"});
+  }
+  console.error("Portal upload finalization failed:",e);
+  res.status(500).json({error:"Upload reached storage but could not be registered in the project. Please resume the upload; it will safely continue from the stored data."});
+ }
 });
 app.post("/api/portal/uploads/:id/abort",portalUser,async(req,res)=>{
  try{
@@ -2412,7 +2421,16 @@ app.post("/api/uploads/:id/complete",admin,async(req,res)=>{
     await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
     await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[u.project_id]);
     res.json({ok:true,file:fileRow});
-  }catch(e){console.error("Admin upload finalization failed:",e);res.status(500).json({error:"Upload reached storage but could not be registered in the project. Please resume the upload; it will safely continue from the stored data."})}
+  }catch(e){
+    const code=String(e?.code||e?.Code||e?.name||"");
+    const status=Number(e?.$metadata?.httpStatusCode||0);
+    if(code==="UPLOAD_SESSION_GONE"||code==="NoSuchUpload"||code==="InvalidUploadId"||status===404){
+      await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[req.params.id]).catch(function(){});
+      return res.status(409).json({error:"The cloud multipart session is no longer available. Reconnecting safely…",code:"UPLOAD_SESSION_GONE"});
+    }
+    console.error("Admin upload finalization failed:",e);
+    res.status(500).json({error:"Upload reached storage but could not be registered in the project. Please resume the upload; it will safely continue from the stored data."});
+  }
 });
 app.post("/api/uploads/:id/abort",admin,async(req,res)=>{
   try{
