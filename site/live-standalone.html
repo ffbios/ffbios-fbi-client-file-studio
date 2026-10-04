@@ -169,32 +169,81 @@ button,input{font:inherit}
     n.forEach((x,i)=>x.className=i<lvl?(val>-6&&i>=n.length-4?'clip':val>-14&&i>=n.length-7?'hot':'on'):'');
   }
   function audioTick(){
-    if(!audioState||!audioState.left)return;
-    let l=db(audioState.left),r=db(audioState.right);if(r<=-58&&l>-52)r=l;const m=Math.max(l,r);
-    ['meterL','rackL'].forEach(id=>paint(id,l));['meterR','rackR'].forEach(id=>paint(id,r));['meterStream','meterMonitor','meterMaster','audioMeter'].forEach(id=>paint(id,m));
-    [['dbL',l],['rackDbL',l],['dbR',r],['rackDbR',r],['dbMaster',m],['audioDb',m]].forEach(([id,v])=>{const e=document.getElementById(id);if(e)e.textContent=v<=-59?'−∞':v.toFixed(1)+(id==='audioDb'?' dBFS':' dB')});
-    const st=document.getElementById('monitorState');if(st)st.textContent=audioState.ctx.state==='running'?'ACTIVE':'CLICK MONITOR';
+    if(!audioState||!audioState.left){
+      audioState&&requestAnimationFrame(audioTick);
+      return;
+    }
+    let l=db(audioState.left),r=db(audioState.right);
+    if(r<=-58&&l>-52)r=l;
+    const m=Math.max(l,r);
+    ['meterL','rackL'].forEach(id=>paint(id,l));
+    ['meterR','rackR'].forEach(id=>paint(id,r));
+    ['meterStream','meterMonitor','meterMaster','audioMeter'].forEach(id=>paint(id,m));
+    [['dbL',l],['rackDbL',l],['dbR',r],['rackDbR',r],['dbMaster',m],['audioDb',m]].forEach(([id,v])=>{
+      const e=document.getElementById(id);
+      if(e)e.textContent=v<=-59?'−∞':v.toFixed(1)+(id==='audioDb'?' dBFS':' dB');
+    });
+    const st=document.getElementById('monitorState');
+    if(st)st.textContent=audioState.ctx.state==='running'?'ACTIVE':'READY';
     audioState.raf=requestAnimationFrame(audioTick);
+  }
+  function closeAudioMonitor(){
+    if(!audioState)return;
+    if(audioState.raf)cancelAnimationFrame(audioState.raf);
+    try{audioState.ctx.close()}catch{}
+    audioState=null;
   }
   function startAudioMonitor(video){
     if(!video)return;
     try{
-      if(audioState&&audioState.raf)cancelAnimationFrame(audioState.raf);
-      if(audioState&&audioState.ctx)try{audioState.ctx.close()}catch{}
-      const C=window.AudioContext||window.webkitAudioContext;if(!C)throw new Error('Web Audio unavailable');
+      if(audioState&&audioState.video===video){
+        if(audioState.ctx.state==='suspended')audioState.ctx.resume().catch(()=>{});
+        return;
+      }
+      closeAudioMonitor();
+      const C=window.AudioContext||window.webkitAudioContext;
+      if(!C)throw new Error('Web Audio unavailable');
+
+      // Keep the media element itself unmuted so its real decoded audio reaches
+      // the Web Audio graph. A separate zero-gain monitor bus keeps speakers
+      // silent until the operator explicitly enables MONITOR AUDIO.
+      video.muted=false;
+      video.volume=1;
+
       const ctx=new C();
       const source=ctx.createMediaElementSource(video);
       const split=ctx.createChannelSplitter(2);
       const left=ctx.createAnalyser(),right=ctx.createAnalyser();
-      left.fftSize=right.fftSize=1024;left.smoothingTimeConstant=right.smoothingTimeConstant=.78;
-      source.connect(split);split.connect(left,0);split.connect(right,1);
-      audioState={ctx,left,right,raf:0};
+      const monitorGain=ctx.createGain();
+
+      left.fftSize=right.fftSize=1024;
+      left.smoothingTimeConstant=right.smoothingTimeConstant=.78;
+      monitorGain.gain.value=0;
+
+      source.connect(split);
+      split.connect(left,0);
+      split.connect(right,1);
+      source.connect(monitorGain);
+      monitorGain.connect(ctx.destination);
+
+      audioState={ctx,video,source,split,left,right,monitorGain,monitorEnabled:false,raf:0};
       ctx.resume().catch(()=>{});
       audioTick();
     }catch(e){
-      const st=document.getElementById('monitorState');if(st)st.textContent='MONITOR READY';
-      const dbEl=document.getElementById('audioDb');if(dbEl)dbEl.textContent='CLICK MONITOR';
+      const st=document.getElementById('monitorState');
+      if(st)st.textContent='READY';
+      const dbEl=document.getElementById('audioDb');
+      if(dbEl)dbEl.textContent='−∞ dBFS';
     }
+  }
+  function unlockAudioFromGesture(){
+    const v=document.getElementById('programVideo');
+    if(!v)return;
+    if(audioState&&audioState.ctx){
+      audioState.ctx.resume().catch(()=>{});
+      return;
+    }
+    startAudioMonitor(v);
   }
   function bindStudioMedia(s,live){
     const pv=document.getElementById('previewVideo'),pr=document.getElementById('programVideo');
@@ -207,7 +256,12 @@ button,input{font:inherit}
     if(pv)startStandaloneHls(pv,playbackUrl,'previewVideo');
     if(pr){
       startStandaloneHls(pr,playbackUrl,'programVideo');
-      pr.addEventListener('playing',function(){startAudioMonitor(pr)},{once:true});
+      // Create the analyser as soon as the Program player exists. If the
+      // browser suspends Web Audio, the first user gesture on the page resumes
+      // the same context instead of requiring the stream to be restarted.
+      startAudioMonitor(pr);
+      pr.addEventListener('playing',function(){if(audioState?.ctx?.state==='suspended')audioState.ctx.resume().catch(()=>{})});
+      pr.addEventListener('emptied',function(){if(audioState?.video===pr)closeAudioMonitor()});
     }
   }
   function bindStudio(s,live){
@@ -220,12 +274,23 @@ button,input{font:inherit}
       if(v?.requestFullscreen)v.requestFullscreen().catch(open);else open();
     };
     document.getElementById('muteBtn').onclick=()=>{
-      const v=document.getElementById('programVideo');if(!v)return;
-      v.muted=!v.muted;document.getElementById('muteBtn').textContent=v.muted?'MUTE':'UNMUTE';
+      const v=document.getElementById('programVideo');
+      if(!v)return;
+      unlockAudioFromGesture();
+      if(!audioState?.monitorGain)return;
+      audioState.monitorEnabled=false;
+      audioState.monitorGain.gain.value=0;
+      document.getElementById('muteBtn').textContent='MUTE';
+      const st=document.getElementById('monitorState');if(st)st.textContent=audioState.ctx.state==='running'?'ACTIVE':'READY';
     };
     document.getElementById('monitorBtn').onclick=()=>{
-      if(!audioState?.ctx){const st=document.getElementById('monitorState');if(st)st.textContent='WAITING FOR FEED';return}
-      if(audioState.ctx.state==='running')audioState.ctx.suspend();else audioState.ctx.resume();
+      unlockAudioFromGesture();
+      if(!audioState?.monitorGain)return;
+      audioState.monitorEnabled=!audioState.monitorEnabled;
+      audioState.monitorGain.gain.value=audioState.monitorEnabled?1:0;
+      const btn=document.getElementById('monitorBtn');
+      if(btn)btn.textContent=audioState.monitorEnabled?'MONITORING AUDIO':'MONITOR AUDIO';
+      const st=document.getElementById('monitorState');if(st)st.textContent='ACTIVE';
     };
     if(window.__durationTimer)clearInterval(window.__durationTimer);
     const started=s.started_at?Date.parse(s.started_at):NaN,el=document.getElementById('duration');const tick=()=>{if(!el||!live)return;if(!Number.isFinite(started)){el.textContent='ON AIR';return}let sec=Math.max(0,Math.floor((Date.now()-started)/1000)),h=Math.floor(sec/3600);sec%=3600;let m=Math.floor(sec/60),ss=sec%60;el.textContent=(h?String(h).padStart(2,'0')+':':'')+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0')};tick();window.__durationTimer=setInterval(tick,1000);
@@ -276,6 +341,9 @@ button,input{font:inherit}
       }
     }catch(e){if(e.message==='Unauthorised'||e.message==='Please log in')login()}
   }
+  document.addEventListener('pointerdown',unlockAudioFromGesture,{passive:true});
+  document.addEventListener('keydown',unlockAudioFromGesture,{passive:true});
+
   async function boot(){
     // Development/open-control mode: the standalone Live Control Center is
     // intentionally accessible without an administrative login for now.
