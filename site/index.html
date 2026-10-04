@@ -2063,7 +2063,7 @@ async function clientView(token){
       const badge=t==='video'?'VIDEO':t==='audio'?'AUDIO':t==='document'?'FILE':'';
       const visual=t==='video'
         ?'<div class="fbi-gallery-media">'+
-            '<video class="fbi-gallery-video is-loading" muted autoplay loop playsinline preload="metadata" poster="'+media+'" data-video-src="'+videoPreviewSrc(f)+'" aria-label="'+esc(f.original_name)+' preview"></video>'+
+            '<video class="fbi-gallery-video is-loading" muted autoplay loop playsinline preload="metadata" poster="'+media+'" data-video-src="'+videoPreviewSrc(f)+'" data-fallback-src="/api/public/media/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'" aria-label="'+esc(f.original_name)+' preview"></video>'+
             '<span class="fbi-gallery-video-toggle">VIDEO HIGHLIGHT</span>'+
             (badge?'<span class="fbi-gallery-badge">'+badge+'</span>':'')+
             '<div class="fbi-gallery-overlay"><div class="fbi-gallery-filetitle">'+esc(f.original_name)+'</div><div class="fbi-gallery-cardtools"><button class="fbi-gallery-iconbtn fav '+(fav?'active':'')+'" data-fav="'+esc(f.id)+'" aria-label="Favorite">♡</button><button class="fbi-gallery-iconbtn" data-dl="'+esc(f.id)+'" aria-label="Download">↓</button></div></div>'+
