@@ -76,7 +76,7 @@
     <div class="timelinearea">
       <div class="toolrail" id="toolrail"><button class="active" title="Selection">↖</button><button title="Track Select">⇥</button><button title="Ripple Edit">⌁</button><button title="Razor">✂</button><button title="Slip">◫</button><button title="Slide">⇆</button><button title="Pen">✎</button><button title="Hand">✋</button><button title="Type">T</button><button title="Zoom">⌕</button></div>
       <div class="timelinebar">
-        <button id="addMedia">Import Media</button><button id="addFolder">Import Folder</button><button id="addToTimeline">Add to Timeline</button><button id="save" title="Save sequence">Save Sequence</button><button id="razorBtn">Razor</button><button id="rippleBtn">Ripple Delete</button><span class="spacer"></span><select id="sequenceSelect"><option>24 fps</option><option>25 fps</option><option>30 fps</option><option>50 fps</option><option>60 fps</option></select><button id="toggleInspector">Inspector</button><button id="export">Export</button>
+        <button id="addMedia">Import Media</button><button id="addFolder">Import Folder</button><button id="addToTimeline">Add to Timeline</button><button id="save" title="Save sequence">Save Sequence</button><button id="razorBtn">Razor</button><button id="rippleBtn">Ripple Delete</button><span class="spacer"></span><select id="sequenceSelect"><option>24 fps</option><option>25 fps</option><option>30 fps</option><option>50 fps</option><option>60 fps</option></select><select id="renderResolution" title="Render resolution"><option value="1280x720">720p</option><option value="1920x1080" selected>1080p</option><option value="2560x1440">1440p</option><option value="3840x2160">4K</option></select><button id="toggleInspector">Inspector</button><button id="export">Export Edit</button><button id="renderMaster" class="topbtn primary">Render Master</button>
         <input id="fileInput" type="file" multiple accept="video/*,audio/*,image/*" style="display:none">
         <input id="folderInput" type="file" webkitdirectory directory multiple style="display:none">
       </div>
@@ -508,7 +508,38 @@ async function exportEditPackage(){
   const blob=new Blob([JSON.stringify({format:'fbi-editor-project',version:1,exported_at:new Date().toISOString(),project_id:S.project,sequence:payload},null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(String(S.sequence||'Untitled Sequence').replace(/[^a-z0-9._-]+/gi,'_')||'Untitled_Sequence')+'.fbi-edit.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);setStatus('Edit package exported. Original media remains untouched.');
 }
+async function renderMaster(){
+  if(!S.project)return setStatus('Select a project before rendering.');
+  if(!S.clips.length)return setStatus('Add media to the timeline first.');
+  const btn=document.getElementById('renderMaster'),res=document.getElementById('renderResolution');
+  if(btn)btn.disabled=true;
+  setStatus('Starting non-destructive master render…');
+  try{
+    const d=await api('/api/editor/render/'+encodeURIComponent(S.project),{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({sequence:editorPayload(),resolution:res?.value||'1920x1080'})
+    });
+    const jobId=d?.job?.id;
+    if(!jobId)throw new Error('Render job was not created.');
+    let last=-1;
+    for(;;){
+      await new Promise(r=>setTimeout(r,1200));
+      const s=await api('/api/editor/renders/'+encodeURIComponent(jobId));
+      const j=s.job||{};
+      if(Number(j.progress)!==last){last=Number(j.progress);setStatus('Rendering master… '+last+'%')}
+      if(j.status==='completed'){
+        setStatus('Master render complete. Downloading render…');
+        window.open('/api/editor/renders/'+encodeURIComponent(jobId)+'/download','_blank','noopener');
+        break;
+      }
+      if(j.status==='failed')throw new Error(j.error||'Master render failed.');
+    }
+  }catch(e){setStatus(e.message||'Master render failed.');}
+  finally{if(btn)btn.disabled=false}
+}
 document.getElementById('export').onclick=exportEditPackage;
+document.getElementById('renderMaster').onclick=renderMaster;
 document.getElementById('toolrail').querySelectorAll('button').forEach(function(b){
   b.onclick=function(){
     document.getElementById('toolrail').querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');
