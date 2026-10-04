@@ -2063,7 +2063,7 @@ async function clientView(token){
       const badge=t==='video'?'VIDEO':t==='audio'?'AUDIO':t==='document'?'FILE':'';
       const visual=t==='video'
         ?'<div class="fbi-gallery-media">'+
-            '<video class="fbi-gallery-video is-loading" muted autoplay loop playsinline preload="none" poster="'+media+'" data-video-src="'+videoPreviewSrc(f)+'" aria-label="'+esc(f.original_name)+' preview"></video>'+
+            '<video class="fbi-gallery-video is-loading" muted autoplay loop playsinline preload="metadata" poster="'+media+'" data-video-src="'+videoPreviewSrc(f)+'" aria-label="'+esc(f.original_name)+' preview"></video>'+
             '<span class="fbi-gallery-video-toggle">VIDEO HIGHLIGHT</span>'+
             (badge?'<span class="fbi-gallery-badge">'+badge+'</span>':'')+
             '<div class="fbi-gallery-overlay"><div class="fbi-gallery-filetitle">'+esc(f.original_name)+'</div><div class="fbi-gallery-cardtools"><button class="fbi-gallery-iconbtn fav '+(fav?'active':'')+'" data-fav="'+esc(f.id)+'" aria-label="Favorite">♡</button><button class="fbi-gallery-iconbtn" data-dl="'+esc(f.id)+'" aria-label="Download">↓</button></div></div>'+
@@ -2094,32 +2094,84 @@ async function clientView(token){
   function setupGalleryVideoHighlights(){
     const videos=[...document.querySelectorAll('#galleryGrid video[data-video-src]')];
     if(window.__fbiGalleryVideoObserver)window.__fbiGalleryVideoObserver.disconnect();
+
+    const markPlaying=function(video){
+      video.classList.remove('is-loading');
+      video.classList.add('is-playing');
+    };
+
+    const useOriginalFallback=function(video){
+      if(video.dataset.fallbackTried==='1')return;
+      video.dataset.fallbackTried='1';
+      const fallback=video.dataset.fallbackSrc;
+      if(!fallback)return;
+
+      video.src=fallback;
+      video.load();
+      video.muted=true;
+      video.playsInline=true;
+      video.autoplay=true;
+      video.loop=false;
+
+      const beginSegment=function(){
+        try{
+          if(Number.isFinite(video.duration) && video.duration>0){
+            video.currentTime=Math.min(4,Math.max(0,video.duration-0.1));
+          }
+        }catch(_e){}
+        const p=video.play();
+        if(p&&p.catch)p.catch(function(){});
+      };
+      if(video.readyState>=1)beginSegment();
+      else video.addEventListener('loadedmetadata',beginSegment,{once:true});
+
+      video.ontimeupdate=function(){
+        if(!Number.isFinite(video.duration) || video.duration<=0)return;
+        const startAt=4;
+        const stopAt=Math.min(12,video.duration);
+        if(stopAt<=startAt)return;
+        if(video.currentTime>=stopAt-0.05){
+          try{video.currentTime=Math.min(startAt,Math.max(0,video.duration-0.1));}catch(_e){}
+          const p=video.play();
+          if(p&&p.catch)p.catch(function(){});
+        }
+      };
+    };
+
     const playVideo=function(video){
       if(!video.dataset.videoSrc)return;
+      video.muted=true;
+      video.playsInline=true;
+      video.autoplay=true;
+      video.loop=true;
+
       if(!video.src){
         video.src=video.dataset.videoSrc;
         video.load();
       }
-      video.muted=true;
-      video.playsInline=true;
-      video.loop=true;
+
       const p=video.play();
-      if(p&&p.then)p.then(function(){video.classList.remove("is-loading");video.classList.add("is-playing")}).catch(function(){video.classList.add("is-loading")});
+      if(p&&p.then)p.then(markPlaying).catch(function(){useOriginalFallback(video)});
     };
-    const pauseVideo=function(video){try{video.pause()}catch{}};
+
+    videos.forEach(function(video){
+      video.addEventListener('playing',function(){markPlaying(video)});
+      video.addEventListener('error',function(){useOriginalFallback(video)});
+    });
+
     if('IntersectionObserver' in window){
       const observer=new IntersectionObserver(function(entries){
         entries.forEach(function(entry){
           const v=entry.target;
           if(entry.isIntersecting){
             playVideo(v);
-            v.onplaying=function(){v.classList.remove('is-loading');v.classList.add('is-playing')};
           }else{
-            pauseVideo(v);
+            try{v.pause()}catch(_e){}
           }
         });
       },{rootMargin:"420px 0px",threshold:.01});
-      videos.forEach(function(v){window.__fbiGalleryVideoObserver=observer;observer.observe(v)});
+      window.__fbiGalleryVideoObserver=observer;
+      videos.forEach(function(v){observer.observe(v)});
     }else{
       videos.forEach(function(v){playVideo(v)});
     }
