@@ -1996,7 +1996,7 @@ async function clientView(token){
       '<div id="clientLightbox" class="fbi-lightbox"><div class="fbi-lightbox-top"><div class="fbi-lightbox-title" id="lightTitle"></div><div class="fbi-lightbox-tools"><button class="fbi-lightbox-btn" id="lightFav">♡ Favorite</button><button class="fbi-lightbox-btn primary" id="lightDownload">Download</button><button class="fbi-lightbox-btn" id="lightClose">Close</button></div></div><button class="fbi-lightbox-arrow prev" id="lightPrev">‹</button><div class="fbi-lightbox-stage" id="lightStage"></div><button class="fbi-lightbox-arrow next" id="lightNext">›</button></div>'+
     '</div>';
 
-  const selectedFilter={value:'all'}, sortBy={value:'natural'};
+  const selectedFilter={value:'all'}, sortBy={value:'natural'}, favoritesOnly={value:false};
   let visible=[],currentLightIndex=0,slideshowTimer=null;
 
   function typeOf(f){
@@ -2025,7 +2025,9 @@ async function clientView(token){
     return out;
   }
   function baseList(){
-    return sortList(files.filter(f=>selectedFilter.value==='all'||typeOf(f)===selectedFilter.value));
+    let list=files.filter(f=>selectedFilter.value==='all'||typeOf(f)===selectedFilter.value);
+    if(favoritesOnly.value)list=list.filter(f=>favorites.has(f.id));
+    return sortList(list);
   }
   function mediaSrc(f){
     return '/api/public/thumb/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w=900&h=1200';
@@ -2071,7 +2073,7 @@ async function clientView(token){
     currentLightIndex=(index+list.length)%list.length;
     const f=list[currentLightIndex];
     const box=document.querySelector('#clientLightbox'),stage=document.querySelector('#lightStage');
-    const t=typeOf(f),src=t==='image'?mediaSrc(f):'/api/public/media/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token);
+    const t=typeOf(f),src=t==='image'?('/api/public/preview/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w=1800&h=1800'):'/api/public/media/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token);
     document.querySelector('#lightTitle').textContent=f.original_name;
     document.querySelector('#lightFav').textContent=favorites.has(f.id)?'♥ Favorite':'♡ Favorite';
     stage.innerHTML=t==='image'?'<img src="'+src+'&w=1600&h=1600" alt="">':t==='video'?'<video controls autoplay playsinline preload="metadata" src="'+src+'"></video>':'<audio controls autoplay src="'+src+'"></audio>';
@@ -2103,15 +2105,19 @@ async function clientView(token){
   function stopSlideshow(){if(slideshowTimer){clearInterval(slideshowTimer);slideshowTimer=null}}
   function closeLightbox(){stopSlideshow();document.querySelector('#clientLightbox').classList.remove('show');document.querySelector('#lightStage').innerHTML=''}
   document.querySelectorAll('.fbi-gallery-chip').forEach(function(btn){
-    btn.onclick=function(){selectedFilter.value=btn.dataset.filter;document.querySelectorAll('.fbi-gallery-chip').forEach(b=>b.classList.toggle('active',b===btn));renderGrid()}
+    btn.onclick=function(){favoritesOnly.value=false;selectedFilter.value=btn.dataset.filter;document.querySelectorAll('.fbi-gallery-chip').forEach(b=>b.classList.toggle('active',b===btn));document.querySelector('#favTop').textContent='♡ Favorites'+(favorites.size?' ('+favorites.size+')':'');renderGrid()}
   });
   document.querySelector('#gallerySort').onchange=function(e){sortBy.value=e.target.value;renderGrid()};
   document.querySelector('#viewGallery').onclick=function(){document.querySelector('#galleryBody').scrollIntoView({behavior:'smooth',block:'start'})};
   document.querySelector('#heroDownload').onclick=document.querySelector('#downloadTop').onclick=function(){startDownload(files)};
-  document.querySelector('#favTop').onclick=function(){selectedFilter.value='all';document.querySelector('#galleryBody').scrollIntoView({behavior:'smooth',block:'start'});setTimeout(function(){
-    const favCards=files.filter(f=>favorites.has(f.id));
-    document.querySelector('#galleryGrid').innerHTML=favCards.length?favCards.map(function(f){return '<article class="fbi-gallery-favorite-note">'+esc(f.original_name)+'</article>'}).join(''):'';
-  },250)};
+  document.querySelector('#favTop').onclick=function(){
+    favoritesOnly.value=!favoritesOnly.value;
+    selectedFilter.value='all';
+    document.querySelectorAll('.fbi-gallery-chip').forEach(function(b){b.classList.toggle('active',b.dataset.filter==='all')});
+    document.querySelector('#favTop').textContent=favoritesOnly.value?'♥ Favorites (showing)':'♡ Favorites'+(favorites.size?' ('+favorites.size+')':'');
+    renderGrid();
+    document.querySelector('#galleryBody').scrollIntoView({behavior:'smooth',block:'start'});
+  };
   document.querySelector('#slideTop').onclick=startSlideshow;
   document.querySelector('#downloadFavorites').onclick=function(){startDownload(files.filter(f=>favorites.has(f.id)))};
   document.querySelector('#lightClose').onclick=closeLightbox;
