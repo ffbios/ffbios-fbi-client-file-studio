@@ -168,108 +168,65 @@ button,input{font:inherit}
     const e=document.getElementById(id);if(!e)return;const n=e.querySelectorAll('i'),lvl=Math.max(0,Math.min(n.length,Math.round((Math.max(-48,Math.min(0,val))+48)/48*n.length)));
     n.forEach((x,i)=>x.className=i<lvl?(val>-6&&i>=n.length-4?'clip':val>-14&&i>=n.length-7?'hot':'on'):'');
   }
-  function audioTick(){
-    if(!audioState||!audioState.left){
-      if(audioState)audioState.raf=requestAnimationFrame(audioTick);
-      return;
-    }
-    const l=db(audioState.left),rRaw=db(audioState.right);
-    const r=rRaw<=-58&&l>-52?l:rRaw,m=Math.max(l,r);
-    ['meterL','rackL'].forEach(id=>paint(id,l));
-    ['meterR','rackR'].forEach(id=>paint(id,r));
-    ['meterStream','meterMonitor','meterMaster','audioMeter'].forEach(id=>paint(id,m));
-    [['dbL',l],['rackDbL',l],['dbR',r],['rackDbR',r],['dbMaster',m],['audioDb',m]].forEach(([id,v])=>{
+  function paintAudioLevel(level){
+    const v=Math.max(-60,Math.min(0,Number(level)));
+    ['meterL','rackL'].forEach(id=>paint(id,v));
+    ['meterR','rackR'].forEach(id=>paint(id,v));
+    ['meterStream','meterMonitor','meterMaster','audioMeter'].forEach(id=>paint(id,v));
+    [['dbL',v],['rackDbL',v],['dbR',v],['rackDbR',v],['dbMaster',v],['audioDb',v]].forEach(([id,val])=>{
       const e=document.getElementById(id);
-      if(e)e.textContent=v<=-59?'−∞':v.toFixed(1)+(id==='audioDb'?' dBFS':' dB');
+      if(e)e.textContent=val<=-59?'−∞':val.toFixed(1)+(id==='audioDb'?' dBFS':' dB');
     });
     const st=document.getElementById('monitorState');
-    if(st)st.textContent=audioState.ctx.state==='running'?'ACTIVE':'CLICK MONITOR';
-    audioState.raf=requestAnimationFrame(audioTick);
+    if(st)st.textContent='ACTIVE';
   }
 
-  function closeAudioMonitor(){
+  function stopAudioMeter(){
     if(!audioState)return;
-    if(audioState.raf)cancelAnimationFrame(audioState.raf);
-    try{audioState.ctx.close()}catch{}
+    if(audioState.timer)clearInterval(audioState.timer);
     audioState=null;
+    paintAudioLevel(-60);
+    const st=document.getElementById('monitorState');if(st)st.textContent='READY';
   }
 
-  function startAudioMonitor(video){
-    if(!video)return;
+  async function pollAudioMeter(){
+    const state=audioState;
+    if(!state||!state.streamId)return;
     try{
-      if(audioState&&audioState.video===video){
-        if(audioState.ctx.state==='suspended')audioState.ctx.resume().catch(()=>{});
-        return;
-      }
-      closeAudioMonitor();
-      const C=window.AudioContext||window.webkitAudioContext;
-      if(!C)throw new Error('Web Audio unavailable');
-
-      // Do not modify the video playback element's mute/autoplay state.
-      // The Preview player remains muted so autoplay stays reliable.
-      // Web Audio observes its decoded media without changing playback.
-      video.muted=true;
-      const ctx=new C();
-      const source=ctx.createMediaElementSource(video);
-      const split=ctx.createChannelSplitter(2);
-      const left=ctx.createAnalyser(),right=ctx.createAnalyser();
-      const monitorGain=ctx.createGain();
-
-      left.fftSize=right.fftSize=1024;
-      left.smoothingTimeConstant=right.smoothingTimeConstant=.78;
-      monitorGain.gain.value=0;
-
-      source.connect(split);
-      split.connect(left,0);
-      split.connect(right,1);
-      source.connect(monitorGain);
-      monitorGain.connect(ctx.destination);
-
-      audioState={ctx,video,left,right,monitorGain,monitorEnabled:false,raf:0};
-      ctx.resume().catch(()=>{});
-      audioTick();
+      const d=await api('/api/live/streams/'+encodeURIComponent(state.streamId)+'/audio-level?ts='+Date.now());
+      if(audioState!==state)return;
+      const level=Number.isFinite(Number(d.overall))?Number(d.overall):Math.max(Number(d.left)||-60,Number(d.right)||-60);
+      paintAudioLevel(level);
+      state.lastAt=Date.now();
     }catch(e){
-      audioState=null;
-      const st=document.getElementById('monitorState');
-      if(st)st.textContent='READY';
-      const dbEl=document.getElementById('audioDb');
-      if(dbEl)dbEl.textContent='−∞ dBFS';
+      if(audioState===state)paintAudioLevel(-60);
     }
   }
 
-  function unlockAudioFromGesture(){
-    const v=document.getElementById('previewVideo');
-    if(!v)return;
-    if(audioState&&audioState.ctx){
-      audioState.ctx.resume().catch(()=>{});
-      return;
-    }
-    startAudioMonitor(v);
-    if(audioState&&audioState.ctx)audioState.ctx.resume().catch(()=>{});
+  function startAudioMeter(streamId){
+    stopAudioMeter();
+    audioState={streamId:String(streamId),timer:null,lastAt:0};
+    pollAudioMeter();
+    audioState.timer=setInterval(pollAudioMeter,200);
   }
 
   function bindStudioMedia(s,live){
     const pv=document.getElementById('previewVideo'),pr=document.getElementById('programVideo');
-    if(!live)return;
+    if(!live){
+      stopAudioMeter();
+      return;
+    }
     const publicToken=s.viewer_url?String(s.viewer_url).split('/watch/').pop().split(/[?#]/)[0]:'';
     const playbackUrl=publicToken?('/api/public/stream/'+encodeURIComponent(publicToken)+'/hls/index.m3u8'):(s.hls_url||'');
 
-    // Keep Preview and Program as two normal, independent HLS players.
-    // Never insert the audio analyser into Program, because doing so can
-    // interfere with browser autoplay/MSE playback. Metering reads Preview,
-    // which is the same live program feed and is already the stable player.
-    if(pv){
-      startStandaloneHls(pv,playbackUrl,'previewVideo');
-      startAudioMonitor(pv);
-      pv.addEventListener('playing',function(){
-        if(audioState?.ctx?.state==='suspended')audioState.ctx.resume().catch(()=>{});
-      });
-      pv.addEventListener('emptied',function(){
-        if(audioState?.video===pv)closeAudioMonitor();
-      });
-    }
+    // Preview and Program remain ordinary independent HLS players.
+    // Audio metering is supplied by the server-side analyser, so it cannot
+    // alter either player's mute state, autoplay, MediaSource, or playback.
+    if(pv)startStandaloneHls(pv,playbackUrl,'previewVideo');
     if(pr)startStandaloneHls(pr,playbackUrl,'programVideo');
+    startAudioMeter(s.id);
   }
+
   function bindStudio(s,live){
     bindStudioMedia(s,live);
     const open=()=>window.open(s.viewer_url,'_blank','noopener');
@@ -280,21 +237,16 @@ button,input{font:inherit}
       if(v?.requestFullscreen)v.requestFullscreen().catch(open);else open();
     };
     document.getElementById('muteBtn').onclick=()=>{
-      unlockAudioFromGesture();
-      if(!audioState?.monitorGain)return;
-      audioState.monitorEnabled=false;
-      audioState.monitorGain.gain.value=0;
-      const btn=document.getElementById('muteBtn');if(btn)btn.textContent='MUTE';
-      const st=document.getElementById('monitorState');if(st)st.textContent=audioState.ctx.state==='running'?'ACTIVE':'READY';
+      const v=document.getElementById('programVideo');if(!v)return;
+      v.muted=!v.muted;
+      document.getElementById('muteBtn').textContent=v.muted?'MUTE':'UNMUTE';
     };
     document.getElementById('monitorBtn').onclick=()=>{
-      unlockAudioFromGesture();
-      if(!audioState?.monitorGain)return;
-      audioState.monitorEnabled=!audioState.monitorEnabled;
-      audioState.monitorGain.gain.value=audioState.monitorEnabled?1:0;
       const btn=document.getElementById('monitorBtn');
-      if(btn)btn.textContent=audioState.monitorEnabled?'MONITORING AUDIO':'MONITOR AUDIO';
-      const st=document.getElementById('monitorState');if(st)st.textContent=audioState.ctx.state==='running'?'ACTIVE':'READY';
+      const st=document.getElementById('monitorState');
+      if(btn)btn.textContent='AUDIO METER ACTIVE';
+      if(st)st.textContent='ACTIVE';
+      pollAudioMeter();
     };
     if(window.__durationTimer)clearInterval(window.__durationTimer);
     const started=s.started_at?Date.parse(s.started_at):NaN,el=document.getElementById('duration');const tick=()=>{if(!el||!live)return;if(!Number.isFinite(started)){el.textContent='ON AIR';return}let sec=Math.max(0,Math.floor((Date.now()-started)/1000)),h=Math.floor(sec/3600);sec%=3600;let m=Math.floor(sec/60),ss=sec%60;el.textContent=(h?String(h).padStart(2,'0')+':':'')+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0')};tick();window.__durationTimer=setInterval(tick,1000);
@@ -345,9 +297,6 @@ button,input{font:inherit}
       }
     }catch(e){if(e.message==='Unauthorised'||e.message==='Please log in')login()}
   }
-  document.addEventListener('pointerdown',unlockAudioFromGesture,{passive:true});
-  document.addEventListener('keydown',unlockAudioFromGesture,{passive:true});
-
   async function boot(){
     // Development/open-control mode: the standalone Live Control Center is
     // intentionally accessible without an administrative login for now.
