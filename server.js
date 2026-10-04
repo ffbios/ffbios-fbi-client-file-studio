@@ -567,6 +567,12 @@ async function initDb(){
       content_fingerprint text,
       created_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS editor_sequences(
+      project_id uuid PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      sequence_name text NOT NULL DEFAULT 'Untitled Sequence',
+      sequence jsonb NOT NULL DEFAULT '{}'::jsonb,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS downloads(
       id bigserial PRIMARY KEY,
       project_id uuid REFERENCES projects(id) ON DELETE SET NULL,
@@ -1111,6 +1117,30 @@ app.patch("/api/projects/:id",admin,async(req,res)=>{
   const r=await pool.query(`UPDATE projects SET ${fields.join(",")} WHERE id=$${n} RETURNING *`,values);if(!r.rowCount)return res.status(404).json({error:"Project not found"});
   res.json({project:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not update project"})}
+});
+app.get("/api/editor/sequences/:projectId",admin,async(req,res)=>{
+  try{
+    const p=await pool.query("SELECT id FROM projects WHERE id=$1",[req.params.projectId]);
+    if(!p.rowCount)return res.status(404).json({error:"Project not found"});
+    const q=await pool.query("SELECT project_id,sequence_name,sequence,updated_at FROM editor_sequences WHERE project_id=$1",[req.params.projectId]);
+    if(!q.rowCount)return res.json({sequence:null});
+    res.json({sequence:q.rows[0]});
+  }catch(e){console.error("Editor sequence load failed:",e);res.status(500).json({error:"Could not load editor sequence"})}
+});
+app.put("/api/editor/sequences/:projectId",admin,async(req,res)=>{
+  try{
+    const p=await pool.query("SELECT id FROM projects WHERE id=$1",[req.params.projectId]);
+    if(!p.rowCount)return res.status(404).json({error:"Project not found"});
+    const sequence=req.body?.sequence;
+    if(!sequence || typeof sequence!=="object")return res.status(400).json({error:"A valid editor sequence is required"});
+    const sequenceName=String(req.body?.sequence_name||sequence.sequence||"Untitled Sequence").trim().slice(0,180)||"Untitled Sequence";
+    const q=await pool.query(
+      "INSERT INTO editor_sequences(project_id,sequence_name,sequence,updated_at) VALUES($1,$2,$3::jsonb,now()) ON CONFLICT(project_id) DO UPDATE SET sequence_name=EXCLUDED.sequence_name,sequence=EXCLUDED.sequence,updated_at=now() RETURNING project_id,sequence_name,sequence,updated_at",
+      [req.params.projectId,sequenceName,JSON.stringify(sequence)]
+    );
+    await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[req.params.projectId]);
+    res.json({sequence:q.rows[0]});
+  }catch(e){console.error("Editor sequence save failed:",e);res.status(500).json({error:"Could not save editor sequence"})}
 });
 app.delete("/api/projects/:id",admin,async(req,res)=>{
  try{
