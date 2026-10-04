@@ -102,9 +102,11 @@ const api=async(u,o={})=>{const r=await fetch(u,{credentials:'same-origin',...o}
 const videoFile=f=>/^video\//.test(f?.mime_type||'');
 const audioFile=f=>/^audio\//.test(f?.mime_type||'');
 const imageFile=f=>/^image\//.test(f?.mime_type||'');
-const ft=s=>{s=Math.max(0,Number(s||0));return String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0')+':'+String(Math.floor((s%1)*25)).padStart(2,'0')};
+const fpsValue=()=>Math.max(1,Number(String(S.frameRate||'24 fps').match(/\d+/)?.[0]||24));
+const ft=s=>{s=Math.max(0,Number(s||0));const fps=fpsValue(),whole=Math.floor(s),frames=Math.floor((s-whole)*fps);return String(Math.floor(whole/3600)).padStart(2,'0')+':'+String(Math.floor((whole%3600)/60)).padStart(2,'0')+':'+String(whole%60).padStart(2,'0')+':'+String(frames).padStart(2,'0')};
 const fmt=n=>{n=Number(n||0);const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
-const S={project:'',sequence:'Untitled Sequence',files:[],selectedFile:null,clips:[],selectedClip:null,playhead:0,playing:false,workspace:'assembly',effect:{blur:0,brightness:100,contrast:100,saturate:100,grayscale:0,sepia:0,vignette:0,grain:0},graphics:'',caption:''};
+const S={project:'',sequence:'Untitled Sequence',files:[],selectedFile:null,clips:[],selectedClip:null,playhead:0,playing:false,workspace:'assembly',effect:{blur:0,brightness:100,contrast:100,saturate:100,grayscale:0,sepia:0,vignette:0,grain:0},
+markers:[],graphics:'',caption:''};
 let projects=[],localFiles=[];
 const logo='data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="500" height="150"><text x="250" y="105" text-anchor="middle" font-family="Arial" font-size="92" font-weight="900" fill="#f4d56d">FBI</text></svg>');
 const logoEl=document.getElementById('logo');if(logoEl)logoEl.src=logo;
@@ -125,6 +127,8 @@ function editorPayload(){
     graphics:S.graphics,
     graphicsStyle:S.graphicsStyle||{size:28,opacity:100},
     caption:S.caption,
+    captionStyle:S.captionStyle||{size:19,opacity:100},
+    markers:Array.isArray(S.markers)?S.markers:[],
     captionStyle:S.captionStyle||{size:19,opacity:100},
     frameRate:S.frameRate||'24 fps'
   };
@@ -154,6 +158,27 @@ function save(){
 function setStatus(t){document.getElementById('status').textContent=t}
 function refreshSource(){const f=selectedFile();const v=document.getElementById('sourceVideo');document.getElementById('sourceTitle').textContent='Source: '+(f?f.original_name:'No media selected');if(f){v.src=fileUrl(f);v.load();document.getElementById('sourceTc').textContent='00:00:00:00'}else{v.removeAttribute('src');v.load()}}
 function activeClip(){return S.clips.find(c=>S.playhead>=c.start&&S.playhead<c.start+c.duration)||null}
+function ensureEditorAudioGraph(el){
+  if(!el)return null;
+  window.__editorAudioGraphs=window.__editorAudioGraphs||new WeakMap();
+  const existing=window.__editorAudioGraphs.get(el);
+  if(existing)return existing;
+  try{
+    const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;
+    const ctx=window.__editorAudioContext||(window.__editorAudioContext=new C());
+    const source=ctx.createMediaElementSource(el);
+    const gain=ctx.createGain();
+    const panner=ctx.createStereoPanner?ctx.createStereoPanner():null;
+    const eq=ctx.createBiquadFilter();eq.type='peaking';eq.frequency.value=2200;eq.Q.value=.8;
+    const comp=ctx.createDynamicsCompressor();
+    source.connect(eq);eq.connect(comp);
+    if(panner){comp.connect(panner);panner.connect(gain)}else comp.connect(gain);
+    gain.connect(ctx.destination);
+    const graph={ctx,source,gain,panner,eq,comp};
+    window.__editorAudioGraphs.set(el,graph);
+    return graph;
+  }catch(e){console.warn('Editor audio graph:',e);return null}
+}
 function applyClipAudio(c,positionSeconds){
   if(!c)return;
   const base=Math.max(0,Math.min(2,(Number(c.volume??100)/100)));
@@ -164,8 +189,23 @@ function applyClipAudio(c,positionSeconds){
   if(c.fadeOut>0)gain*=Math.min(1,remain/Number(c.fadeOut));
   const muted=!!c.mute;
   const v=document.getElementById('programVideo'),a=document.getElementById('programAudio');
-  if(v){v.volume=Math.max(0,Math.min(1,gain));v.muted=muted}
-  if(a){a.volume=Math.max(0,Math.min(1,gain));a.muted=muted}
+  [v,a].forEach(function(el){
+    if(!el)return;
+    el.volume=1;
+    el.muted=muted;
+    const g=ensureEditorAudioGraph(el);
+    if(g){
+      if(g.ctx.state==='suspended')g.ctx.resume().catch(()=>{});
+      g.gain.gain.value=muted?0:Math.max(0,Math.min(2,gain));
+      if(g.panner)g.panner.pan.value=Math.max(-1,Math.min(1,Number(c.pan||0)/100));
+      if(c.audioEffect==='Parametric EQ'){g.eq.type='peaking';g.eq.frequency.value=2200;g.eq.gain.value=4;g.eq.Q.value=.8}
+      else {g.eq.gain.value=0}
+      if(c.audioEffect==='Dynamics'){g.comp.threshold.value=-24;g.comp.knee.value=18;g.comp.ratio.value=4;g.comp.attack.value=.01;g.comp.release.value=.18}
+      else if(c.audioEffect==='Limiter'){g.comp.threshold.value=-6;g.comp.knee.value=0;g.comp.ratio.value=20;g.comp.attack.value=.001;g.comp.release.value=.08}
+      else if(c.audioEffect==='DeNoise'){g.comp.threshold.value=-34;g.comp.knee.value=28;g.comp.ratio.value=2;g.comp.attack.value=.003;g.comp.release.value=.25}
+      else {g.comp.threshold.value=0;g.comp.knee.value=0;g.comp.ratio.value=1;g.comp.attack.value=.003;g.comp.release.value=.25}
+    }
+  });
 }
 function refreshProgram(){
   const c=activeClip(),v=document.getElementById('programVideo'),a=document.getElementById('programAudio'),f=c&&S.files.find(x=>x.id===c.fileId);
@@ -219,6 +259,7 @@ async function loadProject(id){
       S.graphicsStyle=remoteState.graphicsStyle||{size:28,opacity:100};
       S.caption=remoteState.caption||'';
       S.captionStyle=remoteState.captionStyle||{size:19,opacity:100};
+      S.markers=Array.isArray(remoteState.markers)?remoteState.markers:[];
       S.frameRate=remoteState.frameRate||'24 fps';
       loadedCloud=true;
     }
@@ -234,6 +275,7 @@ async function loadProject(id){
         S.graphicsStyle=localState.graphicsStyle||{size:28,opacity:100};
         S.caption=localState.caption||'';
         S.captionStyle=localState.captionStyle||{size:19,opacity:100};
+        S.markers=Array.isArray(localState.markers)?localState.markers:[];
         S.frameRate=localState.frameRate||'24 fps';
       }else{
         try{S.clips=JSON.parse(localStorage.getItem('fbi-editor-clips-'+id)||'[]')}catch{S.clips=[]}
@@ -254,6 +296,10 @@ function renderTimeline(){
   const px=timelineZoom,max=Math.max(60,Math.ceil(total()/10)*10),r=document.getElementById('ruler'),track=document.getElementById('trackarea');
   r.innerHTML=Array.from({length:max+1},(_,i)=>i%5===0?'<span class="tick" style="left:'+i*px+'px">'+i+'s</span>':'').join('');
   track.querySelectorAll('.lane').forEach(x=>x.innerHTML='');
+  (S.markers||[]).forEach(function(m){
+    const mk=document.createElement('div');mk.style.cssText='position:absolute;top:0;bottom:0;width:1px;background:#f4d56d;z-index:18;left:'+(Number(m.time||0)*px)+'px;pointer-events:none';
+    const lab=document.createElement('span');lab.textContent=m.label||'Marker';lab.style.cssText='position:absolute;top:2px;left:3px;background:#d4af37;color:#111;padding:2px 4px;border-radius:2px;font-size:6px;white-space:nowrap';mk.appendChild(lab);track.appendChild(mk);
+  });
   S.clips.forEach(c=>{rebuild(c);const el=document.createElement('div');el.className='clip '+(c.type==='audio'?'audio ':'')+(c.id===S.selectedClip?'sel':'');el.style.left=(c.start*px)+'px';el.style.width=Math.max(44,c.duration*px)+'px';el.innerHTML='<div class="nm">'+esc(c.name)+'</div><div class="meta">'+ft(c.duration)+' • '+c.speed+'x</div><div class="wave"></div>';el.onclick=e=>{e.stopPropagation();S.selectedClip=c.id;S.playhead=c.start;renderTimeline();renderInspector();refreshProgram()};const lane=track.querySelector('.lane[data-track="'+(c.track||'V1')+'"]');if(lane)lane.appendChild(el)});
   const width=(max+15)*px;track.style.minWidth=width+'px';r.style.minWidth=width+'px';track.querySelectorAll('.lane').forEach(x=>x.style.minWidth=width+'px');document.getElementById('playline').style.left=S.playhead*px+'px'
 }
@@ -418,7 +464,8 @@ function openEditorMenu(button,items){
 function addTimelineMarker(){
   S.markers=S.markers||[];
   S.markers.push({id:crypto.randomUUID(),time:Number(S.playhead||0),label:'Marker'});
-  save();setStatus('Marker added at '+ft(S.playhead)+'.');
+  S.markers.sort((a,b)=>a.time-b.time);
+  save();renderTimeline();setStatus('Marker added at '+ft(S.playhead)+'.');
 }
 document.getElementById('back').onclick=()=>location.href='/';
 document.querySelector('.home').onclick=()=>location.href='/';
