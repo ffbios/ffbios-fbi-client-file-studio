@@ -1,5 +1,5 @@
 const CACHE_NAME="vi-life-pwa-v2";
-const SHELL=["/","/manifest.webmanifest","/official-logo.png","/official-logo.png"];
+const SHELL=["/","/manifest.webmanifest","/official-logo.png"];
 
 self.addEventListener("install",event=>{
   event.waitUntil(caches.open(CACHE_NAME).then(cache=>cache.addAll(SHELL)));
