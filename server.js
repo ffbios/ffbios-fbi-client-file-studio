@@ -806,7 +806,11 @@ function ensureStreamAudioMeter(row){
   const existing=activeStreamAudioMeters.get(key);
   if(existing&&!existing.proc.killed)return existing;
 
-  const input=streamInputRtmpUrl(row)||(streamInputHlsUrl(row)?streamInputHlsUrl(row)+"/index.m3u8":"");
+  // Use the same HLS input that the existing recording engine already
+  // uses successfully. This keeps metering on the proven live media path and
+  // avoids depending on a separate RTMP connection.
+  const hlsBase=streamInputHlsUrl(row);
+  const input=hlsBase&&hlsBase.startsWith("http")?hlsBase+"/index.m3u8":streamInputRtmpUrl(row);
   if(!input)return null;
 
   const state={level:-60,lastAt:Date.now(),proc:null};
@@ -825,7 +829,9 @@ function ensureStreamAudioMeter(row){
     const lines=buffer.split(/\r?\n/);
     buffer=lines.pop()||"";
     for(const line of lines){
-      const m=String(line).match(/lavfi\.astats\.Overall\.RMS_level=(-?(?:\d+(?:\.\d*)?|\.\d+))/);
+      const textLine=String(line);
+      const m=textLine.match(/lavfi\.astats\.Overall\.RMS_level=(-?(?:\d+(?:\.\d*)?|\.\d+))/)
+        ||textLine.match(/RMS level dB:\s*(-?(?:\d+(?:\.\d*)?|\.\d+))/i);
       if(!m)continue;
       const level=Math.max(-60,Math.min(0,Number(m[1])));
       if(Number.isFinite(level)){
@@ -964,6 +970,7 @@ async function refreshStreamStatus(row){
   const live=await checkStreamLive(row);
   const status=live?"live":"offline";
   if(!live)stopStreamAudioMeter(row?.id);
+  else ensureStreamAudioMeter({...row,status:"live"});
   if(status!==row.status){
     if(live){
       await pool.query("UPDATE streams SET status='live',started_at=COALESCE(started_at,now()),updated_at=now() WHERE id=$1",[row.id]);
