@@ -2900,6 +2900,95 @@ app.get("/api/public/share/:token",async(req,res)=>{
  }catch(e){console.error(e);res.status(500).json({error:"Could not load delivery"})}
 });
 
+
+async function renderVideoPreviewClip(file,startSeconds=4,durationSeconds=8){
+  if(!ffmpegPath)throw new Error("FFmpeg is not available for video gallery previews.");
+  const safeStart=Math.max(0,Number(startSeconds)||0);
+  const safeDuration=Math.max(3,Math.min(12,Number(durationSeconds)||8));
+  const cacheKey="__video-previews/"+crypto.createHash("sha1").update(String(file.id)+"|"+safeStart+"|"+safeDuration+"|v1").digest("hex")+".mp4";
+  try{
+    const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:cacheKey}));
+    if(Number(head.ContentLength||0)>0){
+      const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:cacheKey}));
+      const bytes=got.Body?.transformToByteArray
+        ?Buffer.from(await got.Body.transformToByteArray())
+        :Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject)}));
+      return {bytes,cacheKey};
+    }
+  }catch(_e){}
+
+  const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:file.storage_path}),{expiresIn:600});
+  const dir=await fsp.mkdtemp(path.join("/tmp","fbi-video-preview-"));
+  const outFile=path.join(dir,"preview.mp4");
+
+  async function runPreview(startAt){
+    const args=[
+      "-hide_banner","-loglevel","error",
+      "-ss",String(startAt),"-i",url,
+      "-t",String(safeDuration),
+      "-map","0:v:0?",
+      "-c:v","libx264","-preset","veryfast","-crf","29","-pix_fmt","yuv420p",
+      "-vf","scale=w=720:h=-2:force_original_aspect_ratio=decrease",
+      "-an",
+      "-movflags","+faststart",
+      "-f","mp4",outFile
+    ];
+    return new Promise((resolve,reject)=>{
+      const child=spawn(ffmpegPath,args,{stdio:["ignore","ignore","pipe"]});
+      let stderr="";
+      const timer=setTimeout(()=>{try{child.kill("SIGKILL")}catch{};reject(new Error("Video preview generation timed out."))},35000);
+      child.stderr.on("data",c=>{stderr=(stderr+String(c||"")).slice(-12000)});
+      child.on("error",e=>{clearTimeout(timer);reject(e)});
+      child.on("close",code=>{
+        clearTimeout(timer);
+        if(code===0)return resolve();
+        reject(new Error(stderr.trim()||("FFmpeg exited with code "+String(code))));
+      });
+    });
+  }
+
+  try{
+    try{await runPreview(safeStart)}catch(_firstErr){
+      await fsp.rm(outFile,{force:true}).catch(()=>{});
+      await runPreview(0);
+    }
+    const stat=await fsp.stat(outFile);
+    if(!stat.size)throw new Error("FFmpeg produced an empty video preview.");
+    const bytes=await fsp.readFile(outFile);
+    await s3.send(new PutObjectCommand({
+      Bucket:bucket(),Key:cacheKey,Body:bytes,ContentType:"video/mp4",
+      CacheControl:"private, max-age=604800",
+      Metadata:{source_file_id:String(file.id),generated_by:"fbi-client-file-studio-video-highlight-v1"}
+    })).catch(e=>console.warn("Could not persist video highlight preview:",e?.message||e));
+    return {bytes,cacheKey};
+  }finally{
+    await fsp.rm(dir,{recursive:true,force:true}).catch(()=>{});
+  }
+}
+
+app.get("/api/public/video-preview/:id",async(req,res)=>{
+  try{
+    const out=await signedFileUrl(req.params.id,String(req.query.token||""));
+    if(!out)return res.status(404).send("Invalid or expired delivery link.");
+    if(!/^video\//i.test(out.f.mime_type||"") && !isTransportStreamVideo(out.f)){
+      return res.status(415).send("Video preview only.");
+    }
+    const start=Math.max(0,Number(req.query.start||4));
+    const duration=Math.max(3,Math.min(12,Number(req.query.duration||8)));
+    const preview=await renderVideoPreviewClip(out.f,start,duration);
+    res.status(200)
+      .type("video/mp4")
+      .set("Accept-Ranges","bytes")
+      .set("Content-Length",String(preview.bytes.length))
+      .set("Cache-Control","private, max-age=604800")
+      .set("X-Content-Type-Options","nosniff")
+      .set("X-FBI-Video-Preview","highlight-loop")
+      .send(preview.bytes);
+  }catch(e){
+    console.error("Public video highlight preview failed:",e?.stack||e);
+    res.status(500).send("Unable to generate video highlight preview.");
+  }
+});
 app.get("/api/public/thumb/:id",async(req,res)=>{
  try{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));
