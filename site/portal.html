@@ -378,6 +378,14 @@ function put(url,blob,item,onProgress,headers={}){
     x.send(blob);
   });
 }
+async function fallbackPortalPart(item,pn,blob){
+  const d=await api("/api/portal/uploads/"+encodeURIComponent(item.sessionId)+"/part-fallback?partNumber="+encodeURIComponent(pn),{
+    method:"POST",headers:{"Content-Type":"application/octet-stream","X-FBI-Part-Number":String(pn)},
+    body:blob,timeoutMs:120000
+  });
+  if(!d||!d.ok)throw new Error(d&&d.error||"Fallback part upload failed.");
+  return String(d.etag||"");
+}
 function wait(ms){return new Promise(r=>setTimeout(r,ms))}
 async function retry(fn,max=5){
   let last=null;
@@ -448,17 +456,23 @@ async function portalUploadOne(item,recoveryAttempts=0){
         attempt++;setLoaded(pn,0);scheduleRender();
         try{
           const headers={};if(signed.checksum)headers["x-amz-checksum-sha256"]=signed.checksum;
-          await put(signed.url,blob,item,n=>{setLoaded(pn,n);scheduleRender()},headers);
-          return {etag:String(signed.etag||"")};
+          const etag=await put(signed.url,blob,item,n=>{setLoaded(pn,n);scheduleRender()},headers);
+          return String(etag||"");
         }catch(e){
           try{
             const state=await retry(()=>api("/api/portal/uploads/"+item.sessionId+"/state",{timeoutMs:60000}),3);
             const stored=(state.parts||[]).find(p=>Number(p.partNumber)===pn);
             if(stored&&Number(stored.size||0)===blob.size&&stored.etag){
               setLoaded(pn,blob.size);
-              return {etag:String(stored.etag)};
+              return String(stored.etag);
             }
           }catch(_stateErr){}
+          try{
+            setLoaded(pn,0);
+            const etag=await fallbackPortalPart(item,pn,blob);
+            setLoaded(pn,blob.size);
+            return etag;
+          }catch(_fallbackErr){}
           if(attempt>=12)throw e;
           const fresh=await retry(()=>portalPartUrls(item.sessionId,[{partNumber:pn}]),6);
           signed=(fresh||[]).find(x=>Number(x.partNumber)===pn);
@@ -474,7 +488,7 @@ async function portalUploadOne(item,recoveryAttempts=0){
         const pn=signedQueue.shift(),signed=signedByPart.get(pn);signedByPart.delete(pn);
         if(!signed||!signed.url)throw new Error("Could not prepare upload part "+pn);
         await uploadPart(pn,signed);
-        const uploadedPart=await uploadPart(pn,signed);partsByNumber.set(pn,{partNumber:pn,etag:uploadedPart.etag||""});
+        const uploadedPart=await uploadPart(pn,signed);partsByNumber.set(pn,{partNumber:pn,etag:uploadedPart||""});
         await ensureSignedWindow();
       }
     }
