@@ -211,6 +211,7 @@ const s3=s3Ready()?new S3Client({
   region:process.env.S3_REGION,
   endpoint:process.env.S3_ENDPOINT,
   forcePathStyle:false,
+  maxAttempts:8,
   credentials:{accessKeyId:process.env.S3_ACCESS_KEY_ID,secretAccessKey:process.env.S3_SECRET_ACCESS_KEY}
 }):null;
 const bucket=()=>process.env.S3_BUCKET;
@@ -2139,6 +2140,38 @@ app.get("/api/portal/uploads/:id/state",portalUser,async(req,res)=>{
   console.error(e);res.status(500).json({error:"Could not read upload state."});
  }
 });
+app.post("/api/portal/uploads/:id/part-fallback",portalUser,express.raw({type:"application/octet-stream",limit:"80mb"}),async(req,res)=>{
+  try{
+    if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
+    const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
+    const u=q.rows[0];
+    if(u.mode!=="multipart"||!u.multipart_upload_id)return res.status(400).json({error:"This upload does not use multipart storage."});
+    const partNumber=Number(req.query.partNumber||req.headers["x-fbi-part-number"]||0);
+    const totalParts=Math.max(1,Math.ceil(Number(u.size_bytes||0)/Math.max(1,Number(u.part_size||MIN_PART_SIZE))));
+    if(!Number.isInteger(partNumber)||partNumber<1||partNumber>totalParts)return res.status(400).json({error:"Invalid multipart section."});
+    const body=Buffer.isBuffer(req.body)?req.body:Buffer.alloc(0);
+    const start=(partNumber-1)*Number(u.part_size||MIN_PART_SIZE);
+    const expected=Math.min(Number(u.size_bytes||0)-start,Number(u.part_size||MIN_PART_SIZE));
+    if(expected<0||body.length!==expected)return res.status(400).json({error:"Multipart section size does not match the upload session.",expectedBytes:expected,receivedBytes:body.length});
+    const alive=await multipartUploadAlive(u);
+    if(!alive)return res.status(409).json({error:"The cloud multipart session is no longer available.",code:"UPLOAD_SESSION_GONE"});
+    const existing=(await listMultipartPartsDetailed(u)).find(p=>p.partNumber===partNumber);
+    if(existing&&existing.size===body.length&&existing.etag)return res.json({ok:true,partNumber,etag:existing.etag,reused:true});
+    const out=await s3.send(new UploadPartCommand({
+      Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,PartNumber:partNumber,
+      Body:body,ContentLength:body.length
+    }));
+    await pool.query("UPDATE upload_sessions SET updated_at=now() WHERE id=$1 AND status='active'",[u.id]);
+    res.json({ok:true,partNumber,etag:String(out.ETag||"")});
+  }catch(e){
+    const code=String(e?.Code||e?.name||"");
+    const status=Number(e?.$metadata?.httpStatusCode||0);
+    if(code==="NoSuchUpload"||code==="InvalidUploadId"||status===404)return res.status(409).json({error:"The cloud multipart session is no longer available.",code:"UPLOAD_SESSION_GONE"});
+    console.error("Portal failed-part fallback failed:",e?.stack||e);
+    res.status(502).json({error:"Cloud storage rejected the fallback section. Please retry this section."});
+  }
+});
 app.post("/api/portal/uploads/:id/parts",portalUser,async(req,res)=>{
  try{
   const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
@@ -2400,6 +2433,38 @@ app.get("/api/uploads/:id/state",admin,async(req,res)=>{
   }
 });
 
+app.post("/api/uploads/:id/part-fallback",admin,express.raw({type:"application/octet-stream",limit:"80mb"}),async(req,res)=>{
+  try{
+    if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
+    const q=await pool.query("SELECT * FROM upload_sessions WHERE id=$1",[req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
+    const u=q.rows[0];
+    if(u.mode!=="multipart"||!u.multipart_upload_id)return res.status(400).json({error:"This upload does not use multipart storage."});
+    const partNumber=Number(req.query.partNumber||req.headers["x-fbi-part-number"]||0);
+    const totalParts=Math.max(1,Math.ceil(Number(u.size_bytes||0)/Math.max(1,Number(u.part_size||MIN_PART_SIZE))));
+    if(!Number.isInteger(partNumber)||partNumber<1||partNumber>totalParts)return res.status(400).json({error:"Invalid multipart section."});
+    const body=Buffer.isBuffer(req.body)?req.body:Buffer.alloc(0);
+    const start=(partNumber-1)*Number(u.part_size||MIN_PART_SIZE);
+    const expected=Math.min(Number(u.size_bytes||0)-start,Number(u.part_size||MIN_PART_SIZE));
+    if(expected<0||body.length!==expected)return res.status(400).json({error:"Multipart section size does not match the upload session.",expectedBytes:expected,receivedBytes:body.length});
+    const alive=await multipartUploadAlive(u);
+    if(!alive)return res.status(409).json({error:"The cloud multipart session is no longer available.",code:"UPLOAD_SESSION_GONE"});
+    const existing=(await listMultipartPartsDetailed(u)).find(p=>p.partNumber===partNumber);
+    if(existing&&existing.size===body.length&&existing.etag)return res.json({ok:true,partNumber,etag:existing.etag,reused:true});
+    const out=await s3.send(new UploadPartCommand({
+      Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id,PartNumber:partNumber,
+      Body:body,ContentLength:body.length
+    }));
+    await pool.query("UPDATE upload_sessions SET updated_at=now() WHERE id=$1 AND status='active'",[u.id]);
+    res.json({ok:true,partNumber,etag:String(out.ETag||"")});
+  }catch(e){
+    const code=String(e?.Code||e?.name||"");
+    const status=Number(e?.$metadata?.httpStatusCode||0);
+    if(code==="NoSuchUpload"||code==="InvalidUploadId"||status===404)return res.status(409).json({error:"The cloud multipart session is no longer available.",code:"UPLOAD_SESSION_GONE"});
+    console.error("Admin failed-part fallback failed:",e?.stack||e);
+    res.status(502).json({error:"Cloud storage rejected the fallback section. Please retry this section."});
+  }
+});
 app.post("/api/uploads/:id/parts",admin,async(req,res)=>{
   try{
     if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
