@@ -386,7 +386,77 @@
 @media(max-width:1050px){.projects-page{grid-template-columns:260px minmax(0,1fr)}.project-summary-strip{grid-template-columns:repeat(2,1fr)}.workspace-search{width:170px}.admin-media-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}}
 @media(max-width:760px){.projects-page{grid-template-columns:1fr}.projects-library{max-height:370px}.workspace-header{align-items:flex-start;flex-wrap:wrap}.workspace-search{width:100%;order:3}.workspace-spacer{display:none}.project-summary-strip{grid-template-columns:1fr 1fr}.admin-media-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
-<style>.streamrow-actions{display:flex;align-items:center;gap:6px}.stream-delete-btn{padding:4px 6px!important;border-radius:8px!important;background:#fff3f1!important;color:#9b3838!important;border-color:rgba(155,56,56,.15)!important;line-height:1}</style></head>
+<style>.streamrow-actions{display:flex;align-items:center;gap:6px}.stream-delete-btn{padding:4px 6px!important;border-radius:8px!important;background:#fff3f1!important;color:#9b3838!important;border-color:rgba(155,56,56,.15)!important;line-height:1}
+/* FBI Pixieset-inspired client gallery */
+.fbi-gallery-page{--ink:#171716;--paper:#f7f6f2;--paper2:#efeee9;--line:rgba(20,20,18,.12);--muted2:#6d6b66;--gold:#c9a94b;min-height:100vh;background:var(--paper);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.fbi-gallery-page *{box-sizing:border-box}
+.fbi-gallery-top{position:sticky;top:0;z-index:30;background:rgba(247,246,242,.88);backdrop-filter:blur(18px);border-bottom:1px solid var(--line)}
+.fbi-gallery-topbar{max-width:1560px;margin:auto;min-height:70px;padding:10px 26px;display:flex;align-items:center;gap:18px}
+.fbi-gallery-brand{display:flex;align-items:center;gap:11px;min-width:0}
+.fbi-gallery-brand img{width:58px;height:35px;object-fit:contain}
+.fbi-gallery-brand span{font-size:11px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;white-space:nowrap}
+.fbi-gallery-spacer{flex:1}
+.fbi-gallery-toplink{border:0;background:transparent;color:#41403c;font-size:11px;padding:9px 10px;cursor:pointer}
+.fbi-gallery-toplink:hover{color:#000}
+.fbi-gallery-topbtn{border:1px solid rgba(20,20,18,.18);background:rgba(255,255,255,.65);color:#222;border-radius:999px;padding:10px 14px;font-size:11px;font-weight:750;cursor:pointer}
+.fbi-gallery-topbtn.primary{background:#181817;color:#fff;border-color:#181817}
+.fbi-gallery-hero{position:relative;min-height:min(78vh,860px);display:grid;place-items:end center;overflow:hidden;background:#181817}
+.fbi-gallery-hero-bg{position:absolute;inset:0;background:#1a1917 center/cover no-repeat;transform:scale(1.02);filter:saturate(.96)}
+.fbi-gallery-hero-bg:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.10) 0%,rgba(0,0,0,.16) 35%,rgba(0,0,0,.68) 100%)}
+.fbi-gallery-hero-content{position:relative;z-index:2;width:min(1180px,calc(100% - 48px));padding:clamp(80px,12vw,150px) 0 58px;color:#fff}
+.fbi-gallery-kicker{font-size:11px;letter-spacing:.26em;text-transform:uppercase;opacity:.78;margin-bottom:15px}
+.fbi-gallery-title{margin:0;max-width:980px;font-family:Georgia,"Times New Roman",serif;font-size:clamp(38px,6vw,84px);font-weight:500;line-height:.98;letter-spacing:-.03em;text-wrap:balance}
+.fbi-gallery-subtitle{margin:18px 0 0;max-width:760px;font-size:14px;line-height:1.7;color:rgba(255,255,255,.84)}
+.fbi-gallery-hero-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}
+.fbi-gallery-hero-btn{border:1px solid rgba(255,255,255,.34);background:rgba(255,255,255,.10);color:#fff;padding:12px 17px;border-radius:999px;font-size:11px;font-weight:800;cursor:pointer;backdrop-filter:blur(10px)}
+.fbi-gallery-hero-btn.primary{background:#fff;color:#121212;border-color:#fff}
+.fbi-gallery-statline{display:flex;gap:20px;flex-wrap:wrap;margin-top:22px;font-size:10px;color:rgba(255,255,255,.74)}
+.fbi-gallery-shell{max-width:1560px;margin:auto;padding:34px 26px 90px}
+.fbi-gallery-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:20px}
+.fbi-gallery-chip{border:1px solid var(--line);background:rgba(255,255,255,.75);color:#4f4d48;border-radius:999px;padding:9px 13px;font-size:10px;cursor:pointer}
+.fbi-gallery-chip.active,.fbi-gallery-chip:hover{background:#191918;color:#fff;border-color:#191918}
+.fbi-gallery-controls-spacer{flex:1}
+.fbi-gallery-select{border:1px solid var(--line);background:rgba(255,255,255,.75);border-radius:999px;padding:9px 13px;font-size:10px;color:#444}
+.fbi-gallery-intro{display:flex;justify-content:space-between;align-items:end;gap:20px;margin:15px 0 22px}
+.fbi-gallery-intro h2{margin:0;font-family:Georgia,"Times New Roman",serif;font-size:28px;font-weight:500}
+.fbi-gallery-intro p{margin:5px 0 0;color:var(--muted2);font-size:11px}
+.fbi-gallery-grid{column-count:4;column-gap:16px}
+.fbi-gallery-card{position:relative;display:inline-block;width:100%;margin:0 0 16px;break-inside:avoid;overflow:hidden;background:#e9e8e2;cursor:pointer}
+.fbi-gallery-media{position:relative;overflow:hidden;background:#deddd7}
+.fbi-gallery-media img{display:block;width:100%;height:auto;object-fit:cover;transition:transform .75s cubic-bezier(.22,.61,.36,1),filter .45s ease}
+.fbi-gallery-card:hover .fbi-gallery-media img{transform:scale(1.035);filter:saturate(1.02)}
+.fbi-gallery-overlay{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:space-between;padding:13px;background:linear-gradient(180deg,transparent 50%,rgba(0,0,0,.52) 100%);opacity:0;transition:opacity .24s ease}
+.fbi-gallery-card:hover .fbi-gallery-overlay,.fbi-gallery-card:focus-within .fbi-gallery-overlay{opacity:1}
+.fbi-gallery-filetitle{max-width:70%;color:#fff;font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fbi-gallery-cardtools{display:flex;gap:7px}
+.fbi-gallery-iconbtn{width:34px;height:34px;border:1px solid rgba(255,255,255,.38);border-radius:50%;background:rgba(18,18,17,.5);color:#fff;display:grid;place-items:center;cursor:pointer;backdrop-filter:blur(10px)}
+.fbi-gallery-iconbtn.fav.active{background:#fff;color:#181818;border-color:#fff}
+.fbi-gallery-play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.92);color:#171717;display:grid;place-items:center;font-size:14px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.fbi-gallery-badge{position:absolute;top:10px;left:10px;padding:5px 8px;border-radius:999px;background:rgba(16,16,15,.65);color:#fff;font-size:8px;letter-spacing:.1em}
+.fbi-gallery-selected{outline:2px solid #171717;outline-offset:-2px}
+.fbi-gallery-empty{padding:80px 25px;text-align:center;color:#777;border:1px dashed rgba(0,0,0,.18);border-radius:18px}
+.fbi-gallery-sticky{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:35;display:none;align-items:center;gap:12px;padding:10px 12px 10px 15px;border:1px solid rgba(0,0,0,.12);border-radius:999px;background:rgba(24,24,22,.93);color:#fff;box-shadow:0 18px 50px rgba(0,0,0,.22);backdrop-filter:blur(18px)}
+.fbi-gallery-sticky.show{display:flex}
+.fbi-gallery-sticky strong{font-size:10px}
+.fbi-gallery-sticky button{border:0;background:#fff;color:#151514;border-radius:999px;padding:9px 13px;font-size:10px;font-weight:850;cursor:pointer}
+.fbi-gallery-footer{padding:28px 0 0;text-align:center;color:#8a8881;font-size:9px;letter-spacing:.13em;text-transform:uppercase}
+.fbi-gallery-favorite-note{margin:0 0 18px;padding:13px 16px;border:1px solid rgba(201,169,75,.38);background:rgba(201,169,75,.08);border-radius:12px;font-size:10px;color:#63562d}
+.fbi-lightbox{position:fixed;inset:0;z-index:100;background:rgba(8,8,7,.95);display:none;align-items:center;justify-content:center}
+.fbi-lightbox.show{display:flex}
+.fbi-lightbox img{max-width:92vw;max-height:86vh;object-fit:contain}
+.fbi-lightbox video{max-width:92vw;max-height:86vh;background:#000}
+.fbi-lightbox-top{position:absolute;top:0;left:0;right:0;padding:16px 22px;display:flex;align-items:center;justify-content:space-between;color:#fff}
+.fbi-lightbox-title{font-size:11px;opacity:.92;max-width:58vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fbi-lightbox-tools{display:flex;gap:8px}
+.fbi-lightbox-btn{border:1px solid rgba(255,255,255,.23);background:rgba(255,255,255,.07);color:#fff;border-radius:999px;padding:9px 12px;font-size:10px;cursor:pointer}
+.fbi-lightbox-btn.primary{background:#fff;color:#171717;border-color:#fff}
+.fbi-lightbox-arrow{position:absolute;top:50%;transform:translateY(-50%);width:52px;height:52px;border-radius:50%;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#fff;font-size:27px;display:grid;place-items:center;cursor:pointer}
+.fbi-lightbox-arrow.prev{left:20px}.fbi-lightbox-arrow.next{right:20px}
+.fbi-lightbox-stage{width:min(1240px,94vw);height:88vh;display:grid;place-items:center}
+@media(max-width:1250px){.fbi-gallery-grid{column-count:3}}
+@media(max-width:850px){.fbi-gallery-grid{column-count:2}.fbi-gallery-topbar{padding:9px 14px}.fbi-gallery-brand span{display:none}.fbi-gallery-toplink{display:none}.fbi-gallery-hero-content{width:calc(100% - 28px);padding-bottom:40px}.fbi-gallery-shell{padding:24px 14px 65px}.fbi-gallery-intro{align-items:start;flex-direction:column}}
+@media(max-width:560px){.fbi-gallery-grid{column-count:2;column-gap:8px}.fbi-gallery-card{margin-bottom:8px}.fbi-gallery-title{font-size:41px}.fbi-gallery-subtitle{font-size:12px}.fbi-gallery-statline{gap:11px}.fbi-gallery-topbar{min-height:62px}.fbi-gallery-topbtn{padding:9px 11px;font-size:9px}.fbi-gallery-hero{min-height:74vh}.fbi-gallery-controls{overflow:auto;flex-wrap:nowrap;padding-bottom:2px}.fbi-gallery-chip{white-space:nowrap}.fbi-lightbox-arrow{width:42px;height:42px;font-size:21px}.fbi-lightbox-arrow.prev{left:8px}.fbi-lightbox-arrow.next{right:8px}}
+</style></head>
 <body>
 <div id="root"></div>
 <script>
@@ -1871,148 +1941,195 @@ function previewAdmin(f){
 async function clientView(token){
  try{
   const d=await api('/api/public/share/'+encodeURIComponent(token));
-  const manifestLink=document.querySelector('link[rel="manifest"]');
-  if(manifestLink)manifestLink.href='/share/'+encodeURIComponent(token)+'/manifest.webmanifest';
   const files=d.files||[];
-  document.title=(d.settings?.portal_title||'FBI Client File Delivery')+' • '+(d.project?.name||'Client Delivery');
+  const images=files.filter(f=>/^image\//i.test(f.mime_type||''));
+  const videos=files.filter(f=>/^video\//i.test(f.mime_type||''));
+  const audios=files.filter(f=>/^audio\//i.test(f.mime_type||''));
+  const totalBytes=files.reduce((sum,f)=>sum+Number(f.size_bytes||0),0);
+  const hero=images[0]||videos[0]||null;
+  const heroUrl=hero?('/api/public/thumb/'+encodeURIComponent(hero.id)+'?token='+encodeURIComponent(token)+'&w=1800&h=1100'):'';
+  const favoriteKey='fbi:favorites:'+token;
+  let favorites=new Set();
+  try{favorites=new Set(JSON.parse(localStorage.getItem(favoriteKey)||'[]'))}catch{}
+  document.title=(d.project?.name||'Client Gallery')+' • '+(d.settings?.portal_title||'FBI Client Gallery');
   document.body.innerHTML=
-    '<div class="delivery-app">'+
-      '<aside class="delivery-side">'+
-        '<div class="delivery-brand"><img src="'+LOGO+'" alt="FBI"><div><b>CLIENT FILE DELIVERY</b><small>Secure media library</small></div></div>'+
-        '<div class="delivery-section-title">Navigation</div>'+
-        '<nav class="delivery-nav"><button id="navAll" class="active">▦ All Files</button><button id="navPhotos">▧ Photos</button><button id="navVideos">▶ Videos</button><button id="navAudio">♪ Audio</button><button id="navDocs">▤ Documents</button><button id="installApp">＋ Install App</button></nav>'+
-        '<div class="delivery-section-title">Project</div>'+
-        '<div class="delivery-project"><b title="'+esc(d.project.name)+'">'+esc(d.project.name)+'</b><span>'+esc(d.project.client_name||'')+'</span><span>'+files.length+' files</span></div>'+
-        '<div class="delivery-sidefoot">Original files are delivered without media quality reduction.<br>Downloads are recorded by FBI Client File Studio.</div>'+
-      '</aside>'+
-      '<main class="delivery-main">'+
-        '<header class="delivery-header"><div class="delivery-heading"><h1>'+esc(d.project.name)+'</h1><p>'+esc(d.settings?.portal_title||'FBI Client File Delivery')+' • Secure client download area</p></div><div class="delivery-grow"></div><input id="deliverySearch" class="delivery-search" placeholder="Search files..."><button class="delivery-btn" id="selectAll">Select All</button><button class="delivery-btn primary" id="downloadSelectedTop">Download Selected</button></header>'+
-        '<div class="delivery-toolbar"><button class="delivery-seg active" data-filter="all">All</button><button class="delivery-seg" data-filter="image">Photos</button><button class="delivery-seg" data-filter="video">Videos</button><button class="delivery-seg" data-filter="audio">Audio</button><button class="delivery-seg" data-filter="document">Documents</button><span style="flex:1"></span><select id="deliverySort" class="delivery-sort"><option value="name">Sort by Name</option><option value="newest">Newest</option><option value="size">Largest</option><option value="type">Type</option></select></div>'+
-        '<section class="delivery-body">'+
-          (d.__offline?'<div class="delivery-notice">You are offline. This is the last saved version of this delivery. Downloads may require an internet connection.</div>':'')+
-          (d.project.note?'<div class="delivery-notice">'+esc(d.project.note)+'</div>':'')+
-          '<div class="delivery-info"><div><div class="title">Shared Files</div><div class="meta">'+files.length+' files ready for download • '+fmt(files.reduce((a,f)=>a+Number(f.size_bytes||0),0))+'</div></div><div id="visibleCount" class="meta"></div></div>'+
-          '<div id="deliveryGrid" class="delivery-grid"></div>'+
-          '<div id="deliveryEmpty" class="delivery-empty" style="display:none">No files match your search or filter.</div>'+
-        '</section>'+
-        '<div id="bulkBar" class="delivery-bulk"><span id="bulkCount">0 selected</span><span class="spacer"></span><button class="delivery-btn" id="clearSelection">Clear</button><button class="delivery-btn primary" id="downloadSelected">Download Selected</button></div>'+
-        '<div class="delivery-footer">FILM BEYOND IMAGINATION • FBI Client File Studio</div>'+
+    '<div class="fbi-gallery-page">'+
+      '<header class="fbi-gallery-top">'+
+        '<div class="fbi-gallery-topbar">'+
+          '<div class="fbi-gallery-brand"><img src="'+LOGO+'" alt="FBI"><span>Film Beyond Imagination</span></div>'+
+          '<div class="fbi-gallery-spacer"></div>'+
+          '<button class="fbi-gallery-toplink" id="favTop">♡ Favorites <span id="favTopCount"></span></button>'+
+          '<button class="fbi-gallery-toplink" id="slideTop">Slideshow</button>'+
+          '<button class="fbi-gallery-topbtn primary" id="downloadTop">Download Gallery</button>'+
+        '</div>'+
+      '</header>'+
+      '<section class="fbi-gallery-hero">'+
+        '<div class="fbi-gallery-hero-bg" style="background-image:url('+JSON.stringify(heroUrl||'')+')"></div>'+
+        '<div class="fbi-gallery-hero-content">'+
+          '<div class="fbi-gallery-kicker">'+esc(d.settings?.portal_title||'Private Client Gallery')+'</div>'+
+          '<h1 class="fbi-gallery-title">'+esc(d.project?.name||'Your Gallery')+'</h1>'+
+          '<p class="fbi-gallery-subtitle">'+esc(d.project?.note||'A private collection of your photographs and media, prepared for viewing and download.')+'</p>'+
+          '<div class="fbi-gallery-hero-actions">'+
+            '<button class="fbi-gallery-hero-btn primary" id="viewGallery">View Gallery</button>'+
+            '<button class="fbi-gallery-hero-btn" id="heroDownload">Download Gallery</button>'+
+          '</div>'+
+          '<div class="fbi-gallery-statline"><span>'+files.length+' FILES</span><span>'+images.length+' PHOTOS</span><span>'+videos.length+' VIDEOS</span><span>'+fmt(totalBytes)+'</span></div>'+
+        '</div>'+
+      '</section>'+
+      '<main class="fbi-gallery-shell" id="galleryBody">'+
+        (d.__offline?'<div class="fbi-gallery-favorite-note">You are offline. The gallery can still display cached information, but downloads require an internet connection.</div>':'')+
+        '<div class="fbi-gallery-controls">'+
+          '<button class="fbi-gallery-chip active" data-filter="all">All</button>'+
+          '<button class="fbi-gallery-chip" data-filter="image">Photos</button>'+
+          '<button class="fbi-gallery-chip" data-filter="video">Videos</button>'+
+          '<button class="fbi-gallery-chip" data-filter="audio">Audio</button>'+
+          '<button class="fbi-gallery-chip" data-filter="document">Documents</button>'+
+          '<div class="fbi-gallery-controls-spacer"></div>'+
+          '<select id="gallerySort" class="fbi-gallery-select"><option value="natural">Gallery order</option><option value="newest">Newest</option><option value="name">Name</option><option value="size">Largest</option></select>'+
+        '</div>'+
+        '<div class="fbi-gallery-intro"><div><h2>Gallery</h2><p id="galleryMeta">'+files.length+' items</p></div><div style="font-size:10px;color:#8a8881">Tap an image to view • Heart to save a favorite</div></div>'+
+        '<div id="galleryGrid" class="fbi-gallery-grid"></div>'+
+        '<div id="galleryEmpty" class="fbi-gallery-empty" style="display:none">No media matches this selection.</div>'+
+        '<div class="fbi-gallery-footer">FILM BEYOND IMAGINATION • SECURE CLIENT DELIVERY</div>'+
       '</main>'+
-    '</div>'+
-    '<div id="v" class="viewer"></div>';
+      '<div id="favoriteBar" class="fbi-gallery-sticky"><strong id="favoriteLabel">0 favorites</strong><button id="downloadFavorites">Download Favorites</button></div>'+
+      '<div id="clientLightbox" class="fbi-lightbox"><div class="fbi-lightbox-top"><div class="fbi-lightbox-title" id="lightTitle"></div><div class="fbi-lightbox-tools"><button class="fbi-lightbox-btn" id="lightFav">♡ Favorite</button><button class="fbi-lightbox-btn primary" id="lightDownload">Download</button><button class="fbi-lightbox-btn" id="lightClose">Close</button></div></div><button class="fbi-lightbox-arrow prev" id="lightPrev">‹</button><div class="fbi-lightbox-stage" id="lightStage"></div><button class="fbi-lightbox-arrow next" id="lightNext">›</button></div>'+
+    '</div>';
 
-  const selected=new Set(), filteredState={filter:'all',sort:'name',q:''};
-  function typeOf(f){const m=f.mime_type||'';if(/^image\//.test(m))return'image';if(/^video\//.test(m))return'video';if(/^audio\//.test(m))return'audio';return'document'}
-  function matches(f){
-    const t=typeOf(f);if(filteredState.filter!=='all'&&t!==filteredState.filter)return false;
-    const q=filteredState.q;if(!q)return true;
-    return (String(f.original_name)+' '+String(f.relative_path||'')).toLowerCase().includes(q);
+  const selectedFilter={value:'all'}, sortBy={value:'natural'};
+  let visible=[],currentLightIndex=0,slideshowTimer=null;
+
+  function typeOf(f){
+    const m=String(f.mime_type||'').toLowerCase();
+    if(/^image\//.test(m))return'image';
+    if(/^video\//.test(m))return'video';
+    if(/^audio\//.test(m))return'audio';
+    return'document';
   }
-  function getList(){
-    let list=files.filter(matches);
-    if(filteredState.sort==='name')list.sort((a,b)=>String(a.original_name).localeCompare(String(b.original_name)));
-    else if(filteredState.sort==='newest')list.sort((a,b)=>new Date(b.created_at||0)-new Date(a.created_at||0));
-    else if(filteredState.sort==='size')list.sort((a,b)=>Number(b.size_bytes||0)-Number(a.size_bytes||0));
-    else list.sort((a,b)=>typeOf(a).localeCompare(typeOf(b))||String(a.original_name).localeCompare(String(b.original_name)));
-    return list;
+  function canPreview(f){return ['image','video','audio'].includes(typeOf(f))}
+  function persistFavorites(){try{localStorage.setItem(favoriteKey,JSON.stringify(Array.from(favorites)))}catch{}updateFavoritesUi()}
+  function updateFavoritesUi(){
+    document.querySelector('#favTopCount').textContent=favorites.size?'('+favorites.size+')':'';
+    document.querySelector('#favoriteLabel').textContent=favorites.size+' favorite'+(favorites.size===1?'':'s');
+    document.querySelector('#favoriteBar').classList.toggle('show',favorites.size>0);
   }
-  function cardThumb(f,index){
-    const encoded=encodeURIComponent(token),id=encodeURIComponent(f.id),mime=String(f.mime_type||'').toLowerCase(),u=f.download_url||'';
-    const first=Number(index||0)<8;
-    const priority=first?'high':'low';
-    const loading=first?'eager':'lazy';
-    if(/^image\//.test(mime)){
-      return '<img src="/api/public/thumb/'+id+'?token='+encoded+'&w=420&h=540" alt="" loading="'+loading+'" decoding="async" fetchpriority="'+priority+'">';
-    }
-    if(/^video\//.test(mime)){
-      return '<video src="/api/public/media/'+id+'?token='+encoded+'" muted autoplay loop playsinline preload="metadata" controlslist="nodownload" data-gallery-video></video><span class="playbadge">▶</span>';
-    }
-    if(/^audio\//.test(mime))return '<div class="fileicon">♪</div>';
-    return '<div class="fileicon">'+esc(icon(f.original_name))+'</div>';
+  function toggleFavorite(id){
+    if(favorites.has(id))favorites.delete(id);else favorites.add(id);
+    persistFavorites();renderGrid();
   }
+  function sortList(list){
+    const out=list.slice();
+    if(sortBy.value==='newest')out.sort((a,b)=>new Date(b.created_at||0)-new Date(a.created_at||0));
+    else if(sortBy.value==='name')out.sort((a,b)=>String(a.original_name).localeCompare(String(b.original_name)));
+    else if(sortBy.value==='size')out.sort((a,b)=>Number(b.size_bytes||0)-Number(a.size_bytes||0));
+    return out;
+  }
+  function baseList(){
+    return sortList(files.filter(f=>selectedFilter.value==='all'||typeOf(f)===selectedFilter.value));
+  }
+  function mediaSrc(f){
+    return '/api/public/thumb/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w=900&h=1200';
+  }
+  function fileDownload(f){return (f.download_url||('/api/public/file/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)))+'&download=1'}
   function renderGrid(){
-    const list=getList(),g=document.querySelector('#deliveryGrid'),empty=document.querySelector('#deliveryEmpty');
-    /* Force the client gallery itself to be masonry at runtime so cached/older CSS cannot flatten portrait images. */
-    if(g){
-      g.style.display='block';
-      g.style.columnWidth=(window.innerWidth<=700?'160px':window.innerWidth<=1200?'190px':'220px');
-      g.style.columnGap='13px';
-      g.style.columnFill='balance';
-    }
-    document.querySelector('#visibleCount').textContent=list.length+' shown';
-    if(!list.length){g.innerHTML='';empty.style.display='block';return}
+    visible=baseList();
+    const grid=document.querySelector('#galleryGrid'),empty=document.querySelector('#galleryEmpty');
+    document.querySelector('#galleryMeta').textContent=visible.length+' item'+(visible.length===1?'':'s')+' • '+fmt(visible.reduce((a,f)=>a+Number(f.size_bytes||0),0));
+    if(!visible.length){grid.innerHTML='';empty.style.display='block';return}
     empty.style.display='none';
-    g.innerHTML=list.map((f,i)=>{
-      const type=typeOf(f),isSel=selected.has(f.id);
-      return '<article class="delivery-card '+(isSel?'selected':'')+'" data-card="'+esc(f.id)+'" style="display:inline-block;width:100%;margin:0 0 13px;break-inside:avoid;-webkit-column-break-inside:avoid;vertical-align:top;">'+
-        '<div class="delivery-thumb" style="height:auto;min-height:0;aspect-ratio:auto;display:block;overflow:hidden;">'+cardThumb(f)+'<span class="typebadge">'+type.toUpperCase()+'</span><span class="delivery-check">'+(isSel?'✓':'')+'</span></div>'+
-        '<div class="delivery-card-body"><div class="delivery-name" title="'+esc(f.original_name)+'">'+esc(f.original_name)+'</div><div class="delivery-card-meta">'+(d.settings?.show_file_size?fmt(f.size_bytes)+' • ':'')+esc(f.mime_type||'')+(f.relative_path&&f.relative_path!==f.original_name?' • '+esc(f.relative_path):'')+'</div></div>'+
+    grid.innerHTML=visible.map(function(f,i){
+      const t=typeOf(f),fav=favorites.has(f.id);
+      const media=mediaSrc(f);
+      const badge=t==='video'?'VIDEO':t==='audio'?'AUDIO':t==='document'?'FILE':'';
+      return '<article class="fbi-gallery-card '+(fav?'fbi-gallery-selected':'')+'" data-id="'+esc(f.id)+'" tabindex="0">'+
+        '<div class="fbi-gallery-media">'+
+          '<img src="'+media+'" alt="" loading="'+(i<10?'eager':'lazy')+'" decoding="async">'+
+          (t==='video'?'<span class="fbi-gallery-play">▶</span>':'')+
+          (badge?'<span class="fbi-gallery-badge">'+badge+'</span>':'')+
+          '<div class="fbi-gallery-overlay"><div class="fbi-gallery-filetitle">'+esc(f.original_name)+'</div><div class="fbi-gallery-cardtools"><button class="fbi-gallery-iconbtn fav '+(fav?'active':'')+'" data-fav="'+esc(f.id)+'" aria-label="Favorite">♡</button><button class="fbi-gallery-iconbtn" data-dl="'+esc(f.id)+'" aria-label="Download">↓</button></div></div>'+
+        '</div>'+
       '</article>';
     }).join('');
-    g.querySelectorAll('[data-card]').forEach(card=>{
-      const id=card.dataset.card,f=files.find(x=>x.id===id);
-      const media=card.querySelector('.delivery-thumb img,.delivery-thumb video');
-      if(media){
-        const setOrientation=()=>{
-          const w=Number(media.naturalWidth||media.videoWidth||0);
-          const h=Number(media.naturalHeight||media.videoHeight||0);
-          if(!w||!h)return;
-          const ratio=w/h;
-          const orientation=ratio<0.92?'portrait':ratio>1.08?'landscape':'square';
-          card.dataset.orientation=orientation;
-          const thumb=card.querySelector('.delivery-thumb');
-          if(thumb){
-            /*
-             * Use the real media dimensions for BOTH images and videos.
-             * This makes a portrait video card physically taller and a
-             * landscape video card physically wider/shorter, just like photos.
-             */
-            const width=thumb.getBoundingClientRect().width||card.getBoundingClientRect().width;
-            const height=Math.max(1,Math.round(width*h/w));
-            thumb.style.height=height+'px';
-            thumb.style.minHeight='0';
-            thumb.style.aspectRatio='auto';
-          }
-          media.style.display='block';
-          media.style.width='100%';
-          media.style.height='100%';
-          media.style.maxWidth='100%';
-          media.style.objectFit='contain';
-          media.style.objectPosition='center';
-          media.style.background='#0a0a0c';
-        };
-        if(media.tagName==='VIDEO'){
-          if(media.readyState>=1)setOrientation();
-          else media.addEventListener('loadedmetadata',setOrientation,{once:true});
-        }else{
-          if(media.complete)setOrientation();
-          else media.addEventListener('load',setOrientation,{once:true});
-        }
-      }
-      card.onclick=function(){if(selected.has(id))selected.delete(id);else selected.add(id);renderGrid();updateBulk()};
-      card.addEventListener('pointermove',function(e){
-        if(e.pointerType==='touch')return;
-        const r=card.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;
-        card.style.transform='perspective(900px) translateY(-4px) rotateX('+(-y*5)+'deg) rotateY('+(x*6)+'deg) scale(1.018)';
+    grid.querySelectorAll('[data-id]').forEach(function(card){
+      const f=visible.find(x=>x.id===card.dataset.id);
+      const img=card.querySelector('img');
+      img.addEventListener('load',function(){card.style.setProperty('--ratio',(img.naturalHeight&&img.naturalWidth)?String(img.naturalHeight/img.naturalWidth):'1.2')},{once:true});
+      card.addEventListener('click',function(e){
+        if(e.target.closest('[data-fav]')||e.target.closest('[data-dl]'))return;
+        if(canPreview(f)){window.__fbiPreviewFiles=visible.filter(canPreview);openLocalLightbox(window.__fbiPreviewFiles.findIndex(x=>x.id===f.id))}
       });
-      card.addEventListener('pointerleave',function(){card.style.transform=''});
-      card.addEventListener('pointerdown',function(e){if(e.pointerType==='touch')card.style.transform='scale(.985)'});
-      card.addEventListener('pointerup',function(e){if(e.pointerType==='touch')card.style.transform=''});
-      card.addEventListener('dblclick',function(){if(f&&(typeOf(f)==='image'||typeOf(f)==='video'||typeOf(f)==='audio')){window.__fbiPreviewFiles=getList();openClientPreviewIndex(window.__fbiPreviewFiles.findIndex(x=>x.id===f.id));}});
+      card.addEventListener('keydown',function(e){if(e.key==='Enter'&&canPreview(f)){window.__fbiPreviewFiles=visible.filter(canPreview);openLocalLightbox(window.__fbiPreviewFiles.findIndex(x=>x.id===f.id))}});
+      const fav=card.querySelector('[data-fav]');
+      if(fav)fav.onclick=function(e){e.stopPropagation();toggleFavorite(f.id)};
+      const dl=card.querySelector('[data-dl]');
+      if(dl)dl.onclick=function(e){e.stopPropagation();startDownload([f])};
     });
   }
-  function updateBulk(){document.querySelector('#bulkCount').textContent=selected.size+' selected';document.querySelector('#bulkBar').classList.toggle('show',selected.size>0)}
-  function setFilter(v){filteredState.filter=v;document.querySelectorAll('.delivery-seg').forEach(b=>b.classList.toggle('active',b.dataset.filter===v));renderGrid()}
-  function downloadSelected(){const list=files.filter(f=>selected.has(f.id));if(!list.length)return;list.forEach(f=>{const a=document.createElement('a');a.href=f.download_url+'&download=1';a.target='_blank';a.rel='noreferrer';document.body.appendChild(a);a.click();a.remove()});setStatusMsg(list.length+' download link'+(list.length===1?'':'s')+' opened.')}
-  function setStatusMsg(msg){const h=document.querySelector('.delivery-heading p');if(h)h.textContent=msg;setTimeout(()=>{if(h)h.textContent=(d.settings?.portal_title||'FBI Client File Delivery')+' • Secure client download area'},2500)}
-  document.querySelector('#deliverySearch').oninput=e=>{filteredState.q=e.target.value.toLowerCase();renderGrid()};
-  document.querySelector('#deliverySort').onchange=e=>{filteredState.sort=e.target.value;renderGrid()};
-  document.querySelectorAll('.delivery-seg').forEach(b=>b.onclick=()=>setFilter(b.dataset.filter));
-  document.querySelector('#navAll').onclick=()=>setFilter('all');document.querySelector('#navPhotos').onclick=()=>setFilter('image');document.querySelector('#navVideos').onclick=()=>setFilter('video');document.querySelector('#navAudio').onclick=()=>setFilter('audio');document.querySelector('#navDocs').onclick=()=>setFilter('document');
-  document.querySelector('#selectAll').onclick=()=>{getList().forEach(f=>selected.add(f.id));renderGrid();updateBulk()};document.querySelector('#clearSelection').onclick=()=>{selected.clear();renderGrid();updateBulk()};document.querySelector('#downloadSelected').onclick=downloadSelected;document.querySelector('#downloadSelectedTop').onclick=downloadSelected;document.querySelector('#installApp').onclick=installFbiApp;
-  renderGrid();updateBulk();
- }catch(e){document.body.innerHTML='<div class="client"><div class="clientwrap"><div class="ctop"><img src="'+LOGO+'"><h1>Delivery unavailable</h1><p>'+esc(e.message)+'</p></div></div></div>';}
+  function openLocalLightbox(index){
+    const list=window.__fbiPreviewFiles||[];
+    if(!list.length)return;
+    currentLightIndex=(index+list.length)%list.length;
+    const f=list[currentLightIndex];
+    const box=document.querySelector('#clientLightbox'),stage=document.querySelector('#lightStage');
+    const t=typeOf(f),src=t==='image'?mediaSrc(f):'/api/public/media/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token);
+    document.querySelector('#lightTitle').textContent=f.original_name;
+    document.querySelector('#lightFav').textContent=favorites.has(f.id)?'♥ Favorite':'♡ Favorite';
+    stage.innerHTML=t==='image'?'<img src="'+src+'&w=1600&h=1600" alt="">':t==='video'?'<video controls autoplay playsinline preload="metadata" src="'+src+'"></video>':'<audio controls autoplay src="'+src+'"></audio>';
+    document.querySelector('#lightFav').onclick=function(){toggleFavorite(f.id);document.querySelector('#lightFav').textContent=favorites.has(f.id)?'♥ Favorite':'♡ Favorite'};
+    document.querySelector('#lightDownload').onclick=function(){startDownload([f])};
+    box.classList.add('show');
+  }
+  function moveLight(delta){const list=window.__fbiPreviewFiles||[];if(list.length)openLocalLightbox(currentLightIndex+delta)}
+  async function startDownload(list){
+    if(!list.length)return;
+    if(list.length>1){
+      if(!confirm('Start '+list.length+' individual downloads? Your browser may ask for permission to download multiple files.'))return;
+    }
+    for(let i=0;i<list.length;i++){
+      const a=document.createElement('a');
+      a.href=fileDownload(list[i]);a.target='_blank';a.rel='noreferrer';a.download='';
+      document.body.appendChild(a);a.click();a.remove();
+      if(i<list.length-1)await new Promise(r=>setTimeout(r,220));
+    }
+  }
+  function startSlideshow(){
+    const list=files.filter(canPreview);
+    if(!list.length)return;
+    stopSlideshow();
+    window.__fbiPreviewFiles=list;
+    openLocalLightbox(0);
+    slideshowTimer=setInterval(function(){moveLight(1)},4500);
+  }
+  function stopSlideshow(){if(slideshowTimer){clearInterval(slideshowTimer);slideshowTimer=null}}
+  function closeLightbox(){stopSlideshow();document.querySelector('#clientLightbox').classList.remove('show');document.querySelector('#lightStage').innerHTML=''}
+  document.querySelectorAll('.fbi-gallery-chip').forEach(function(btn){
+    btn.onclick=function(){selectedFilter.value=btn.dataset.filter;document.querySelectorAll('.fbi-gallery-chip').forEach(b=>b.classList.toggle('active',b===btn));renderGrid()}
+  });
+  document.querySelector('#gallerySort').onchange=function(e){sortBy.value=e.target.value;renderGrid()};
+  document.querySelector('#viewGallery').onclick=function(){document.querySelector('#galleryBody').scrollIntoView({behavior:'smooth',block:'start'})};
+  document.querySelector('#heroDownload').onclick=document.querySelector('#downloadTop').onclick=function(){startDownload(files)};
+  document.querySelector('#favTop').onclick=function(){selectedFilter.value='all';document.querySelector('#galleryBody').scrollIntoView({behavior:'smooth',block:'start'});setTimeout(function(){
+    const favCards=files.filter(f=>favorites.has(f.id));
+    document.querySelector('#galleryGrid').innerHTML=favCards.length?favCards.map(function(f){return '<article class="fbi-gallery-favorite-note">'+esc(f.original_name)+'</article>'}).join(''):'';
+  },250)};
+  document.querySelector('#slideTop').onclick=startSlideshow;
+  document.querySelector('#downloadFavorites').onclick=function(){startDownload(files.filter(f=>favorites.has(f.id)))};
+  document.querySelector('#lightClose').onclick=closeLightbox;
+  document.querySelector('#lightPrev').onclick=function(){moveLight(-1)};
+  document.querySelector('#lightNext').onclick=function(){moveLight(1)};
+  document.querySelector('#clientLightbox').onclick=function(e){if(e.target===this)closeLightbox()};
+  document.addEventListener('keydown',function(e){
+    const box=document.querySelector('#clientLightbox');if(!box||!box.classList.contains('show'))return;
+    if(e.key==='Escape')closeLightbox();
+    if(e.key==='ArrowLeft')moveLight(-1);
+    if(e.key==='ArrowRight')moveLight(1);
+  },{once:false});
+  updateFavoritesUi();renderGrid();
+ }catch(e){
+  document.body.innerHTML='<div class="client"><div class="clientwrap"><div class="ctop"><img src="'+LOGO+'"><h1>Delivery unavailable</h1><p>'+esc(e.message)+'</p></div></div></div>';
+ }
 }
+
 function isPdfFile(f){return /^application\/pdf$/i.test(f?.mime_type||'') || /\.pdf$/i.test(f?.original_name||'')}
 window.__fbiPreviewFiles=window.__fbiPreviewFiles||[];
 window.__fbiPreviewIndex=0;
