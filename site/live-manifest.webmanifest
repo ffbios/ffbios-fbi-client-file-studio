@@ -1,18 +1,22 @@
 {
   "id": "/",
-  "name": "FBI Live Broadcast Studio",
-  "short_name": "FBI Live",
+  "name": "VI Life",
+  "short_name": "VI Life",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "landscape",
   "background_color": "#09090a",
   "theme_color": "#0a0a0b",
-  "description": "FBI Live standalone broadcast control center for live production, monitoring and streaming.",
+  "description": "VI Life live broadcast control center.",
   "categories": ["video", "broadcast", "business"],
   "prefer_related_applications": false,
   "icons": [
-    {"src": "/live-pwa-icon.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable"},
-    {"src": "/live-pwa-icon.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any maskable"}
+    {
+      "src": "/official-logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    }
   ]
 }
