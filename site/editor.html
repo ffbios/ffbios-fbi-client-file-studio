@@ -58,7 +58,7 @@
     </section>
     <section class="monitor">
       <div class="monitorhead"><span class="title">Program: <span id="programTitle">Untitled Sequence</span></span><span class="small">Program Monitor</span></div>
-      <div class="canvas"><div class="screen"><video id="programVideo" controls playsinline></video><audio id="programAudio" style="display:none"></audio><div id="graphicsOverlay" style="position:absolute;inset:auto 8% 10%;font-size:28px;font-weight:800;text-align:center;text-shadow:0 2px 10px #000;display:none"></div><div id="captionOverlay" style="position:absolute;left:8%;right:8%;bottom:8%;font-size:19px;text-align:center;text-shadow:0 2px 7px #000;display:none"></div></div></div>
+      <div class="canvas"><div class="screen"><video id="programVideo" controls playsinline></video><div id="visualOverlay" style="position:absolute;inset:0;pointer-events:none;display:none;z-index:2;background:#000"></div><audio id="programAudio" style="display:none"></audio><div id="graphicsOverlay" style="position:absolute;inset:auto 8% 10%;font-size:28px;font-weight:800;text-align:center;text-shadow:0 2px 10px #000;display:none"></div><div id="captionOverlay" style="position:absolute;left:8%;right:8%;bottom:8%;font-size:19px;text-align:center;text-shadow:0 2px 7px #000;display:none"></div></div></div>
       <div class="transport"><button id="prev">◀|</button><button id="play">▶</button><button id="next">|▶</button><span class="tc" id="programTc">00:00:00:00</span><span class="zoom" id="status">Ready</span></div>
     </section>
   </main>
@@ -116,10 +116,57 @@ function selectedClip(){return S.clips.find(c=>c.id===S.selectedClip)||null}
 function rebuild(c){c.sourceDuration=Number(c.sourceDuration||5);c.trimIn=Math.max(0,Math.min(c.sourceDuration,Number(c.trimIn||0)));c.trimOut=Math.max(c.trimIn,Math.min(c.sourceDuration,Number(c.trimOut||c.sourceDuration)));c.speed=Math.max(.25,Math.min(4,Number(c.speed||1)));c.duration=(c.trimOut-c.trimIn)/c.speed}
 function total(){S.clips.forEach(rebuild);return S.clips.reduce((m,c)=>Math.max(m,c.start+c.duration),0)}
 function snapshot(){S._history=S._history||[];S._history.push(JSON.stringify({clips:S.clips,selectedClip:S.selectedClip,playhead:S.playhead,effect:S.effect}));if(S._history.length>30)S._history.shift();S._future=[]}
-function save(){if(!S.project)return;localStorage.setItem('fbi-editor-project',JSON.stringify({projectId:S.project,sequence:S.sequence}));localStorage.setItem('fbi-editor-clips-'+S.project,JSON.stringify(S.clips));setStatus('Sequence saved on this device.')}
+let cloudSaveTimer=0;
+function editorPayload(){
+  return {
+    sequence:S.sequence,
+    clips:S.clips,
+    effect:S.effect,
+    graphics:S.graphics,
+    graphicsStyle:S.graphicsStyle||{size:28,opacity:100},
+    caption:S.caption,
+    captionStyle:S.captionStyle||{size:19,opacity:100},
+    frameRate:S.frameRate||'24 fps'
+  };
+}
+function save(){
+  if(!S.project)return;
+  const payload=editorPayload();
+  localStorage.setItem('fbi-editor-project',JSON.stringify({projectId:S.project,sequence:S.sequence}));
+  localStorage.setItem('fbi-editor-clips-'+S.project,JSON.stringify(S.clips));
+  localStorage.setItem('fbi-editor-state-'+S.project,JSON.stringify(payload));
+  setStatus('Sequence saved locally. Syncing to cloud…');
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer=setTimeout(async function(){
+    try{
+      await api('/api/editor/sequences/'+encodeURIComponent(S.project),{
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({sequence_name:S.sequence||'Untitled Sequence',sequence:payload})
+      });
+      setStatus('Sequence saved to cloud.');
+    }catch(e){
+      setStatus('Saved locally. Cloud sync will retry on the next change.');
+      console.warn('Editor cloud save:',e);
+    }
+  },450);
+}
 function setStatus(t){document.getElementById('status').textContent=t}
 function refreshSource(){const f=selectedFile();const v=document.getElementById('sourceVideo');document.getElementById('sourceTitle').textContent='Source: '+(f?f.original_name:'No media selected');if(f){v.src=fileUrl(f);v.load();document.getElementById('sourceTc').textContent='00:00:00:00'}else{v.removeAttribute('src');v.load()}}
 function activeClip(){return S.clips.find(c=>S.playhead>=c.start&&S.playhead<c.start+c.duration)||null}
+function applyClipAudio(c,positionSeconds){
+  if(!c)return;
+  const base=Math.max(0,Math.min(2,(Number(c.volume??100)/100)));
+  const pos=Math.max(0,Number(positionSeconds||0));
+  let gain=base;
+  if(c.fadeIn>0)gain*=Math.min(1,pos/Number(c.fadeIn));
+  const remain=Math.max(0,Number(c.duration||0)-pos);
+  if(c.fadeOut>0)gain*=Math.min(1,remain/Number(c.fadeOut));
+  const muted=!!c.mute;
+  const v=document.getElementById('programVideo'),a=document.getElementById('programAudio');
+  if(v){v.volume=Math.max(0,Math.min(1,gain));v.muted=muted}
+  if(a){a.volume=Math.max(0,Math.min(1,gain));a.muted=muted}
+}
 function refreshProgram(){
   const c=activeClip(),v=document.getElementById('programVideo'),a=document.getElementById('programAudio'),f=c&&S.files.find(x=>x.id===c.fileId);
   document.getElementById('programTitle').textContent=S.sequence;
@@ -127,10 +174,10 @@ function refreshProgram(){
   const offset=Math.max(0,(S.playhead-c.start)*c.speed);
   if(c.type==='audio'){
     v.pause();v.removeAttribute('src');v.load();
-    a.src=fileUrl(f);a.onloadedmetadata=()=>{try{a.currentTime=Math.min((a.duration||c.sourceDuration)-.05,c.trimIn+offset)}catch{}};a.volume=Math.max(0,Math.min(1,(c.volume||100)/100));a.muted=!!c.mute;a.playbackRate=c.speed;a.load();
+    a.src=fileUrl(f);a.onloadedmetadata=()=>{try{a.currentTime=Math.min((a.duration||c.sourceDuration)-.05,c.trimIn+offset)}catch{};applyClipAudio(c,Math.max(0,offset));};a.playbackRate=c.speed;a.load();
   }else{
     a.pause();a.removeAttribute('src');a.load();
-    v.src=fileUrl(f);v.onloadedmetadata=()=>{try{v.currentTime=Math.min((v.duration||c.sourceDuration)-.05,c.trimIn+offset)}catch{};applyVisual()};v.load();
+    v.src=fileUrl(f);v.onloadedmetadata=()=>{try{v.currentTime=Math.min((v.duration||c.sourceDuration)-.05,c.trimIn+offset)}catch{};applyClipAudio(c,Math.max(0,offset));applyVisual()};v.playbackRate=c.speed;v.load();
   }
 }
 function playProgram(){const v=document.getElementById('programVideo'),a=document.getElementById('programAudio'),c=activeClip()||S.clips[0];if(!c)return setStatus('Add media to the timeline first.');if(S.playing){v.pause();a.pause();S.playing=false;setStatus('Paused');return}S.selectedClip=c.id;refreshProgram();S.playing=true;const p=c.type==='audio'?a:v;p.play().then(()=>setStatus('Playing')).catch(()=>{S.playing=false;setStatus('Playback blocked by browser.')})}
@@ -160,7 +207,46 @@ function renderBin(){
 function renderProjects(){const b=document.getElementById('projects');if(!b)return;b.innerHTML=projects.map(p=>'<div class="projectrow '+(S.project===p.id?'sel':'')+'" data-id="'+p.id+'"><b>'+esc(p.name)+'</b><small>'+esc(p.client_name||'No client')+' • '+(p.file_count||0)+' files</small></div>').join('');b.querySelectorAll('[data-id]').forEach(e=>e.onclick=()=>loadProject(e.dataset.id))}
 async function loadProject(id){
   if(!id)return;const d=await api('/api/projects/'+id);S.project=id;document.getElementById('project').value=id;S.files=(d.files||[]).filter(f=>videoFile(f)||audioFile(f)||imageFile(f));S.selectedFile=null;S.selectedClip=null;S.playhead=0;
-  try{S.clips=JSON.parse(localStorage.getItem('fbi-editor-clips-'+id)||'[]')}catch{S.clips=[]}if(!Array.isArray(S.clips))S.clips=[];S.clips.forEach(rebuild);saveProjectHeader();renderAll();setStatus(S.files.length+' cloud media loaded.')}
+  let loadedCloud=false;
+  try{
+    const remote=await api('/api/editor/sequences/'+encodeURIComponent(id));
+    const remoteState=remote?.sequence?.sequence;
+    if(remoteState&&typeof remoteState==='object'){
+      S.sequence=remoteState.sequence||S.sequence;
+      S.clips=Array.isArray(remoteState.clips)?remoteState.clips:[];
+      S.effect=remoteState.effect&&typeof remoteState.effect==='object'?remoteState.effect:S.effect;
+      S.graphics=remoteState.graphics||'';
+      S.graphicsStyle=remoteState.graphicsStyle||{size:28,opacity:100};
+      S.caption=remoteState.caption||'';
+      S.captionStyle=remoteState.captionStyle||{size:19,opacity:100};
+      S.frameRate=remoteState.frameRate||'24 fps';
+      loadedCloud=true;
+    }
+  }catch(e){console.warn('Editor cloud state load:',e)}
+  if(!loadedCloud){
+    try{
+      const localState=JSON.parse(localStorage.getItem('fbi-editor-state-'+id)||'null');
+      if(localState&&typeof localState==='object'){
+        S.sequence=localState.sequence||S.sequence;
+        S.clips=Array.isArray(localState.clips)?localState.clips:[];
+        S.effect=localState.effect&&typeof localState.effect==='object'?localState.effect:S.effect;
+        S.graphics=localState.graphics||'';
+        S.graphicsStyle=localState.graphicsStyle||{size:28,opacity:100};
+        S.caption=localState.caption||'';
+        S.captionStyle=localState.captionStyle||{size:19,opacity:100};
+        S.frameRate=localState.frameRate||'24 fps';
+      }else{
+        try{S.clips=JSON.parse(localStorage.getItem('fbi-editor-clips-'+id)||'[]')}catch{S.clips=[]}
+      }
+    }catch{S.clips=[]}
+  }
+  if(!Array.isArray(S.clips))S.clips=[];
+  S.clips.forEach(rebuild);
+  saveProjectHeader();
+  renderAll();
+  const seqInput=document.getElementById('sequence');if(seqInput)seqInput.value=S.sequence;
+  const fps=document.getElementById('sequenceSelect');if(fps)fps.value=S.frameRate||'24 fps';
+  setStatus(S.files.length+' cloud media loaded.'+(loadedCloud?' Editor state restored from cloud.':''));}
 function saveProjectHeader(){localStorage.setItem('fbi-editor-project',JSON.stringify({projectId:S.project,sequence:S.sequence}))}
 function renderInfo(f){document.getElementById('fileInfo').innerHTML=f?'<b>Filename:</b> '+esc(f.original_name)+'<br><b>Type:</b> '+esc(f.mime_type)+'<br><b>Size:</b> '+fmt(f.size_bytes)+'<br><b>Location:</b> '+(f.local?'Desktop / Local Browser':'FBI Cloud Storage'):S.workspace==='more'?'<b>Advanced Tools</b><br>Selection, track select, ripple edit, razor, slip, slide, pen, hand, type and zoom tools are available from the timeline tool rail.<br><br><b>Keyboard</b><br>Space: Play/Pause • B: Razor • Delete: Ripple Delete • Ctrl/Cmd+Z: Undo • Ctrl/Cmd+Y: Redo':'Select a media item to view metadata.'}
 function renderTimeline(){
@@ -196,25 +282,37 @@ function renderInspector(){
   }else if(S.workspace==='effects'){
     html='<div class="inspectsec"><h4>Effects</h4><div class="note">Use the Effects panel for browser-preview effects and transitions.</div></div><div class="inspectsec"><h4>Transition</h4><div class="if"><label>Video Transition</label><select id="transition"><option>None</option><option>Cross Dissolve</option><option>Dip to Black</option><option>Dip to White</option><option>Film Dissolve</option><option>Push</option><option>Wipe</option><option>Zoom</option></select></div></div>';
   }else{
-    html='<div class="inspectsec"><h4>Motion</h4><div class="ig"><div class="if"><label>Scale %</label><input id="scale" type="number" value="'+c.scale+'"></div><div class="if"><label>Opacity %</label><input id="opacity" type="number" value="'+c.opacity+'"></div><div class="if"><label>Position X</label><input id="px" type="number" value="'+c.positionX+'"></div><div class="if"><label>Position Y</label><input id="py" type="number" value="'+c.positionY+'"></div><div class="if"><label>Rotation</label><input id="rotation" type="number" value="'+c.rotation+'"></div><div class="if"><label>Speed</label><input id="speed" type="number" min=".25" max="4" step=".05" value="'+c.speed+'"></div></div></div><div class="inspectsec"><h4>Transition</h4><div class="if"><label>Video Transition</label><select id="transition"><option>None</option><option>Cross Dissolve</option><option>Dip to Black</option><option>Dip to White</option><option>Film Dissolve</option><option>Push</option><option>Wipe</option><option>Zoom</option></select></div></div>';
+    html='<div class="inspectsec"><h4>Timing / Trim</h4><div class="ig"><div class="if"><label>Trim In s</label><input id="trimIn" type="number" min="0" max="'+c.sourceDuration+'" step=".01" value="'+c.trimIn.toFixed(2)+'"></div><div class="if"><label>Trim Out s</label><input id="trimOut" type="number" min="0" max="'+c.sourceDuration+'" step=".01" value="'+c.trimOut.toFixed(2)+'"></div></div></div><div class="inspectsec"><h4>Motion</h4><div class="ig"><div class="if"><label>Scale %</label><input id="scale" type="number" value="'+c.scale+'"></div><div class="if"><label>Opacity %</label><input id="opacity" type="number" value="'+c.opacity+'"></div><div class="if"><label>Position X</label><input id="px" type="number" value="'+c.positionX+'"></div><div class="if"><label>Position Y</label><input id="py" type="number" value="'+c.positionY+'"></div><div class="if"><label>Rotation</label><input id="rotation" type="number" value="'+c.rotation+'"></div><div class="if"><label>Speed</label><input id="speed" type="number" min=".25" max="4" step=".05" value="'+c.speed+'"></div></div></div><div class="inspectsec"><h4>Transition</h4><div class="if"><label>Video Transition</label><select id="transition"><option>None</option><option>Cross Dissolve</option><option>Dip to Black</option><option>Dip to White</option><option>Film Dissolve</option><option>Push</option><option>Wipe</option><option>Zoom</option></select></div></div>';
   }
   b.innerHTML=html;if(document.getElementById('transition'))document.getElementById('transition').value=c.transition;
-  ['scale','opacity','px','py','rotation','speed','transition','brightness','contrast','saturate','grayscale','sepia','blur','volume','pan','fadeIn','fadeOut','mute'].forEach(id=>{const el=document.getElementById(id);if(!el)return;el.onchange=()=>{snapshot();
-    if(id==='scale')c.scale=Number(el.value||100);else if(id==='opacity')c.opacity=Number(el.value||100);else if(id==='px')c.positionX=Number(el.value||0);else if(id==='py')c.positionY=Number(el.value||0);else if(id==='rotation')c.rotation=Number(el.value||0);else if(id==='speed')c.speed=Math.max(.25,Math.min(4,Number(el.value||1)));else if(id==='transition')c.transition=el.value;else if(id==='brightness')S.effect.brightness=Number(el.value||100);else if(id==='contrast')S.effect.contrast=Number(el.value||100);else if(id==='saturate')S.effect.saturate=Number(el.value||100);else if(id==='grayscale')S.effect.grayscale=Number(el.value||0);else if(id==='sepia')S.effect.sepia=Number(el.value||0);else if(id==='blur')S.effect.blur=Number(el.value||0);else if(id==='volume')c.volume=Math.max(0,Math.min(200,Number(el.value||100)));else if(id==='pan')c.pan=Math.max(-100,Math.min(100,Number(el.value||0)));else if(id==='fadeIn')c.fadeIn=Math.max(0,Number(el.value||0));else if(id==='fadeOut')c.fadeOut=Math.max(0,Number(el.value||0));else if(id==='mute')c.mute=!!el.checked;
+  ['trimIn','trimOut','scale','opacity','px','py','rotation','speed','transition','brightness','contrast','saturate','grayscale','sepia','blur','volume','pan','fadeIn','fadeOut','mute'].forEach(id=>{const el=document.getElementById(id);if(!el)return;el.onchange=()=>{snapshot();
+    if(id==='trimIn')c.trimIn=Math.max(0,Math.min(c.sourceDuration,Number(el.value||0)));else if(id==='trimOut')c.trimOut=Math.max(c.trimIn,Math.min(c.sourceDuration,Number(el.value||c.sourceDuration)));else if(id==='scale')c.scale=Number(el.value||100);else if(id==='opacity')c.opacity=Number(el.value||100);else if(id==='px')c.positionX=Number(el.value||0);else if(id==='py')c.positionY=Number(el.value||0);else if(id==='rotation')c.rotation=Number(el.value||0);else if(id==='speed')c.speed=Math.max(.25,Math.min(4,Number(el.value||1)));else if(id==='transition')c.transition=el.value;else if(id==='brightness')S.effect.brightness=Number(el.value||100);else if(id==='contrast')S.effect.contrast=Number(el.value||100);else if(id==='saturate')S.effect.saturate=Number(el.value||100);else if(id==='grayscale')S.effect.grayscale=Number(el.value||0);else if(id==='sepia')S.effect.sepia=Number(el.value||0);else if(id==='blur')S.effect.blur=Number(el.value||0);else if(id==='volume')c.volume=Math.max(0,Math.min(200,Number(el.value||100)));else if(id==='pan')c.pan=Math.max(-100,Math.min(100,Number(el.value||0)));else if(id==='fadeIn')c.fadeIn=Math.max(0,Number(el.value||0));else if(id==='fadeOut')c.fadeOut=Math.max(0,Number(el.value||0));else if(id==='mute')c.mute=!!el.checked;
     rebuild(c);save();renderAll();applyVisual();setStatus('Updated '+id+'.');};
   });
 }
 function applyVisual(){
-  const c=selectedClip(),v=document.getElementById('programVideo');if(!v)return;
-  if(!c){v.style.transform='none';v.style.opacity='1';v.style.filter='none';return}
+  const c=selectedClip(),v=document.getElementById('programVideo'),screen=v?.closest('.screen'),overlay=document.getElementById('visualOverlay');if(!v)return;
+  if(!c){v.style.transform='none';v.style.opacity='1';v.style.filter='none';if(overlay){overlay.style.display='none';overlay.style.opacity='0'}return}
   const rel=Math.max(0,S.playhead-c.start),remain=Math.max(0,c.start+c.duration-S.playhead),tr=.5;
   let opacity=Math.max(0,Math.min(100,c.opacity||100))/100;
-  if(c.transition==='Dip to Black')opacity*=Math.min(1,rel/tr,remain/tr);
-  if(c.transition==='Cross Dissolve')opacity*=Math.min(1,rel/tr);
+  const edge=Math.max(0,Math.min(1,Math.min(rel/tr,remain/tr)));
+  if(c.transition==='Dip to Black')opacity*=edge;
+  if(c.transition==='Cross Dissolve'||c.transition==='Film Dissolve')opacity*=Math.min(1,rel/tr);
   let transform='translate('+c.positionX+'px,'+c.positionY+'px) scale('+(c.scale/100)+') rotate('+c.rotation+'deg)';
   if(c.transition==='Zoom'&&rel<tr)transform='translate('+c.positionX+'px,'+c.positionY+'px) scale('+(c.scale/100*(.94+.06*rel/tr))+') rotate('+c.rotation+'deg)';
   if(c.transition==='Push'&&rel<tr)transform='translate('+(c.positionX+(1-rel/tr)*80)+'px,'+c.positionY+'px) scale('+(c.scale/100)+') rotate('+c.rotation+'deg)';
+  if(c.transition==='Wipe'&&rel<tr) v.style.clipPath='inset(0 '+((1-rel/tr)*100).toFixed(1)+'% 0 0)'; else v.style.clipPath='none';
   v.style.transform=transform;v.style.opacity=String(opacity);v.style.filter='brightness('+S.effect.brightness+'%) contrast('+S.effect.contrast+'%) saturate('+S.effect.saturate+'%) blur('+S.effect.blur+'px) grayscale('+S.effect.grayscale+'%) sepia('+S.effect.sepia+'%)';
+  if(overlay){
+    overlay.style.display='block';overlay.style.opacity='0';
+    if(c.transition==='Dip to White')overlay.style.opacity=String(1-edge);
+    if(c.transition==='Dip to Black')overlay.style.opacity=String(1-edge);
+    if(S.effect.vignette)overlay.style.background='radial-gradient(circle,transparent 45%,rgba(0,0,0,.75) 100%)';
+    else if(S.effect.grain)overlay.style.backgroundImage='repeating-radial-gradient(rgba(255,255,255,.08) 0 1px, transparent 1px 3px)';
+    else if(c.transition==='Dip to White')overlay.style.background='#fff';
+    else overlay.style.background='#000';
+  }
+  applyClipAudio(c,rel);
 }
 function renderLibraryForTab(tab){
   const q=document.getElementById('quickEffects');if(!q)return;
@@ -291,7 +389,7 @@ function showGraphics(){const o=document.getElementById('graphicsOverlay');if(!o
 function showCaptions(){const o=document.getElementById('captionOverlay');if(!o)return;S.captionStyle=S.captionStyle||{size:19,opacity:100};o.textContent=S.caption;o.style.display=S.caption?'block':'none';o.style.fontSize=(S.captionStyle.size||19)+'px';o.style.opacity=String((S.captionStyle.opacity??100)/100)}
 function undo(){const h=S._history?.pop();if(!h)return;S._future=S._future||[];S._future.push(JSON.stringify({clips:S.clips,selectedClip:S.selectedClip,playhead:S.playhead,effect:S.effect}));Object.assign(S,JSON.parse(h));renderAll()}
 function redo(){const h=S._future?.pop();if(!h)return;S._history=S._history||[];S._history.push(JSON.stringify({clips:S.clips,selectedClip:S.selectedClip,playhead:S.playhead,effect:S.effect}));Object.assign(S,JSON.parse(h));renderAll()}
-function renderAll(){renderBin();renderProjects();renderTimeline();renderInspector();refreshSource();refreshProgram();renderLibraryForTab(S.workspace);showGraphics();showCaptions();document.getElementById('programTitle').textContent=S.sequence;document.getElementById('sequenceSelect').value='24 fps'}
+function renderAll(){renderBin();renderProjects();renderTimeline();renderInspector();refreshSource();refreshProgram();renderLibraryForTab(S.workspace);showGraphics();showCaptions();document.getElementById('programTitle').textContent=S.sequence;document.getElementById('sequence').value=S.sequence;document.getElementById('sequenceSelect').value=S.frameRate||'24 fps';applyVisual()}
 function wireTabs(){
   document.querySelectorAll('#workspaces button[data-tab]').forEach(b=>b.onclick=()=>setWorkspace(b.dataset.tab));
   document.querySelectorAll('#subtabs button').forEach(b=>b.onclick=()=>{activateLeftPanel(b.dataset.left);if(b.dataset.left==='effects')renderLibraryForTab(S.workspace);if(b.dataset.left==='libraries')renderLibrariesForTab(S.workspace);if(b.dataset.left==='info')renderInfo(selectedFile());setStatus(b.textContent+' panel opened.')});
@@ -310,17 +408,23 @@ document.getElementById('rippleBtn').onclick=()=>{const c=selectedClip();if(!c)r
 document.getElementById('toggleInspector').onclick=()=>document.getElementById('inspectorWrap').classList.toggle('show');
 document.getElementById('closeInspector').onclick=()=>document.getElementById('inspectorWrap').classList.remove('show');
 document.getElementById('play').onclick=playProgram;
-document.getElementById('programVideo').ontimeupdate=()=>{const c=activeClip();if(!c)return;S.playhead=c.start+Math.max(0,Math.min(c.duration,(document.getElementById('programVideo').currentTime-c.trimIn)/c.speed));document.getElementById('programTc').textContent=ft(S.playhead)+':00';applyVisual();renderTimeline()};
-document.getElementById('programAudio').ontimeupdate=()=>{const c=activeClip();if(!c||c.type!=='audio')return;S.playhead=c.start+Math.max(0,Math.min(c.duration,(document.getElementById('programAudio').currentTime-c.trimIn)/c.speed));document.getElementById('programTc').textContent=ft(S.playhead)+':00';renderTimeline()};
-document.getElementById('programVideo').onended=()=>{if(S.playing){const n=[...S.clips].sort((a,b)=>a.start-b.start).find(x=>x.start>S.playhead+.01);if(n){S.selectedClip=n.id;S.playhead=n.start;refreshProgram()}else{S.playing=false;setStatus('Sequence complete.')}}};
+document.getElementById('programVideo').ontimeupdate=()=>{const c=activeClip();if(!c)return;const rel=Math.max(0,Math.min(c.duration,(document.getElementById('programVideo').currentTime-c.trimIn)/c.speed));S.playhead=c.start+rel;document.getElementById('programTc').textContent=ft(S.playhead)+':00';applyClipAudio(c,rel);applyVisual();renderTimeline()};
+document.getElementById('programAudio').ontimeupdate=()=>{const c=activeClip();if(!c||c.type!=='audio')return;const rel=Math.max(0,Math.min(c.duration,(document.getElementById('programAudio').currentTime-c.trimIn)/c.speed));S.playhead=c.start+rel;document.getElementById('programTc').textContent=ft(S.playhead)+':00';applyClipAudio(c,rel);renderTimeline()};
+const advanceAfterEnd=()=>{if(!S.playing)return;const n=[...S.clips].sort((a,b)=>a.start-b.start).find(x=>x.start>S.playhead+.01);if(n){S.selectedClip=n.id;S.playhead=n.start;refreshProgram();const c=n,f=c.type==='audio'?document.getElementById('programAudio'):document.getElementById('programVideo');const p=f.play();if(p&&p.catch)p.catch(function(){})}else{S.playing=false;setStatus('Sequence complete.')}};
+document.getElementById('programVideo').onended=advanceAfterEnd;document.getElementById('programAudio').onended=advanceAfterEnd;
 document.getElementById('prev').onclick=()=>stepNext(-1);document.getElementById('next').onclick=()=>stepNext(1);
-document.getElementById('sourcePlay').onclick=()=>{const v=document.getElementById('sourceVideo');if(v.paused)v.play();else v.pause()};document.getElementById('sourcePrev').onclick=()=>{document.getElementById('sourceVideo').currentTime=0};document.getElementById('sourceNext').onclick=()=>{const v=document.getElementById('sourceVideo');v.currentTime=v.duration||0};
+document.getElementById('sourcePlay').onclick=()=>{const v=document.getElementById('sourceVideo');if(v.paused)v.play().catch(()=>{});else v.pause()};document.getElementById('sourcePrev').onclick=()=>{document.getElementById('sourceVideo').currentTime=0};document.getElementById('sourceNext').onclick=()=>{const v=document.getElementById('sourceVideo');if(Number.isFinite(v.duration))v.currentTime=v.duration};document.getElementById('sourceVideo').ontimeupdate=()=>{document.getElementById('sourceTc').textContent=ft(document.getElementById('sourceVideo').currentTime)+':00'};
 document.getElementById('tlscroll').onclick=e=>{if(e.target.closest('.clip'))return;const rect=document.getElementById('tlscroll').getBoundingClientRect();const x=e.clientX-rect.left+document.getElementById('tlscroll').scrollLeft;S.playhead=Math.max(0,x/34);const c=activeClip();if(c)S.selectedClip=c.id;renderTimeline();renderInspector();refreshProgram()};
 document.getElementById('sequence')&&(document.getElementById('sequence').onchange=e=>{S.sequence=e.target.value||'Untitled Sequence';document.getElementById('programTitle').textContent=S.sequence;save()});
-document.getElementById('export').onclick=()=>setStatus('Preview export is available from the browser. Full multi-track master rendering will use the server render engine.');
+async function exportEditPackage(){
+  const payload=editorPayload();
+  const blob=new Blob([JSON.stringify({format:'fbi-editor-project',version:1,exported_at:new Date().toISOString(),project_id:S.project,sequence:payload},null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(String(S.sequence||'Untitled Sequence').replace(/[^a-z0-9._-]+/gi,'_')||'Untitled_Sequence')+'.fbi-edit.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);setStatus('Edit package exported. Original media remains untouched.');
+}
+document.getElementById('export').onclick=exportEditPackage;
 document.getElementById('toolrail').querySelectorAll('button').forEach(b=>b.onclick=()=>{document.getElementById('toolrail').querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active')});
 document.addEventListener('keydown',e=>{const t=document.activeElement?.tagName;if(t==='INPUT'||t==='SELECT'||t==='TEXTAREA')return;if(e.code==='Space'){e.preventDefault();playProgram()}else if(e.key.toLowerCase()==='b'){e.preventDefault();document.getElementById('razorBtn').click()}else if(e.key==='Delete'){e.preventDefault();document.getElementById('rippleBtn').click()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();undo()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();redo()}});
-document.getElementById('sequenceSelect').onchange=e=>setStatus('Sequence set to '+e.target.value);
+document.getElementById('sequenceSelect').onchange=e=>{S.frameRate=e.target.value;save();setStatus('Sequence set to '+e.target.value)};
 document.addEventListener('dragover',e=>{e.preventDefault()});document.addEventListener('drop',e=>{e.preventDefault();if(e.dataTransfer?.files?.length)importFiles(e.dataTransfer.files)});
 document.getElementById('graphicsOverlay').onclick=()=>setStatus('Graphics preview overlay');
 document.getElementById('captionOverlay').onclick=()=>setStatus('Caption preview overlay');
