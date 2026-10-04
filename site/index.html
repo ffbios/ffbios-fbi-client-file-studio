@@ -385,6 +385,11 @@
 .admin-media-thumb{height:155px;background:#0a0a0c;display:grid;place-items:center;overflow:hidden;position:relative}.admin-media-thumb img,.admin-media-thumb video{width:100%;height:100%;object-fit:cover;display:block;background:#0b0b0d}.admin-media-meta{padding:8px 9px}.admin-media-name{font-size:8px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.admin-media-sub{font-size:7px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.admin-media-foot{display:flex;gap:4px;padding:7px 8px;border-top:1px solid var(--border)}.admin-media-foot button,.admin-media-foot a{flex:1;border:1px solid var(--border);background:#19191c;color:#ddd;border-radius:7px;padding:6px 5px;font-size:7px;text-align:center;text-decoration:none}
 @media(max-width:1050px){.projects-page{grid-template-columns:260px minmax(0,1fr)}.project-summary-strip{grid-template-columns:repeat(2,1fr)}.workspace-search{width:170px}.admin-media-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}}
 @media(max-width:760px){.projects-page{grid-template-columns:1fr}.projects-library{max-height:370px}.workspace-header{align-items:flex-start;flex-wrap:wrap}.workspace-search{width:100%;order:3}.workspace-spacer{display:none}.project-summary-strip{grid-template-columns:1fr 1fr}.admin-media-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.fbi-gallery-video{display:block;width:100%;height:auto;min-height:170px;object-fit:cover;background:#0b0b0d}
+.fbi-gallery-video.is-loading{opacity:.72}
+.fbi-gallery-video.is-playing{opacity:1}
+.fbi-gallery-video-toggle{position:absolute;left:12px;bottom:12px;padding:6px 9px;border-radius:999px;background:rgba(8,8,8,.72);border:1px solid rgba(255,255,255,.18);color:#fff;font-size:8px;letter-spacing:.1em;text-transform:uppercase;backdrop-filter:blur(8px);pointer-events:none}
 </style>
 <style>.streamrow-actions{display:flex;align-items:center;gap:6px}.stream-delete-btn{padding:4px 6px!important;border-radius:8px!important;background:#fff3f1!important;color:#9b3838!important;border-color:rgba(155,56,56,.15)!important;line-height:1}
 /* FBI Pixieset-inspired client gallery */
@@ -2042,6 +2047,9 @@ async function clientView(token){
     const video=/^video\//i.test(String(f.mime_type||''));
     return '/api/public/thumb/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w='+(video?'900&h=600':'900&h=1200');
   }
+  function videoPreviewSrc(f){
+    return '/api/public/video-preview/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&start=4&duration=8';
+  }
   function fileDownload(f){return (f.download_url||('/api/public/file/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)))+'&download=1'}
   function renderGrid(){
     visible=baseList();
@@ -2053,19 +2061,23 @@ async function clientView(token){
       const t=typeOf(f),fav=favorites.has(f.id);
       const media=mediaSrc(f);
       const badge=t==='video'?'VIDEO':t==='audio'?'AUDIO':t==='document'?'FILE':'';
-      return '<article class="fbi-gallery-card '+(fav?'fbi-gallery-selected':'')+'" data-id="'+esc(f.id)+'" tabindex="0">'+
-        '<div class="fbi-gallery-media">'+
-          '<img src="'+media+'" alt="" loading="'+(i<10?'eager':'lazy')+'" decoding="async">'+
-          ''+
-          (badge?'<span class="fbi-gallery-badge">'+badge+'</span>':'')+
-          '<div class="fbi-gallery-overlay"><div class="fbi-gallery-filetitle">'+esc(f.original_name)+'</div><div class="fbi-gallery-cardtools"><button class="fbi-gallery-iconbtn fav '+(fav?'active':'')+'" data-fav="'+esc(f.id)+'" aria-label="Favorite">♡</button><button class="fbi-gallery-iconbtn" data-dl="'+esc(f.id)+'" aria-label="Download">↓</button></div></div>'+
-        '</div>'+
-      '</article>';
+      const visual=t==='video'
+        ?'<div class="fbi-gallery-media">'+
+            '<video class="fbi-gallery-video is-loading" muted autoplay loop playsinline preload="none" poster="'+media+'" data-video-src="'+videoPreviewSrc(f)+'" aria-label="'+esc(f.original_name)+' preview"></video>'+
+            '<span class="fbi-gallery-video-toggle">VIDEO HIGHLIGHT</span>'+
+            (badge?'<span class="fbi-gallery-badge">'+badge+'</span>':'')+
+            '<div class="fbi-gallery-overlay"><div class="fbi-gallery-filetitle">'+esc(f.original_name)+'</div><div class="fbi-gallery-cardtools"><button class="fbi-gallery-iconbtn fav '+(fav?'active':'')+'" data-fav="'+esc(f.id)+'" aria-label="Favorite">♡</button><button class="fbi-gallery-iconbtn" data-dl="'+esc(f.id)+'" aria-label="Download">↓</button></div></div>'+
+          '</div>'
+        :'<div class="fbi-gallery-media">'+
+            '<img src="'+media+'" alt="" loading="'+(i<10?'eager':'lazy')+'" decoding="async">'+
+            (badge?'<span class="fbi-gallery-badge">'+badge+'</span>':'')+
+            '<div class="fbi-gallery-overlay"><div class="fbi-gallery-filetitle">'+esc(f.original_name)+'</div><div class="fbi-gallery-cardtools"><button class="fbi-gallery-iconbtn fav '+(fav?'active':'')+'" data-fav="'+esc(f.id)+'" aria-label="Favorite">♡</button><button class="fbi-gallery-iconbtn" data-dl="'+esc(f.id)+'" aria-label="Download">↓</button></div></div>'+
+          '</div>';
+      return '<article class="fbi-gallery-card '+(fav?'fbi-gallery-selected':'')+'" data-id="'+esc(f.id)+'" tabindex="0">'+visual+'</article>';
     }).join('');
+
     grid.querySelectorAll('[data-id]').forEach(function(card){
       const f=visible.find(x=>x.id===card.dataset.id);
-      const img=card.querySelector('img');
-      img.addEventListener('load',function(){card.style.setProperty('--ratio',(img.naturalHeight&&img.naturalWidth)?String(img.naturalHeight/img.naturalWidth):'1.2')},{once:true});
       card.addEventListener('click',function(e){
         if(e.target.closest('[data-fav]')||e.target.closest('[data-dl]'))return;
         if(canPreview(f)){window.__fbiPreviewFiles=visible.filter(canPreview);openLocalLightbox(window.__fbiPreviewFiles.findIndex(x=>x.id===f.id))}
@@ -2076,7 +2088,43 @@ async function clientView(token){
       const dl=card.querySelector('[data-dl]');
       if(dl)dl.onclick=function(e){e.stopPropagation();startDownload([f])};
     });
+    setupGalleryVideoHighlights();
   }
+
+  function setupGalleryVideoHighlights(){
+    const videos=[...document.querySelectorAll('#galleryGrid video[data-video-src]')];
+    if(window.__fbiGalleryVideoObserver)window.__fbiGalleryVideoObserver.disconnect();
+    const playVideo=function(video){
+      if(!video.dataset.videoSrc)return;
+      if(!video.src){
+        video.src=video.dataset.videoSrc;
+        video.load();
+      }
+      video.muted=true;
+      video.playsInline=true;
+      video.loop=true;
+      const p=video.play();
+      if(p&&p.catch)p.catch(function(){});
+    };
+    const pauseVideo=function(video){try{video.pause()}catch{}};
+    if('IntersectionObserver' in window){
+      const observer=new IntersectionObserver(function(entries){
+        entries.forEach(function(entry){
+          const v=entry.target;
+          if(entry.isIntersecting){
+            playVideo(v);
+            v.onplaying=function(){v.classList.remove('is-loading');v.classList.add('is-playing')};
+          }else{
+            pauseVideo(v);
+          }
+        });
+      },{rootMargin:'260px 0px',threshold:.08});
+      videos.forEach(function(v){window.__fbiGalleryVideoObserver=observer;observer.observe(v)});
+    }else{
+      videos.forEach(function(v){playVideo(v)});
+    }
+  }
+
   function openLocalLightbox(index){
     const list=window.__fbiPreviewFiles||[];
     if(!list.length)return;
