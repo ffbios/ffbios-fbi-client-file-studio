@@ -1483,6 +1483,40 @@ app.post("/api/live/streams",async(req,res)=>{
     }});
   }catch(e){console.error(e);res.status(500).json({error:"Could not create stream"});}
 });
+app.get("/api/live/streams/:id",async(req,res)=>{
+  try{
+    const q=await pool.query("SELECT * FROM streams WHERE id=$1",[req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Stream not found."});
+    const s=await refreshStreamStatus(q.rows[0]);
+    const rtmpHost=String(process.env.STREAM_RTMP_HOST||"");
+    const rtmpPort=String(process.env.STREAM_RTMP_PORT||"");
+    res.json({stream:{
+      ...s,
+      rtmp_server:rtmpHost&&rtmpPort?"rtmp://"+rtmpHost+":"+rtmpPort+"/live":"",
+      hls_url:streamHlsUrl(s),
+      live_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/live/"+s.id,
+      viewer_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+s.viewer_token
+    }});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not load live stream"});}
+});
+
+app.post("/api/live/streams/:id/regenerate-key",async(req,res)=>{
+  try{
+    const key=randomStreamKey();
+    const r=await pool.query("UPDATE streams SET stream_key=$1,stream_path=$2,updated_at=now(),status='offline',started_at=NULL,ended_at=now() WHERE id=$3 RETURNING *",[key,streamPathForKey(key),req.params.id]);
+    if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
+    const s=r.rows[0];
+    const rtmpHost=String(process.env.STREAM_RTMP_HOST||"");
+    const rtmpPort=String(process.env.STREAM_RTMP_PORT||"");
+    res.json({stream:{
+      ...s,
+      rtmp_server:rtmpHost&&rtmpPort?"rtmp://"+rtmpHost+":"+rtmpPort+"/live":"",
+      hls_url:streamHlsUrl(s),
+      live_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/live/"+s.id,
+      viewer_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+s.viewer_token
+    }});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not regenerate stream key"});}
+});
 
 app.post("/api/streams",admin,async(req,res)=>{
   try{
