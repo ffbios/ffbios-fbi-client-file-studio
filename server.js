@@ -102,19 +102,103 @@ function runFfmpegPoster(url,seekSeconds){
     });
   });
 }
+
+function probeVideoDuration(url){
+  return new Promise((resolve)=>{
+    if(!ffmpegPath)return resolve(0);
+    const args=["-hide_banner","-i",url,"-f","null","-"];
+    const child=spawn(ffmpegPath,args,{stdio:["ignore","ignore","pipe"]});
+    let text="";
+    const timer=setTimeout(()=>{try{child.kill("SIGKILL")}catch{};resolve(0)},20000);
+    child.stderr.on("data",c=>{text=(text+String(c||"")).slice(-12000)});
+    child.on("error",()=>{clearTimeout(timer);resolve(0)});
+    child.on("close",()=>{
+      clearTimeout(timer);
+      const m=/Duration:\s*(\d+):(\d+):([\d.]+)/.exec(text);
+      if(!m)return resolve(0);
+      resolve(Number(m[1])*3600+Number(m[2])*60+Number(m[3]));
+    });
+  });
+}
+
+async function makeVideoContactSheet(url,width,height){
+  const duration=await probeVideoDuration(url);
+  let points;
+  if(duration>0){
+    const safe=Math.max(0,duration-1);
+    points=[
+      Math.min(safe,Math.max(0,duration*.05)),
+      Math.min(safe,Math.max(0,duration*.33)),
+      Math.min(safe,Math.max(0,duration*.66)),
+      Math.min(safe,Math.max(0,duration*.92))
+    ];
+  }else{
+    points=[1,10,25,45];
+  }
+
+  const frameW=Math.max(240,Math.round(width/2));
+  const frameH=Math.max(160,Math.round(height/2));
+  const frames=[];
+  for(const seek of points){
+    try{
+      const frame=await runFfmpegPoster(url,seek);
+      const out=await sharp(frame).rotate().resize({width:frameW,height:frameH,fit:"cover",position:"centre"}).jpeg({quality:82}).toBuffer();
+      frames.push(out);
+    }catch(e){
+      console.warn("Video contact-sheet frame failed:",seek,e?.message||e);
+    }
+  }
+  while(frames.length<4){
+    frames.push(await sharp({
+      create:{width:frameW,height:frameH,channels:3,background:{r:17,g:17,b:19}}
+    }).jpeg({quality:80}).toBuffer());
+  }
+
+  const canvasW=frameW*2,canvasH=frameH*2;
+  const playSvg=Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180">'+
+      '<circle cx="90" cy="90" r="72" fill="rgba(0,0,0,.62)" stroke="#e8c956" stroke-width="6"/>'+
+      '<path d="M72 57 L128 90 L72 123 Z" fill="#ffffff"/>'+
+    '</svg>'
+  );
+  const videoBadgeSvg=Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="260" height="54" viewBox="0 0 260 54">'+
+      '<rect x="2" y="2" width="256" height="50" rx="25" fill="rgba(7,7,8,.78)" stroke="rgba(255,255,255,.22)"/>'+
+      '<circle cx="28" cy="27" r="9" fill="#e1bf4f"/>'+
+      '<path d="M24 21 L34 27 L24 33 Z" fill="#141414"/>'+
+      '<text x="49" y="34" font-family="Arial,Helvetica,sans-serif" font-size="21" font-weight="800" letter-spacing="3" fill="#ffffff">VIDEO</text>'+
+    '</svg>'
+  );
+  return sharp({
+    create:{width:canvasW,height:canvasH,channels:3,background:{r:7,g:7,b:8}}
+  }).composite([
+    {input:frames[0],left:0,top:0},
+    {input:frames[1],left:frameW,top:0},
+    {input:frames[2],left:0,top:frameH},
+    {input:frames[3],left:frameW,top:frameH},
+    {input:playSvg,left:Math.round(canvasW/2-90),top:Math.round(canvasH/2-90)},
+    {input:videoBadgeSvg,left:16,top:16}
+  ]).webp({quality:82,method:4}).toBuffer();
+}
+
 async function generateThumbnail(file,width,height){
   const kind=thumbKind(file);
   if(kind==="document")return sharp(documentThumbSvg(file,width)).webp({quality:86,method:4}).toBuffer();
   if(kind==="audio")return sharp(audioThumbSvg(file,width)).webp({quality:84,method:4}).toBuffer();
   if(kind==="video"){
     try{
-      const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:file.storage_path}),{expiresIn:300});
-      let frame;
-      try{frame=await runFfmpegPoster(url,5)}catch(_e1){try{frame=await runFfmpegPoster(url,1)}catch(_e2){frame=await runFfmpegPoster(url,0)}}
-      return sharp(frame).rotate().resize({width:width,height:height,fit:"inside",withoutEnlargement:true}).webp({quality:76,method:4}).toBuffer();
+      const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:file.storage_path}),{expiresIn:600});
+      return await makeVideoContactSheet(url,width,height);
     }catch(e){
-      console.warn("Video thumbnail fallback:",file?.original_name,e?.message||e);
-      return sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+Math.round(width*9/16)+'"><rect width="100%" height="100%" fill="#101012"/><circle cx="'+(width/2)+'" cy="'+(Math.round(width*9/16)/2)+'" r="'+Math.min(60,width*.15)+'" fill="#c7a53d"/><path d="M '+(width/2-16)+' '+(Math.round(width*9/16)/2-24)+' L '+(width/2+22)+' '+(Math.round(width*9/16)/2)+' L '+(width/2-16)+' '+(Math.round(width*9/16)/2+24)+' Z" fill="#101012"/></svg>')).webp({quality:84,method:4}).toBuffer();
+      console.warn("Video contact-sheet fallback:",file?.original_name,e?.message||e);
+      return sharp(Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+Math.round(width*.5625)+'">'+
+        '<rect width="100%" height="100%" fill="#101012"/>'+
+        '<circle cx="'+(width/2)+'" cy="'+(Math.round(width*.5625)/2)+'" r="'+Math.min(60,width*.15)+'" fill="#c7a53d"/>'+
+        '<path d="M '+(width/2-16)+' '+(Math.round(width*.5625)/2-24)+' L '+(width/2+22)+' '+(Math.round(width*.5625)/2)+' L '+(width/2-16)+' '+(Math.round(width*.5625)/2+24)+' Z" fill="#101012"/>'+
+        '<text x="50%" y="'+(Math.round(width*.5625)-22)+'" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="18" font-weight="800" fill="#ffffff">VIDEO</text>'+
+        '</svg>'
+      )).webp({quality:84,method:4}).toBuffer();
     }
   }
   const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:file.storage_path}));
@@ -927,7 +1011,7 @@ app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
   if(!q.rowCount)return res.status(404).send("File not found.");
   const f=q.rows[0];
   const width=Math.max(160,Math.min(640,Number(req.query.w||360))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
-  const kind=thumbKind(f),cacheKind=kind==="video"?"video-v2":kind;
+  const kind=thumbKind(f),cacheKind=kind==="video"?"video-v3":kind;
   const cacheKey="portal:"+f.id+":"+cacheKind+":"+width+"x"+height, cached=getThumbCache(cacheKey);
   if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").send(cached.buffer);
   const key="__portal-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+cacheKind+"|"+width+"|"+height).digest("hex")+".webp";
@@ -2780,7 +2864,7 @@ app.get("/api/admin/thumb/:id",admin,async(req,res)=>{
   if(!q.rowCount)return res.status(404).send("File not found");
   const f=q.rows[0];
   const width=Math.max(160,Math.min(640,Number(req.query.w||360))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
-  const kind=thumbKind(f),cacheKind=kind==="video"?"video-v2":kind;
+  const kind=thumbKind(f),cacheKind=kind==="video"?"video-v3":kind;
   const cacheKey="admin:"+f.id+":"+cacheKind+":"+width+"x"+height,cached=getThumbCache(cacheKey);
   if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(cached.buffer);
   const thumbKey="__admin-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+cacheKind+"|"+width+"|"+height).digest("hex")+".webp";
@@ -2821,7 +2905,7 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));
   if(!out)return res.status(404).send("Invalid or expired delivery link.");
   const width=Math.max(240,Math.min(720,Number(req.query.w||420))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
-  const kind=thumbKind(out.f),cacheKind=kind==="video"?"video-v2":kind;
+  const kind=thumbKind(out.f),cacheKind=kind==="video"?"video-v3":kind;
   const cacheKey=out.f.id+":"+cacheKind+":"+width+"x"+height+":natural";
   const cached=getThumbCache(cacheKey);
   if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(cached.buffer);
