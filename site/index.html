@@ -1704,7 +1704,13 @@ function renderSelectedStream(){
   const pop=document.querySelector('#studioToolPopover');
   const toolsBtn=document.querySelector('#studioToolsBtn');
   toolsBtn.onclick=function(e){e.stopPropagation();pop.classList.toggle('open')};
-  document.addEventListener('click',function(e){if(pop&&!pop.contains(e.target)&&e.target!==toolsBtn)pop.classList.remove('open')},{once:true});
+  if(!window.__studioToolOutsideHandler){
+    window.__studioToolOutsideHandler=function(e){
+      const p=document.querySelector('#studioToolPopover'),b=document.querySelector('#studioToolsBtn');
+      if(p&&!p.contains(e.target)&&e.target!==b)p.classList.remove('open');
+    };
+    document.addEventListener('click',window.__studioToolOutsideHandler);
+  }
   pop.querySelectorAll('[data-tool-tab]').forEach(function(btn){
     btn.onclick=function(){
       pop.querySelectorAll('[data-tool-tab]').forEach(x=>x.classList.remove('active'));btn.classList.add('active');
@@ -1744,6 +1750,17 @@ function renderSelectedStream(){
     fn();window.__studioDurationTimer=setInterval(fn,1000);return fn;
   })();
 
+  if(live){
+    const previewVideo=document.querySelector('#streamPreviewVideo');
+    const programVideo=document.querySelector('#streamProgramVideo');
+    if(previewVideo)startStudioHls(previewVideo,playbackUrl,'previewVideoStatus');
+    if(programVideo){
+      startStudioHls(programVideo,playbackUrl,'programVideoStatus');
+      programVideo.addEventListener('playing',function(){
+        startStudioAudioMonitor(programVideo);
+      },{once:true});
+    }
+  }
   window.loadStreamRecordings?.(s.id);
 }
 function copyText(value){
