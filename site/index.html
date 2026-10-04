@@ -712,6 +712,14 @@ function xhrPut(url,blob,headers,item,onProgress){
     x.send(blob);
   });
 }
+async function fallbackUploadPart(item,partNumber,blob){
+  const d=await api("/api/uploads/"+encodeURIComponent(item.sessionId)+"/part-fallback?partNumber="+encodeURIComponent(partNumber),{
+    method:"POST",headers:{"Content-Type":"application/octet-stream","X-FBI-Part-Number":String(partNumber)},
+    body:blob,timeoutMs:120000
+  });
+  if(!d||!d.ok)throw new Error(d&&d.error||"Fallback part upload failed.");
+  return {etag:String(d.etag||"")};
+}
 function wait(ms){return new Promise(function(r){setTimeout(r,ms)})}
 function startUploadHeartbeat(item){
   stopUploadHeartbeat(item);
@@ -842,10 +850,6 @@ async function uploadMultipart(item,session){
         });
         return out;
       }catch(e){
-        // A storage gateway can return HTTP 500 after it has actually persisted
-        // the part. Confirm authoritative multipart state before sending the
-        // same 32/64 MiB again, which saves bandwidth and makes large uploads
-        // resilient to ambiguous storage responses.
         try{
           var state=await getUploadState();
           var stored=(state.parts||[]).find(function(p){return Number(p.partNumber)===partNumber});
@@ -854,6 +858,12 @@ async function uploadMultipart(item,session){
             return {etag:String(stored.etag)};
           }
         }catch(_stateErr){}
+        try{
+          setPartLoaded(partNumber,0);
+          var recovered=await fallbackUploadPart(item,partNumber,blob);
+          setPartLoaded(partNumber,expectedBytes);
+          return recovered;
+        }catch(_fallbackErr){}
         if(attempt>=12)throw e;
         var fresh=await retry(function(){return getPartUrls(item.sessionId,[{partNumber:partNumber,checksum:""}])},6);
         signed=(fresh||[]).find(function(x){return Number(x.partNumber)===partNumber});
