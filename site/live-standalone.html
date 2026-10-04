@@ -170,12 +170,11 @@ button,input{font:inherit}
   }
   function audioTick(){
     if(!audioState||!audioState.left){
-      audioState&&requestAnimationFrame(audioTick);
+      if(audioState)audioState.raf=requestAnimationFrame(audioTick);
       return;
     }
-    let l=db(audioState.left),r=db(audioState.right);
-    if(r<=-58&&l>-52)r=l;
-    const m=Math.max(l,r);
+    const l=db(audioState.left),rRaw=db(audioState.right);
+    const r=rRaw<=-58&&l>-52?l:rRaw,m=Math.max(l,r);
     ['meterL','rackL'].forEach(id=>paint(id,l));
     ['meterR','rackR'].forEach(id=>paint(id,r));
     ['meterStream','meterMonitor','meterMaster','audioMeter'].forEach(id=>paint(id,m));
@@ -184,15 +183,17 @@ button,input{font:inherit}
       if(e)e.textContent=v<=-59?'−∞':v.toFixed(1)+(id==='audioDb'?' dBFS':' dB');
     });
     const st=document.getElementById('monitorState');
-    if(st)st.textContent=audioState.ctx.state==='running'?'ACTIVE':'READY';
+    if(st)st.textContent=audioState.ctx.state==='running'?'ACTIVE':'CLICK MONITOR';
     audioState.raf=requestAnimationFrame(audioTick);
   }
+
   function closeAudioMonitor(){
     if(!audioState)return;
     if(audioState.raf)cancelAnimationFrame(audioState.raf);
     try{audioState.ctx.close()}catch{}
     audioState=null;
   }
+
   function startAudioMonitor(video){
     if(!video)return;
     try{
@@ -204,12 +205,10 @@ button,input{font:inherit}
       const C=window.AudioContext||window.webkitAudioContext;
       if(!C)throw new Error('Web Audio unavailable');
 
-      // Keep the media element itself unmuted so its real decoded audio reaches
-      // the Web Audio graph. A separate zero-gain monitor bus keeps speakers
-      // silent until the operator explicitly enables MONITOR AUDIO.
-      video.muted=false;
-      video.volume=1;
-
+      // Do not modify the video playback element's mute/autoplay state.
+      // The Preview player remains muted so autoplay stays reliable.
+      // Web Audio observes its decoded media without changing playback.
+      video.muted=true;
       const ctx=new C();
       const source=ctx.createMediaElementSource(video);
       const split=ctx.createChannelSplitter(2);
@@ -226,43 +225,50 @@ button,input{font:inherit}
       source.connect(monitorGain);
       monitorGain.connect(ctx.destination);
 
-      audioState={ctx,video,source,split,left,right,monitorGain,monitorEnabled:false,raf:0};
+      audioState={ctx,video,left,right,monitorGain,monitorEnabled:false,raf:0};
       ctx.resume().catch(()=>{});
       audioTick();
     }catch(e){
+      audioState=null;
       const st=document.getElementById('monitorState');
       if(st)st.textContent='READY';
       const dbEl=document.getElementById('audioDb');
       if(dbEl)dbEl.textContent='−∞ dBFS';
     }
   }
+
   function unlockAudioFromGesture(){
-    const v=document.getElementById('programVideo');
+    const v=document.getElementById('previewVideo');
     if(!v)return;
     if(audioState&&audioState.ctx){
       audioState.ctx.resume().catch(()=>{});
       return;
     }
     startAudioMonitor(v);
+    if(audioState&&audioState.ctx)audioState.ctx.resume().catch(()=>{});
   }
+
   function bindStudioMedia(s,live){
     const pv=document.getElementById('previewVideo'),pr=document.getElementById('programVideo');
     if(!live)return;
     const publicToken=s.viewer_url?String(s.viewer_url).split('/watch/').pop().split(/[?#]/)[0]:'';
     const playbackUrl=publicToken?('/api/public/stream/'+encodeURIComponent(publicToken)+'/hls/index.m3u8'):(s.hls_url||'');
-    // Use two independent HLS playback surfaces. Mirroring an HLS MediaSource
-    // with captureStream can produce a black program monitor even while the
-    // original player is healthy.
-    if(pv)startStandaloneHls(pv,playbackUrl,'previewVideo');
-    if(pr){
-      startStandaloneHls(pr,playbackUrl,'programVideo');
-      // Create the analyser as soon as the Program player exists. If the
-      // browser suspends Web Audio, the first user gesture on the page resumes
-      // the same context instead of requiring the stream to be restarted.
-      startAudioMonitor(pr);
-      pr.addEventListener('playing',function(){if(audioState?.ctx?.state==='suspended')audioState.ctx.resume().catch(()=>{})});
-      pr.addEventListener('emptied',function(){if(audioState?.video===pr)closeAudioMonitor()});
+
+    // Keep Preview and Program as two normal, independent HLS players.
+    // Never insert the audio analyser into Program, because doing so can
+    // interfere with browser autoplay/MSE playback. Metering reads Preview,
+    // which is the same live program feed and is already the stable player.
+    if(pv){
+      startStandaloneHls(pv,playbackUrl,'previewVideo');
+      startAudioMonitor(pv);
+      pv.addEventListener('playing',function(){
+        if(audioState?.ctx?.state==='suspended')audioState.ctx.resume().catch(()=>{});
+      });
+      pv.addEventListener('emptied',function(){
+        if(audioState?.video===pv)closeAudioMonitor();
+      });
     }
+    if(pr)startStandaloneHls(pr,playbackUrl,'programVideo');
   }
   function bindStudio(s,live){
     bindStudioMedia(s,live);
@@ -274,13 +280,11 @@ button,input{font:inherit}
       if(v?.requestFullscreen)v.requestFullscreen().catch(open);else open();
     };
     document.getElementById('muteBtn').onclick=()=>{
-      const v=document.getElementById('programVideo');
-      if(!v)return;
       unlockAudioFromGesture();
       if(!audioState?.monitorGain)return;
       audioState.monitorEnabled=false;
       audioState.monitorGain.gain.value=0;
-      document.getElementById('muteBtn').textContent='MUTE';
+      const btn=document.getElementById('muteBtn');if(btn)btn.textContent='MUTE';
       const st=document.getElementById('monitorState');if(st)st.textContent=audioState.ctx.state==='running'?'ACTIVE':'READY';
     };
     document.getElementById('monitorBtn').onclick=()=>{
@@ -290,7 +294,7 @@ button,input{font:inherit}
       audioState.monitorGain.gain.value=audioState.monitorEnabled?1:0;
       const btn=document.getElementById('monitorBtn');
       if(btn)btn.textContent=audioState.monitorEnabled?'MONITORING AUDIO':'MONITOR AUDIO';
-      const st=document.getElementById('monitorState');if(st)st.textContent='ACTIVE';
+      const st=document.getElementById('monitorState');if(st)st.textContent=audioState.ctx.state==='running'?'ACTIVE':'READY';
     };
     if(window.__durationTimer)clearInterval(window.__durationTimer);
     const started=s.started_at?Date.parse(s.started_at):NaN,el=document.getElementById('duration');const tick=()=>{if(!el||!live)return;if(!Number.isFinite(started)){el.textContent='ON AIR';return}let sec=Math.max(0,Math.floor((Date.now()-started)/1000)),h=Math.floor(sec/3600);sec%=3600;let m=Math.floor(sec/60),ss=sec%60;el.textContent=(h?String(h).padStart(2,'0')+':':'')+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0')};tick();window.__durationTimer=setInterval(tick,1000);
