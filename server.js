@@ -1553,7 +1553,28 @@ app.get("/api/live/streams/:id",async(req,res)=>{
       viewer_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+s.viewer_token
     }});
   }catch(e){console.error(e);res.status(500).json({error:"Could not load live stream"});}
+})
+app.get("/api/live/streams/:id/audio-level",async(req,res)=>{
+  try{
+    const q=await pool.query("SELECT * FROM streams WHERE id=$1 AND enabled=true",[req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Stream not found."});
+    const stream=await refreshStreamStatus(q.rows[0]);
+    if(stream.status!=="live"){
+      stopStreamAudioMeter(stream.id);
+      return res.json({live:false,left:-60,right:-60,overall:-60});
+    }
+    const meter=ensureStreamAudioMeter(stream);
+    if(!meter)return res.json({live:true,left:-60,right:-60,overall:-60});
+    const stale=Date.now()-meter.lastAt>1200;
+    const level=stale?-60:Math.max(-60,Math.min(0,Number(meter.level)||-60));
+    res.set("Cache-Control","no-store");
+    res.json({live:true,left:level,right:level,overall:level,source:"server-audio-meter",timestamp:Date.now()});
+  }catch(e){
+    console.error("Live audio level failed:",e);
+    res.status(500).json({error:"Could not read live audio level"});
+  }
 });
+;
 
 app.post("/api/live/streams/:id/regenerate-key",async(req,res)=>{
   try{
