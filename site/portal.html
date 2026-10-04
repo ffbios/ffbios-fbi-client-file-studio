@@ -100,7 +100,7 @@ async function api(url,opt={}){
     clearTimeout(timeoutId);
   }
 }
-const PART_SIZE=64*1024*1024,PART_CONCURRENCY=3,FILE_CONCURRENCY=1,MAX_HASH_BEFORE_UPLOAD=512*1000*1000,MAX_PARTS=10000,UPLOAD_PART_STALL_MS=2*60*1000;
+const PART_SIZE=32*1024*1024,PART_CONCURRENCY=2,FILE_CONCURRENCY=1,MAX_HASH_BEFORE_UPLOAD=512*1000*1000,MAX_PARTS=10000,UPLOAD_PART_STALL_MS=2*60*1000;
 
 function setAuthMode(mode){
   authMode=mode==="login"?"login":"signup";
@@ -448,13 +448,22 @@ async function portalUploadOne(item,recoveryAttempts=0){
         attempt++;setLoaded(pn,0);scheduleRender();
         try{
           const headers={};if(signed.checksum)headers["x-amz-checksum-sha256"]=signed.checksum;
-          await put(signed.url,blob,item,n=>{setLoaded(pn,n);scheduleRender()},headers);return;
+          await put(signed.url,blob,item,n=>{setLoaded(pn,n);scheduleRender()},headers);
+          return {etag:String(signed.etag||"")};
         }catch(e){
-          if(attempt>=5)throw e;
-          const fresh=await retry(()=>portalPartUrls(item.sessionId,[{partNumber:pn}]),5);
+          try{
+            const state=await retry(()=>api("/api/portal/uploads/"+item.sessionId+"/state",{timeoutMs:60000}),3);
+            const stored=(state.parts||[]).find(p=>Number(p.partNumber)===pn);
+            if(stored&&Number(stored.size||0)===blob.size&&stored.etag){
+              setLoaded(pn,blob.size);
+              return {etag:String(stored.etag)};
+            }
+          }catch(_stateErr){}
+          if(attempt>=12)throw e;
+          const fresh=await retry(()=>portalPartUrls(item.sessionId,[{partNumber:pn}]),6);
           signed=(fresh||[]).find(x=>Number(x.partNumber)===pn);
           if(!signed||!signed.url)throw e;
-          await wait(Math.min(15000,1000*Math.pow(2,attempt-1)+Math.floor(Math.random()*500)));
+          await wait(Math.min(60000,2000*Math.pow(1.5,attempt-1)+Math.floor(Math.random()*2000)));
         }
       }
     }
@@ -465,7 +474,7 @@ async function portalUploadOne(item,recoveryAttempts=0){
         const pn=signedQueue.shift(),signed=signedByPart.get(pn);signedByPart.delete(pn);
         if(!signed||!signed.url)throw new Error("Could not prepare upload part "+pn);
         await uploadPart(pn,signed);
-        partsByNumber.set(pn,{partNumber:pn,etag:""});
+        const uploadedPart=await uploadPart(pn,signed);partsByNumber.set(pn,{partNumber:pn,etag:uploadedPart.etag||""});
         await ensureSignedWindow();
       }
     }
