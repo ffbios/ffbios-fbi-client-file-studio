@@ -573,6 +573,19 @@ async function initDb(){
       sequence jsonb NOT NULL DEFAULT '{}'::jsonb,
       updated_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS editor_render_jobs(
+      id uuid PRIMARY KEY,
+      project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      status text NOT NULL DEFAULT 'queued',
+      progress integer NOT NULL DEFAULT 0,
+      output_file_id uuid REFERENCES files(id) ON DELETE SET NULL,
+      output_name text NOT NULL DEFAULT '',
+      settings jsonb NOT NULL DEFAULT '{}'::jsonb,
+      error text NOT NULL DEFAULT '',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_editor_render_jobs_project ON editor_render_jobs(project_id,created_at DESC);
     CREATE TABLE IF NOT EXISTS downloads(
       id bigserial PRIMARY KEY,
       project_id uuid REFERENCES projects(id) ON DELETE SET NULL,
@@ -1117,6 +1130,204 @@ app.patch("/api/projects/:id",admin,async(req,res)=>{
   const r=await pool.query(`UPDATE projects SET ${fields.join(",")} WHERE id=$${n} RETURNING *`,values);if(!r.rowCount)return res.status(404).json({error:"Project not found"});
   res.json({project:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not update project"})}
+});
+
+const activeEditorRenders=new Map();
+
+function editorAtempo(speed){
+  var s=Math.max(0.25,Math.min(4,Number(speed)||1));
+  var out=[];
+  while(s<0.5){out.push("atempo=0.5");s/=0.5}
+  while(s>2){out.push("atempo=2.0");s/=2}
+  out.push("atempo="+s.toFixed(5));
+  return out.join(",");
+}
+
+async function setRenderJob(id,patch){
+  var fields=["status","progress","output_file_id","output_name","error"],sets=[],vals=[],n=1;
+  fields.forEach(function(k){
+    if(Object.prototype.hasOwnProperty.call(patch,k)){
+      sets.push(k+"=$"+n++);
+      vals.push(k==="progress"?Math.max(0,Math.min(100,Math.round(Number(patch[k])||0))):patch[k]);
+    }
+  });
+  if(!sets.length)return;
+  vals.push(id);
+  try{await pool.query("UPDATE editor_render_jobs SET "+sets.join(",")+",updated_at=now() WHERE id=$"+n,vals)}
+  catch(e){console.warn("Editor render job update failed:",e.message||e)}
+}
+
+async function runEditorRender(jobId,projectId,state,settings){
+  var tmp="";
+  try{
+    if(!ffmpegPath)throw new Error("FFmpeg is not available on this deployment.");
+    if(!s3Ready())throw new Error("Cloud file storage is not ready.");
+
+    var resKey=String(settings&&settings.resolution||"1920x1080");
+    var allowed={"1280x720":1,"1920x1080":1,"2560x1440":1,"3840x2160":1};
+    if(!allowed[resKey])resKey="1920x1080";
+    var dims=resKey.split("x"),W=Number(dims[0]),H=Number(dims[1]);
+
+    var clips=Array.isArray(state&&state.clips)?state.clips.map(function(x){return Object.assign({},x)}).filter(function(x){return x&&x.fileId}):[];
+    if(!clips.length)throw new Error("There is nothing on the timeline to render.");
+
+    var dbFiles=(await pool.query("SELECT * FROM files WHERE project_id=$1",[projectId])).rows;
+    var fileMap=new Map(dbFiles.map(function(f){return [String(f.id),f]}));
+    var videoClips=clips.filter(function(x){return x.type!=="audio"&&x.track!=="A1"}).sort(function(a,b){return Number(a.start||0)-Number(b.start||0)});
+    if(!videoClips.length)throw new Error("A render needs at least one video or image clip on V1.");
+    videoClips.forEach(function(x){if(!fileMap.has(String(x.fileId)))throw new Error("A timeline clip refers to a missing project file.")});
+
+    tmp=await fsp.mkdtemp(path.join(os.tmpdir(),"fbi-render-"));
+    var args=["-hide_banner","-y","-loglevel","warning","-nostats","-progress","pipe:2"];
+    var inputs=[],videoMeta=[],audioMeta=[];
+
+    for(var i=0;i<videoClips.length;i++){
+      var clip=videoClips[i],f=fileMap.get(String(clip.fileId));
+      var signed=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:21600});
+      var image=thumbKind(f)==="image";
+      var speed=Math.max(0.25,Math.min(4,Number(clip.speed)||1));
+      var trimIn=Math.max(0,Number(clip.trimIn)||0);
+      var trimOut=Math.max(trimIn+0.01,Number(clip.trimOut)||trimIn+Math.max(0.05,Number(clip.duration)||1)*speed);
+      var dur=Math.max(0.05,(trimOut-trimIn)/speed);
+      if(image)args.push("-loop","1","-framerate","30","-t",String(dur),"-i",signed);
+      else args.push("-i",signed);
+      inputs.push({clip:clip,file:f,index:i,image:image,dur:dur,speed:speed,trimIn:trimIn,trimOut:trimOut});
+    }
+
+    var audioOnly=clips.filter(function(x){return x.type==="audio"||x.track==="A1"}).sort(function(a,b){return Number(a.start||0)-Number(b.start||0)});
+    for(var j=0;j<audioOnly.length;j++){
+      var ac=audioOnly[j],af=fileMap.get(String(ac.fileId));
+      if(!af)throw new Error("An audio clip refers to a missing project file.");
+      var asigned=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:af.storage_path}),{expiresIn:21600});
+      args.push("-i",asigned);
+      audioMeta.push({clip:ac,file:af,index:videoClips.length+j,dur:Math.max(0.05,Number(ac.duration)||1),speed:Math.max(0.25,Math.min(4,Number(ac.speed)||1))});
+    }
+
+    var filter=[],vLabels=[],aLabels=[],cursor=0,seg=0;
+    var effect=state.effect||{};
+    var brightness=Number(effect.brightness||100),contrast=Number(effect.contrast||100),saturate=Number(effect.saturate||100),gray=Number(effect.grayscale||0),sepia=Number(effect.sepia||0),blur=Number(effect.blur||0);
+    for(var k=0;k<inputs.length;k++){
+      var item=inputs[k],c=item.clip,start=Math.max(0,Number(c.start)||0);
+      if(start>cursor+0.001){
+        var gap=start-cursor,vb="vb"+seg,ab="ab"+seg;seg++;
+        filter.push("color=c=black:s="+W+"x"+H+":r=30:d="+gap.toFixed(3)+",format=yuv420p["+vb+"]");
+        filter.push("anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration="+gap.toFixed(3)+",asetpts=PTS-STARTPTS["+ab+"]");
+        vLabels.push("["+vb+"]");aLabels.push("["+ab+"]");
+      }
+      var vl="v"+seg++,al="a"+seg++,vf;
+      if(item.image)vf="["+item.index+":v]setpts=PTS-STARTPTS";
+      else vf="["+item.index+":v]trim=start="+item.trimIn+":end="+item.trimOut+",setpts=PTS-STARTPTS,setpts=PTS/"+item.speed;
+      vf+=",scale="+W+":"+H+":force_original_aspect_ratio=decrease,pad="+W+":"+H+":(ow-iw)/2:(oh-ih)/2:color=black,fps=30,format=yuv420p";
+      if(brightness!==100)vf+=",eq=brightness="+((brightness-100)/100).toFixed(3);
+      if(contrast!==100)vf+=",eq=contrast="+(contrast/100).toFixed(3);
+      if(saturate!==100)vf+=",eq=saturation="+(saturate/100).toFixed(3);
+      if(gray>0)vf+=",hue=s="+Math.max(0,1-gray/100).toFixed(3);
+      if(sepia>0)vf+=",colorchannelmixer=rr=.393:rg=.769:rb=.189:gr=.349:gg=.686:gb=.168:br=.272:bg=.534:bb=.131";
+      if(blur>0)vf+=",gblur=sigma="+Math.min(30,blur);
+      if(Number(effect.vignette||0)>0)vf+=",vignette=PI/4";
+      if(Number(effect.grain||0)>0)vf+=",noise=alls=8:allf=t+u";
+      vf+="[v"+(vLabels.length+seg)+"]";
+      var actualVLabel=vf.match(/\[(v[^\]]+)\]$/)[1];
+      filter.push(vf);vLabels.push("["+actualVLabel+"]");
+
+      var af;
+      if(item.image)af="anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration="+item.dur.toFixed(3)+",asetpts=PTS-STARTPTS";
+      else af="["+item.index+":a]atrim=start="+item.trimIn+":end="+item.trimOut+",asetpts=PTS-STARTPTS,"+editorAtempo(item.speed)+",aresample=48000";
+      var vol=Math.max(0,Math.min(2,Number(c.volume==null?100:c.volume)/100));
+      af+=",volume="+(c.mute?0:vol).toFixed(4)+"["+al+"]";
+      filter.push(af);aLabels.push("["+al+"]");
+      cursor=Math.max(cursor,start+item.dur);
+    }
+
+    var totalDuration=Math.max(cursor,clips.reduce(function(m,x){return Math.max(m,Number(x.start||0)+Math.max(0.05,Number(x.duration)||0))},0));
+    if(totalDuration>cursor+0.001){
+      var tail=totalDuration-cursor,vb2="vb"+seg,ab2="ab"+(seg+1);seg+=2;
+      filter.push("color=c=black:s="+W+"x"+H+":r=30:d="+tail.toFixed(3)+",format=yuv420p["+vb2+"]");
+      filter.push("anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration="+tail.toFixed(3)+",asetpts=PTS-STARTPTS["+ab2+"]");
+      vLabels.push("["+vb2+"]");aLabels.push("["+ab2+"]");
+    }
+
+    var vcat="vcat",acat="acat";
+    filter.push(vLabels.join("")+"concat=n="+vLabels.length+":v=1:a=0["+vcat+"]");
+    filter.push(aLabels.join("")+"concat=n="+aLabels.length+":v=0:a=1["+acat+"]");
+
+    var mixLabels=["["+acat+"]"];
+    for(var m=0;m<audioMeta.length;m++){
+      var am=audioMeta[m],x=am.clip,alabel="ax"+m;
+      var aTrimIn=Math.max(0,Number(x.trimIn)||0);
+      var aTrimOut=Math.max(aTrimIn+0.01,Number(x.trimOut)||aTrimIn+am.dur*am.speed);
+      var avol=Math.max(0,Math.min(2,Number(x.volume==null?100:x.volume)/100));
+      filter.push("["+am.index+":a]atrim=start="+aTrimIn+":end="+aTrimOut+",asetpts=PTS-STARTPTS,"+editorAtempo(am.speed)+",aresample=48000,adelay="+Math.round(Math.max(0,Number(x.start)||0)*1000)+"|"+Math.round(Math.max(0,Number(x.start)||0)*1000)+",volume="+(x.mute?0:avol).toFixed(4)+"["+alabel+"]");
+      mixLabels.push("["+alabel+"]");
+    }
+    var finalAudio;
+    if(mixLabels.length>1){
+      finalAudio="mixout";
+      filter.push(mixLabels.join("")+"amix=inputs="+mixLabels.length+":duration=first:normalize=0,aresample=48000["+finalAudio+"]");
+    }else finalAudio=acat;
+
+    var outPath=path.join(tmp,safeName((state.sequence||"edited-master")+"-"+Date.now()+".mp4"));
+    args.push("-filter_complex",filter.join(";"),"-map","["+vcat+"]","-map","["+finalAudio+"]","-c:v","libx264","-preset","medium","-crf","18","-pix_fmt","yuv420p","-c:a","aac","-b:a","192k","-ar","48000","-ac","2","-movflags","+faststart","-metadata","title="+String(state.sequence||"FBI Edited Master").slice(0,180),outPath);
+
+    await setRenderJob(jobId,{status:"rendering",progress:1});
+    var proc=spawn(ffmpegPath,args,{stdio:["ignore","pipe","pipe"]});
+    activeEditorRenders.set(jobId,proc);
+    var stderr="",last=1;
+    proc.stderr.on("data",function(chunk){
+      var s=chunk.toString();stderr=(stderr+s).slice(-12000);
+      var matches=[...s.matchAll(/out_time_ms=(\d+)/g)];
+      if(matches.length){
+        var ms=Number(matches[matches.length-1][1]),sec=ms/1000000;
+        var pct=Math.max(last,Math.min(99,Math.round(sec/Math.max(0.1,totalDuration)*100)));
+        if(pct>last){last=pct;setRenderJob(jobId,{progress:pct})}
+      }
+    });
+    var code=await new Promise(function(resolve,reject){proc.on("error",reject);proc.on("close",function(code,signal){resolve({code:code,signal:signal})})});
+    activeEditorRenders.delete(jobId);
+    if(code.code!==0)throw new Error(stderr.trim()||("FFmpeg exited with code "+String(code.code)));
+    var stat=await fsp.stat(outPath);if(stat.size<1024)throw new Error("FFmpeg produced an empty render.");
+    var filename=path.basename(outPath),storageKey="renders/"+projectId+"/"+jobId+"/"+filename;
+    await new Upload({client:s3,params:{Bucket:bucket(),Key:storageKey,Body:fs.createReadStream(outPath),ContentType:"video/mp4",CacheControl:"private, max-age=31536000"},queueSize:2,partSize:64*1024*1024,leavePartsOnError:false}).done();
+    var fileRow=(await pool.query("INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",[uid(),projectId,filename,filename,storageKey,"video/mp4",stat.size,"Renders"])).rows[0];
+    await setRenderJob(jobId,{status:"completed",progress:100,output_file_id:fileRow.id,output_name:filename});
+  }catch(e){
+    console.error("Editor render failed:",e&&e.stack||e);
+    await setRenderJob(jobId,{status:"failed",progress:0,error:String(e&&e.message||e)});
+  }finally{
+    if(tmp){try{await fsp.rm(tmp,{recursive:true,force:true})}catch{}}
+    activeEditorRenders.delete(jobId);
+  }
+}
+
+app.post("/api/editor/render/:projectId",admin,async(req,res)=>{
+  try{
+    var p=await pool.query("SELECT id FROM projects WHERE id=$1",[req.params.projectId]);
+    if(!p.rowCount)return res.status(404).json({error:"Project not found"});
+    if(activeEditorRenders.size>=2)return res.status(429).json({error:"Two editor renders are already running. Please finish one before starting another."});
+    var sequence=req.body&&req.body.sequence;
+    if(!sequence||typeof sequence!=="object")return res.status(400).json({error:"A valid editor sequence is required"});
+    var id=uid(),settings={resolution:String(req.body&&req.body.resolution||"1920x1080")};
+    await pool.query("INSERT INTO editor_render_jobs(id,project_id,status,progress,settings) VALUES($1,$2,'queued',0,$3::jsonb)",[id,req.params.projectId,JSON.stringify(settings)]);
+    runEditorRender(id,req.params.projectId,sequence,settings);
+    res.status(202).json({job:{id:id,status:"queued",progress:0}});
+  }catch(e){console.error("Editor render request failed:",e);res.status(500).json({error:"Could not start editor render"})}
+});
+
+app.get("/api/editor/renders/:id",admin,async(req,res)=>{
+  try{
+    var r=await pool.query("SELECT j.*,f.original_name,f.mime_type,f.size_bytes FROM editor_render_jobs j LEFT JOIN files f ON f.id=j.output_file_id WHERE j.id=$1",[req.params.id]);
+    if(!r.rowCount)return res.status(404).json({error:"Render job not found"});
+    res.json({job:r.rows[0]});
+  }catch(e){console.error("Editor render status failed:",e);res.status(500).json({error:"Could not read render status"})}
+});
+
+app.get("/api/editor/renders/:id/download",admin,async(req,res)=>{
+  try{
+    var r=await pool.query("SELECT f.* FROM editor_render_jobs j JOIN files f ON f.id=j.output_file_id WHERE j.id=$1",[req.params.id]);
+    if(!r.rowCount)return res.status(404).send("Rendered file not found.");
+    var url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:r.rows[0].storage_path}),{expiresIn:3600,responseContentDisposition:"attachment; filename*=UTF-8''"+encodeURIComponent(r.rows[0].original_name)});
+    res.redirect(url);
+  }catch(e){console.error("Editor render download failed:",e);res.status(500).send("Unable to download render.")}
 });
 app.get("/api/editor/sequences/:projectId",admin,async(req,res)=>{
   try{
