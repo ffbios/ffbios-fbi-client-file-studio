@@ -113,8 +113,8 @@ button,input{font:inherit}
     else authCard('login');
   }
   function renderShell(){
-    root.innerHTML='<div class="app"><aside class="sidebar"><div class="brand"><img src="/official-logo.png" alt="FBI"><strong>FBI LIVE</strong><span>Standalone Broadcast Studio</span></div><div class="sidebar-head"><div class="sidebar-head-left"><h2>Live Channels</h2><span id="channelCount">0</span></div><button class="add-channel-btn" id="addChannelBtn">＋ ADD CHANNEL</button></div><div class="channels" id="channels"></div><div class="footer">Streaming engine connected<br>HLS delivery online<br>Automatic recording paused during control-room development</div></aside><main class="main"><div class="topbar"><div class="top-title"><h1>FBI Live Broadcast Studio</h1><p>Monitor your live signal, program output, viewers and audio from one control surface.</p></div><div class="top-actions"><button class="btn" id="logoutBtn">Logout</button></div></div><section class="studio" id="studio"><div class="placeholder"><div><b>Select a live channel</b><span>Choose a channel from the left to open the control room.</span></div></div></section></main></div>';
-    document.getElementById('logoutBtn').onclick=async()=>{await api('/api/live-auth/logout',{method:'POST'});login('login')};
+    root.innerHTML='<div class="app"><aside class="sidebar"><div class="brand"><img src="/official-logo.png" alt="FBI"><strong>FBI LIVE</strong><span>Standalone Broadcast Studio</span></div><div class="sidebar-head"><div class="sidebar-head-left"><h2>Live Channels</h2><span id="channelCount">0</span></div><button class="add-channel-btn" id="addChannelBtn">＋ ADD CHANNEL</button></div><div class="channels" id="channels"></div><div class="footer">Streaming engine connected<br>HLS delivery online<br>Automatic recording paused during control-room development</div></aside><main class="main"><div class="topbar"><div class="top-title"><h1>FBI Live Broadcast Studio</h1><p>Monitor your live signal, program output, viewers and audio from one control surface.</p></div><div class="top-actions"><span class="chip gold">OPEN CONTROL MODE</span></div></div><section class="studio" id="studio"><div class="placeholder"><div><b>Select a live channel</b><span>Choose a channel from the left to open the control room.</span></div></div></section></main></div>';
+    // Authentication is intentionally disabled during development. Re-enable it before production use.
   }
   function getSelected(){return streams.find(s=>s.id===selectedId)||null}
   function segments(n){return Array.from({length:n},()=>'<i></i>').join('')}
@@ -255,7 +255,7 @@ button,input{font:inherit}
   let renderedStudioSignature='';
   async function load(){
     try{
-      const d=await api('/api/streams');
+      const d=await api('/api/live/streams');
       streams=d.streams||[];
       if(!selectedId&&streams[0])selectedId=streams[0].id;
       if(selectedId&&!streams.some(s=>s.id===selectedId))selectedId=streams[0]?.id||null;
@@ -276,12 +276,14 @@ button,input{font:inherit}
     }catch(e){if(e.message==='Unauthorised'||e.message==='Please log in')login()}
   }
   async function boot(){
-    try{
-      const cfg=await api('/api/live-auth/status');
-      const me=await api('/api/live-auth/me');
-      if(me.authenticated){renderShell();bindChannelCreator();load();startViewerCountPolling();if(refreshTimer)clearInterval(refreshTimer);refreshTimer=setInterval(load,5000);return}
-      login(cfg.configured?'login':'setup');
-    }catch{login('login')}
+    // Development/open-control mode: the standalone Live Control Center is
+    // intentionally accessible without an administrative login for now.
+    renderShell();
+    bindChannelCreator();
+    await load();
+    startViewerCountPolling();
+    if(refreshTimer)clearInterval(refreshTimer);
+    refreshTimer=setInterval(load,5000);
   }  function closeChannelModal(){const m=document.getElementById('channelModal');if(m)m.classList.add('hidden')}
   function openChannelModal(){const m=document.getElementById('channelModal');if(!m)return;m.classList.remove('hidden');document.getElementById('channelResult').style.display='none';document.getElementById('newChannelName').focus()}
   function bindChannelCreator(){
@@ -293,7 +295,7 @@ button,input{font:inherit}
       if(!name){toast('Channel name is required');return}
       create.disabled=true;create.textContent='CREATING…';
       try{
-        const d=await api('/api/streams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,title,description})});
+        const d=await api('/api/live/streams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,title,description})});
         selectedId=d.stream.id;
         result.style.display='block';
         result.innerHTML='<b>Channel created. RTMP setup generated.</b><div>Server<br><code>'+esc(d.stream.rtmp_server||'')+'</code></div><div style="margin-top:6px">Stream Key<br><code>'+esc(d.stream.stream_key||'')+'</code></div>';
