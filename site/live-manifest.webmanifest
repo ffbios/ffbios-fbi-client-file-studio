@@ -1,14 +1,14 @@
 {
   "id": "/",
-  "name": "VI Life",
-  "short_name": "VI Life",
+  "name": "FBI Live",
+  "short_name": "FBI Live",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "landscape",
   "background_color": "#09090a",
   "theme_color": "#0a0a0b",
-  "description": "VI Life live broadcast control center.",
+  "description": "FBI Live live broadcast control center.",
   "categories": ["video", "broadcast", "business"],
   "prefer_related_applications": false,
   "icons": [
