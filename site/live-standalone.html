@@ -144,19 +144,20 @@ button,input{font:inherit}
       '<div class="footer">FBI Live Standalone • Streaming engine unchanged • Recording currently paused</div>';
     bindStudio(s,live);
   }
-  function initProgramHls(video,url,onReady){
+  function setVideoStatusStandalone(id,text){const e=document.getElementById(id);if(e)e.textContent=text||'';}
+  function startStandaloneHls(video,url,statusId){
     if(!video||!url)return;
     try{
-      if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=url;video.addEventListener('loadedmetadata',()=>{video.play().catch(()=>{});onReady&&onReady(video)},{once:true});video.load();return}
+      if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=url;video.addEventListener('loadedmetadata',()=>{video.play().catch(()=>{});setVideoStatusStandalone(statusId,'LIVE')},{once:true});video.load();return}
       if(window.Hls&&window.Hls.isSupported()){
         const hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,maxBufferLength:20,maxMaxBufferLength:45,backBufferLength:30,capLevelToPlayerSize:true,startLevel:-1,xhrSetup:function(xhr){xhr.withCredentials=true}});
         hls.loadSource(url);hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED,()=>{video.play().catch(()=>{});onReady&&onReady(video)});
-        hls.on(Hls.Events.ERROR,(event,data)=>{if(data&&data.fatal){try{hls.destroy()}catch{}const s=document.getElementById('monitorState');if(s)s.textContent='RECONNECTING';setTimeout(()=>initProgramHls(video,url,onReady),1200)}});
+        hls.on(Hls.Events.MANIFEST_PARSED,()=>{video.play().catch(()=>{});setVideoStatusStandalone(statusId,'LIVE')});
+        hls.on(Hls.Events.ERROR,(event,data)=>{if(data&&data.fatal){try{hls.destroy()}catch{}const s=document.getElementById(statusId);if(s)s.textContent='RECONNECTING';setTimeout(()=>initProgramHls(video,url,onReady),1200)}});
         window.__studioHls=hls;
         return;
       }
-      video.src=url;video.addEventListener('loadedmetadata',()=>{video.play().catch(()=>{});onReady&&onReady(video)},{once:true});video.load();
+      video.src=url;video.addEventListener('loadedmetadata',()=>{video.play().catch(()=>{});setVideoStatusStandalone(statusId,'LIVE')},{once:true});video.load();
     }catch(e){const s=document.getElementById('monitorState');if(s)s.textContent='PLAYBACK ERROR'}
   }
   function db(an){
@@ -195,18 +196,18 @@ button,input{font:inherit}
     }
   }
   function bindStudioMedia(s,live){
-    const pv=document.getElementById('programVideo'),pr=document.getElementById('previewVideo');
-    if(!live||!pv)return;
-    const publicToken=s.viewer_url?String(s.viewer_url).split('/watch/').pop():'';const playbackUrl=publicToken?('/api/public/stream/'+encodeURIComponent(publicToken)+'/hls/index.m3u8'):(s.hls_url||'');initProgramHls(pv,playbackUrl,function(video){
-      // One live playback connection powers the program monitor. The preview
-      // is a local mirror so the control surface does not create another stream
-      // connection to the ingest engine.
-      try{
-        if(pr&&video.captureStream){pr.srcObject=video.captureStream();pr.play().catch(()=>{})}
-      }catch{}
-      startAudioMonitor(video);
-      const st=document.getElementById('monitorState');if(st)st.textContent='ACTIVE';
-    });
+    const pv=document.getElementById('previewVideo'),pr=document.getElementById('programVideo');
+    if(!live)return;
+    const publicToken=s.viewer_url?String(s.viewer_url).split('/watch/').pop().split(/[?#]/)[0]:'';
+    const playbackUrl=publicToken?('/api/public/stream/'+encodeURIComponent(publicToken)+'/hls/index.m3u8'):(s.hls_url||'');
+    // Use two independent HLS playback surfaces. Mirroring an HLS MediaSource
+    // with captureStream can produce a black program monitor even while the
+    // original player is healthy.
+    if(pv)startStandaloneHls(pv,playbackUrl,'previewVideo');
+    if(pr){
+      startStandaloneHls(pr,playbackUrl,'programVideo');
+      pr.addEventListener('playing',function(){startAudioMonitor(pr)},{once:true});
+    }
   }
   function bindStudio(s,live){
     bindStudioMedia(s,live);
