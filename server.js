@@ -790,6 +790,60 @@ function streamEncodedRtmpUrl(row){
   const base=streamRtmpServer();
   return base&&row?.stream_key?base.replace(/\/live$/,"/encoded")+"/"+row.stream_key:"";
 }
+const activeStreamAudioMeters=new Map();
+
+function stopStreamAudioMeter(streamId){
+  const item=activeStreamAudioMeters.get(String(streamId));
+  if(!item)return;
+  activeStreamAudioMeters.delete(String(streamId));
+  try{item.proc.kill("SIGTERM")}catch{}
+  setTimeout(()=>{try{if(!item.proc.killed)item.proc.kill("SIGKILL")}catch{}},1500);
+}
+
+function ensureStreamAudioMeter(row){
+  const key=String(row?.id||"");
+  if(!key||!ffmpegPath)return null;
+  const existing=activeStreamAudioMeters.get(key);
+  if(existing&&!existing.proc.killed)return existing;
+
+  const input=streamInputRtmpUrl(row)||(streamInputHlsUrl(row)?streamInputHlsUrl(row)+"/index.m3u8":"");
+  if(!input)return null;
+
+  const state={level:-60,lastAt:Date.now(),proc:null};
+  const proc=spawn(ffmpegPath,[
+    "-hide_banner","-loglevel","info","-nostats",
+    "-i",input,
+    "-vn",
+    "-af","aresample=48000,asetnsamples=n=4800,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:direct=1",
+    "-f","null","-"
+  ],{stdio:["ignore","ignore","pipe"]});
+  state.proc=proc;
+
+  let buffer="";
+  proc.stderr.on("data",chunk=>{
+    buffer+=chunk.toString();
+    const lines=buffer.split(/\r?\n/);
+    buffer=lines.pop()||"";
+    for(const line of lines){
+      const m=String(line).match(/lavfi\.astats\.Overall\.RMS_level=(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+))/);
+      if(!m)continue;
+      const level=Math.max(-60,Math.min(0,Number(m[1])));
+      if(Number.isFinite(level)){
+        state.level=level;
+        state.lastAt=Date.now();
+      }
+    }
+  });
+
+  proc.on("error",err=>{
+    console.warn("Live audio meter process error:",err?.message||err);
+    stopStreamAudioMeter(key);
+  });
+  proc.on("close",()=>activeStreamAudioMeters.delete(key));
+  activeStreamAudioMeters.set(key,state);
+  return state;
+}
+
 const activeStreamRecordings=new Map();
 async function startStreamRecording(row){
   if(activeStreamRecordings.has(row.id)||!row.record_enabled||!ffmpegPath||!s3Ready())return;
@@ -909,6 +963,7 @@ async function checkStreamLive(row){
 async function refreshStreamStatus(row){
   const live=await checkStreamLive(row);
   const status=live?"live":"offline";
+  if(!live)stopStreamAudioMeter(row?.id);
   if(status!==row.status){
     if(live){
       await pool.query("UPDATE streams SET status='live',started_at=COALESCE(started_at,now()),updated_at=now() WHERE id=$1",[row.id]);
