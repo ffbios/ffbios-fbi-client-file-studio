@@ -249,8 +249,9 @@ async function loadProject(id){
   setStatus(S.files.length+' cloud media loaded.'+(loadedCloud?' Editor state restored from cloud.':''));}
 function saveProjectHeader(){localStorage.setItem('fbi-editor-project',JSON.stringify({projectId:S.project,sequence:S.sequence}))}
 function renderInfo(f){document.getElementById('fileInfo').innerHTML=f?'<b>Filename:</b> '+esc(f.original_name)+'<br><b>Type:</b> '+esc(f.mime_type)+'<br><b>Size:</b> '+fmt(f.size_bytes)+'<br><b>Location:</b> '+(f.local?'Desktop / Local Browser':'FBI Cloud Storage'):S.workspace==='more'?'<b>Advanced Tools</b><br>Selection, track select, ripple edit, razor, slip, slide, pen, hand, type and zoom tools are available from the timeline tool rail.<br><br><b>Keyboard</b><br>Space: Play/Pause • B: Razor • Delete: Ripple Delete • Ctrl/Cmd+Z: Undo • Ctrl/Cmd+Y: Redo':'Select a media item to view metadata.'}
+let timelineZoom=34;
 function renderTimeline(){
-  const px=34,max=Math.max(60,Math.ceil(total()/10)*10),r=document.getElementById('ruler'),track=document.getElementById('trackarea');
+  const px=timelineZoom,max=Math.max(60,Math.ceil(total()/10)*10),r=document.getElementById('ruler'),track=document.getElementById('trackarea');
   r.innerHTML=Array.from({length:max+1},(_,i)=>i%5===0?'<span class="tick" style="left:'+i*px+'px">'+i+'s</span>':'').join('');
   track.querySelectorAll('.lane').forEach(x=>x.innerHTML='');
   S.clips.forEach(c=>{rebuild(c);const el=document.createElement('div');el.className='clip '+(c.type==='audio'?'audio ':'')+(c.id===S.selectedClip?'sel':'');el.style.left=(c.start*px)+'px';el.style.width=Math.max(44,c.duration*px)+'px';el.innerHTML='<div class="nm">'+esc(c.name)+'</div><div class="meta">'+ft(c.duration)+' • '+c.speed+'x</div><div class="wave"></div>';el.onclick=e=>{e.stopPropagation();S.selectedClip=c.id;S.playhead=c.start;renderTimeline();renderInspector();refreshProgram()};const lane=track.querySelector('.lane[data-track="'+(c.track||'V1')+'"]');if(lane)lane.appendChild(el)});
@@ -394,8 +395,47 @@ function wireTabs(){
   document.querySelectorAll('#workspaces button[data-tab]').forEach(b=>b.onclick=()=>setWorkspace(b.dataset.tab));
   document.querySelectorAll('#subtabs button').forEach(b=>b.onclick=()=>{activateLeftPanel(b.dataset.left);if(b.dataset.left==='effects')renderLibraryForTab(S.workspace);if(b.dataset.left==='libraries')renderLibrariesForTab(S.workspace);if(b.dataset.left==='info')renderInfo(selectedFile());setStatus(b.textContent+' panel opened.')});
 }
+
+function closeEditorMenu(){const m=document.getElementById('editorMenu');if(m)m.remove()}
+function openEditorMenu(button,items){
+  closeEditorMenu();
+  const menu=document.createElement('div');menu.id='editorMenu';
+  menu.style.cssText='position:fixed;z-index:1000;min-width:190px;background:#2a2b2e;border:1px solid #4a4b50;border-radius:5px;box-shadow:0 18px 40px rgba(0,0,0,.45);padding:5px';
+  const r=button.getBoundingClientRect();menu.style.left=Math.max(4,Math.min(window.innerWidth-200,r.left))+'px';menu.style.top=(r.bottom+2)+'px';
+  items.forEach(function(item){
+    const b=document.createElement('button');b.textContent=item.label;
+    b.style.cssText='display:block;width:100%;text-align:left;border:0;background:transparent;color:#eee;padding:7px 9px;border-radius:3px;font-size:9px;cursor:pointer';
+    b.onmouseenter=function(){b.style.background='#3a3b3f'};b.onmouseleave=function(){b.style.background='transparent'};
+    b.onclick=function(){closeEditorMenu();item.action()};
+    menu.appendChild(b);
+  });
+  document.body.appendChild(menu);
+  setTimeout(function(){
+    const outside=function(e){if(!menu.contains(e.target)&&e.target!==button){closeEditorMenu();document.removeEventListener('pointerdown',outside)}};
+    document.addEventListener('pointerdown',outside);
+  },0);
+}
+function addTimelineMarker(){
+  S.markers=S.markers||[];
+  S.markers.push({id:crypto.randomUUID(),time:Number(S.playhead||0),label:'Marker'});
+  save();setStatus('Marker added at '+ft(S.playhead)+'.');
+}
 document.getElementById('back').onclick=()=>location.href='/';
-document.querySelectorAll('.menubar>button:not(.home)').forEach(b=>{if(b.id!=='back')b.onclick=()=>setStatus(b.textContent+' menu selected.')});
+document.querySelector('.home').onclick=()=>location.href='/';
+const menuActions={
+  File:[['Import Media',()=>document.getElementById('fileInput').click()],['Import Folder',()=>document.getElementById('folderInput').click()],['Save Sequence',save],['Export Edit Package',exportEditPackage]],
+  Edit:[['Undo',undo],['Redo',redo]],
+  Clip:[['Add Selected to Timeline',()=>{const f=selectedFile();if(f)addFileToTimeline(f);else setStatus('Select media first')}],['Razor Cut',()=>document.getElementById('razorBtn').click()],['Ripple Delete',()=>document.getElementById('rippleBtn').click()]],
+  Sequence:[['24 fps',()=>{S.frameRate='24 fps';document.getElementById('sequenceSelect').value='24 fps';save();setStatus('Sequence set to 24 fps')}],['30 fps',()=>{S.frameRate='30 fps';document.getElementById('sequenceSelect').value='30 fps';save();setStatus('Sequence set to 30 fps')}],['50 fps',()=>{S.frameRate='50 fps';document.getElementById('sequenceSelect').value='50 fps';save();setStatus('Sequence set to 50 fps')}],['60 fps',()=>{S.frameRate='60 fps';document.getElementById('sequenceSelect').value='60 fps';save();setStatus('Sequence set to 60 fps')}]],
+  Markers:[['Add Marker',addTimelineMarker],['Clear Markers',()=>{S.markers=[];save();setStatus('Markers cleared.')}]],
+  Graphics:[['Open Graphics',()=>setWorkspace('graphics')],['Open Captions',()=>setWorkspace('captions')]],
+  Window:[['Toggle Inspector',()=>document.getElementById('toggleInspector').click()],['Fullscreen Editor',()=>document.documentElement.requestFullscreen?.().catch(()=>{})]],
+  Help:[['Keyboard Shortcuts',()=>setStatus('Space Play/Pause • B Razor • Delete Ripple Delete • Ctrl/Cmd+Z Undo • Ctrl/Cmd+Y Redo')],['About FBI Editor',()=>setStatus('FBI Creative Video Editor • Non-destructive cloud project workspace')]]
+};
+document.querySelectorAll('.menubar>button:not(.home)').forEach(function(b){
+  const name=b.textContent.trim();
+  b.onclick=function(){const items=(menuActions[name]||[]).map(x=>({label:x[0],action:x[1]}));if(items.length)openEditorMenu(b,items)};
+});
 document.getElementById('saveTop').onclick=save;document.getElementById('save')&&(document.getElementById('save').onclick=save);
 document.getElementById('addMedia').onclick=()=>document.getElementById('fileInput').click();
 document.getElementById('addFolder').onclick=()=>document.getElementById('folderInput').click();
@@ -414,7 +454,7 @@ const advanceAfterEnd=()=>{if(!S.playing)return;const n=[...S.clips].sort((a,b)=
 document.getElementById('programVideo').onended=advanceAfterEnd;document.getElementById('programAudio').onended=advanceAfterEnd;
 document.getElementById('prev').onclick=()=>stepNext(-1);document.getElementById('next').onclick=()=>stepNext(1);
 document.getElementById('sourcePlay').onclick=()=>{const v=document.getElementById('sourceVideo');if(v.paused)v.play().catch(()=>{});else v.pause()};document.getElementById('sourcePrev').onclick=()=>{document.getElementById('sourceVideo').currentTime=0};document.getElementById('sourceNext').onclick=()=>{const v=document.getElementById('sourceVideo');if(Number.isFinite(v.duration))v.currentTime=v.duration};document.getElementById('sourceVideo').ontimeupdate=()=>{document.getElementById('sourceTc').textContent=ft(document.getElementById('sourceVideo').currentTime)+':00'};
-document.getElementById('tlscroll').onclick=e=>{if(e.target.closest('.clip'))return;const rect=document.getElementById('tlscroll').getBoundingClientRect();const x=e.clientX-rect.left+document.getElementById('tlscroll').scrollLeft;S.playhead=Math.max(0,x/34);const c=activeClip();if(c)S.selectedClip=c.id;renderTimeline();renderInspector();refreshProgram()};
+document.getElementById('tlscroll').onclick=e=>{if(e.target.closest('.clip'))return;const rect=document.getElementById('tlscroll').getBoundingClientRect();const x=e.clientX-rect.left+document.getElementById('tlscroll').scrollLeft;S.playhead=Math.max(0,x/timelineZoom);const c=activeClip();if(c)S.selectedClip=c.id;renderTimeline();renderInspector();refreshProgram()};
 document.getElementById('sequence')&&(document.getElementById('sequence').onchange=e=>{S.sequence=e.target.value||'Untitled Sequence';document.getElementById('programTitle').textContent=S.sequence;save()});
 async function exportEditPackage(){
   const payload=editorPayload();
@@ -422,7 +462,17 @@ async function exportEditPackage(){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(String(S.sequence||'Untitled Sequence').replace(/[^a-z0-9._-]+/gi,'_')||'Untitled_Sequence')+'.fbi-edit.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);setStatus('Edit package exported. Original media remains untouched.');
 }
 document.getElementById('export').onclick=exportEditPackage;
-document.getElementById('toolrail').querySelectorAll('button').forEach(b=>b.onclick=()=>{document.getElementById('toolrail').querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active')});
+document.getElementById('toolrail').querySelectorAll('button').forEach(function(b){
+  b.onclick=function(){
+    document.getElementById('toolrail').querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');
+    const tool=b.title||'Selection';
+    if(tool==='Razor')document.getElementById('razorBtn').click();
+    else if(tool==='Ripple Edit')document.getElementById('rippleBtn').click();
+    else if(tool==='Type')setWorkspace('graphics');
+    else if(tool==='Zoom'){timelineZoom=Math.min(80,timelineZoom+8);renderTimeline();setStatus('Timeline zoom '+timelineZoom+' px/sec.')}
+    else setStatus(tool+' tool active.');
+  };
+});
 document.addEventListener('keydown',e=>{const t=document.activeElement?.tagName;if(t==='INPUT'||t==='SELECT'||t==='TEXTAREA')return;if(e.code==='Space'){e.preventDefault();playProgram()}else if(e.key.toLowerCase()==='b'){e.preventDefault();document.getElementById('razorBtn').click()}else if(e.key==='Delete'){e.preventDefault();document.getElementById('rippleBtn').click()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();undo()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();redo()}});
 document.getElementById('sequenceSelect').onchange=e=>{S.frameRate=e.target.value;save();setStatus('Sequence set to '+e.target.value)};
 document.addEventListener('dragover',e=>{e.preventDefault()});document.addEventListener('drop',e=>{e.preventDefault();if(e.dataTransfer?.files?.length)importFiles(e.dataTransfer.files)});
