@@ -1441,6 +1441,49 @@ app.get("/api/streams",admin,async(req,res)=>{
   }catch(e){console.error(e);res.status(500).json({error:"Could not load live streams"});}
 });
 
+/*
+ * Temporary development-only Live Control API.
+ * These endpoints intentionally expose the standalone control-room channel
+ * list and channel creation without admin authentication. The main File Studio
+ * /api/streams endpoints remain protected by the normal admin session.
+ */
+app.get("/api/live/streams",async(req,res)=>{
+  try{
+    const rows=await streamRows();
+    const rtmpHost=String(process.env.STREAM_RTMP_HOST||"");
+    const rtmpPort=String(process.env.STREAM_RTMP_PORT||"");
+    res.json({streams:rows.map(s=>({
+      ...s,
+      stream_key:s.stream_key,
+      stream_path:s.stream_path,
+      rtmp_server:rtmpHost&&rtmpPort?"rtmp://"+rtmpHost+":"+rtmpPort+"/live":"",
+      hls_url:streamHlsUrl(s),
+      live_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/live/"+s.id,
+      viewer_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+s.viewer_token
+    }))});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not load live streams"});}
+});
+
+app.post("/api/live/streams",async(req,res)=>{
+  try{
+    const name=String(req.body.name||"").trim();
+    if(!name)return res.status(400).json({error:"Stream name is required."});
+    const key=randomStreamKey(),viewer=randomViewerToken();
+    const r=await pool.query(
+      "INSERT INTO streams(id,name,title,description,stream_key,stream_path,viewer_token,shared,enabled) VALUES($1,$2,$3,$4,$5,$6,$7,true,true) RETURNING *",
+      [uid(),name,String(req.body.title||name).trim(),String(req.body.description||"").trim(),key,streamPathForKey(key),viewer]
+    );
+    const stream=r.rows[0];
+    res.json({stream:{
+      ...stream,
+      rtmp_server:(process.env.STREAM_RTMP_HOST&&process.env.STREAM_RTMP_PORT)?"rtmp://"+process.env.STREAM_RTMP_HOST+":"+process.env.STREAM_RTMP_PORT+"/live":"",
+      hls_url:streamHlsUrl(stream),
+      live_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/live/"+stream.id,
+      viewer_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+stream.viewer_token
+    }});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not create stream"});}
+});
+
 app.post("/api/streams",admin,async(req,res)=>{
   try{
     const name=String(req.body.name||"").trim();
