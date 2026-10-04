@@ -2104,7 +2104,7 @@ async function clientView(token){
       video.playsInline=true;
       video.loop=true;
       const p=video.play();
-      if(p&&p.catch)p.catch(function(){});
+      if(p&&p.then)p.then(function(){video.classList.remove("is-loading");video.classList.add("is-playing")}).catch(function(){video.classList.add("is-loading")});
     };
     const pauseVideo=function(video){try{video.pause()}catch{}};
     if('IntersectionObserver' in window){
@@ -2118,7 +2118,7 @@ async function clientView(token){
             pauseVideo(v);
           }
         });
-      },{rootMargin:'260px 0px',threshold:.08});
+      },{rootMargin:"420px 0px",threshold:.01});
       videos.forEach(function(v){window.__fbiGalleryVideoObserver=observer;observer.observe(v)});
     }else{
       videos.forEach(function(v){playVideo(v)});
