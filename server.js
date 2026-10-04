@@ -825,7 +825,7 @@ function ensureStreamAudioMeter(row){
     const lines=buffer.split(/\r?\n/);
     buffer=lines.pop()||"";
     for(const line of lines){
-      const m=String(line).match(/lavfi\.astats\.Overall\.RMS_level=(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+))/);
+      const m=String(line).match(/lavfi\.astats\.Overall\.RMS_level=(-?(?:\d+(?:\.\d*)?|\.\d+))/);
       if(!m)continue;
       const level=Math.max(-60,Math.min(0,Number(m[1])));
       if(Number.isFinite(level)){
@@ -1565,7 +1565,7 @@ app.get("/api/live/streams/:id/audio-level",async(req,res)=>{
     }
     const meter=ensureStreamAudioMeter(stream);
     if(!meter)return res.json({live:true,left:-60,right:-60,overall:-60});
-    const stale=Date.now()-meter.lastAt>1200;
+    const stale=Date.now()-meter.lastAt>2500;
     const level=stale?-60:Math.max(-60,Math.min(0,Number(meter.level)||-60));
     res.set("Cache-Control","no-store");
     res.json({live:true,left:level,right:level,overall:level,source:"server-audio-meter",timestamp:Date.now()});
