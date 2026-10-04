@@ -3080,6 +3080,12 @@ app.get("/api/public/file/:id",async(req,res)=>{
  }catch(e){console.error(e);res.status(500).send("Unable to serve file")}
 });
 
+app.get("/share/:token",(req,res)=>{
+  res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma","no-cache");
+  res.set("Expires","0");
+  res.type("html").sendFile(path.join(ROOT,"index.html"));
+});
 app.get("/share/:token/manifest.webmanifest",async(req,res)=>{
   try{
     const tokenValue=String(req.params.token||"");
