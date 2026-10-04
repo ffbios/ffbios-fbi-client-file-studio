@@ -3405,8 +3405,11 @@ app.get("/",(req,res)=>{
   res.type("html").sendFile(path.join(ROOT,process.env.FBI_LIVE_STANDALONE==="1"?"live-standalone.html":"index.html"));
 });
 app.get("/live",(req,res)=>{
-  if(process.env.FBI_LIVE_STANDALONE!=="1")return res.redirect("/");
+  // /live is the dedicated standalone FBI Live Control Center. It must never
+  // fall back to the main File Studio page, regardless of environment flags.
   res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma","no-cache");
+  res.set("Expires","0");
   res.type("html").sendFile(path.join(ROOT,"live-standalone.html"));
 });
 app.get("/editor.html",(req,res)=>{
