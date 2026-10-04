@@ -3517,7 +3517,8 @@ app.get("/share/:token/manifest.webmanifest",async(req,res)=>{
 });
 
 app.get("/manifest.webmanifest",(req,res)=>{
-  res.type("application/manifest+json").sendFile(path.join(ROOT,"manifest.webmanifest"));
+  const file=process.env.FBI_LIVE_STANDALONE==="1"?"live-manifest.webmanifest":"manifest.webmanifest";
+  res.type("application/manifest+json").sendFile(path.join(ROOT,file));
 });
 app.get("/official-logo.png",(req,res)=>{
   res.type("image/png").set("Cache-Control","public, max-age=31536000, immutable").sendFile(path.join(ROOT,"official-logo.png"));
@@ -3529,7 +3530,8 @@ app.get("/pwa-icon.svg",(req,res)=>{
   res.type("image/svg+xml").sendFile(path.join(ROOT,"pwa-icon.svg"));
 });
 app.get("/sw.js",(req,res)=>{
-  res.type("application/javascript").set("Cache-Control","no-cache").sendFile(path.join(ROOT,"sw.js"));
+  const file=process.env.FBI_LIVE_STANDALONE==="1"?"live-sw.js":"sw.js";
+  res.type("application/javascript").set("Cache-Control","no-cache").sendFile(path.join(ROOT,file));
 });
 app.post("/portal",async(req,res)=>{
  try{
