@@ -1,5 +1,5 @@
-const CACHE_NAME="fbi-live-pwa-v6";
-const SHELL=["/","/manifest.webmanifest","/official-logo.png","/live-pwa-icon-192.png?v=3","/live-pwa-icon-512.png?v=3"];
+const CACHE_NAME="fbi-live-pwa-v7";
+const SHELL=["/","/manifest.webmanifest?live=v7","/official-logo.png","/live-pwa-icon-192.png","/live-pwa-icon-512.png"];
 
 self.addEventListener("install",event=>{
   event.waitUntil(caches.open(CACHE_NAME).then(cache=>cache.addAll(SHELL)));
