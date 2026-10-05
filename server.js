@@ -857,10 +857,10 @@ async function loadSettings(){
 const DEFAULT_CREATIVE_SETTINGS={business_name:"",portal_title:"Private Client Gallery",accent_color:"#d4af37",logo_key:"",watermark_enabled:false,watermark_type:"logo",watermark_text:"",watermark_opacity:0.32,watermark_position:"bottom-right",watermark_size:22,watermark_on_download:true,watermark_presets:[],email_templates:{delivery_subject:"Your files are ready",delivery_body:"Hi {{client_name}}, your files are ready in your private gallery.\n\n{{share_link}}",reminder_subject:"Your gallery is still available",reminder_body:"Hi {{client_name}}, your private gallery is available here:\n\n{{share_link}}"},preferences:{default_expiry_days:30,allow_client_preview:true,show_file_size:true,auto_share:false},integrations:{download_tracking:true,email_notifications:false}};
 
 const CREATOR_TRIAL_BYTES=10*1000*1000*1000;
-const CREATOR_BILLING_CURRENCY="GHS";
+const CREATOR_BILLING_CURRENCY=String(process.env.MOOLRE_CURRENCY||"GHS").trim().toUpperCase()||"GHS";
 const CREATOR_PLAN_IDS=["starter","creator","professional","studio"];
 
-function moolreBaseUrl(){return String(process.env.MOOLRE_API_BASE||"https://api.moolre.com").replace(/\\+$/,"");}
+function moolreBaseUrl(){return String(process.env.MOOLRE_API_BASE||"https://api.moolre.com").replace(/\/+$/,"");}
 function moolreConfigured(){return Boolean(String(process.env.MOOLRE_API_USER||"").trim()&&String(process.env.MOOLRE_API_PUBKEY||"").trim()&&String(process.env.MOOLRE_ACCOUNT_NUMBER||"").trim());}
 function moolreBusinessEmail(){return String(process.env.MOOLRE_BUSINESS_EMAIL||ADMIN_EMAIL||"").trim().toLowerCase();}
 function appPublicBaseUrl(req){return String(PUBLIC_BASE_URL||(`${req.protocol}://${req.get("host")}`)).replace(/\\+$/,"");}
@@ -986,6 +986,18 @@ async function processMoolreWebhookPayload(body){
     // Some webhook variants expose status as text while the documented flow uses txstatus=1.
   }
   if(txstatus===1){
+    if(String(process.env.MOOLRE_VERIFY_WEBHOOK||"1")!=="0"){
+      try{
+        const verified=await verifyMoolrePayment(externalRef);
+        if(!verified.ok){
+          console.warn("Moolre webhook received a success callback but status verification is not yet successful:",externalRef);
+          return {ok:false,reason:"Payment status could not be verified yet.",externalRef};
+        }
+      }catch(e){
+        console.warn("Moolre webhook status verification failed:",e?.message||e);
+        return {ok:false,reason:"Payment verification is temporarily unavailable.",externalRef};
+      }
+    }
     const sub=await activateSubscriptionFromPayment(payment,data);
     return {ok:true,success:true,externalRef,subscription:sub};
   }
