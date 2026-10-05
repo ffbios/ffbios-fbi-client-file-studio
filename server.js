@@ -3656,8 +3656,9 @@ app.get("/share/:token/manifest.webmanifest",async(req,res)=>{
 
 app.get("/live-studio-addon.js",(req,res)=>{res.type("application/javascript").set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.set("Pragma","no-cache");res.set("Expires","0");res.sendFile(path.join(ROOT,"live-studio-addon.js"));});
 app.get("/manifest.webmanifest",(req,res)=>{
-  const file=process.env.FBI_LIVE_STANDALONE==="1"?"live-manifest.webmanifest":"manifest.webmanifest";
-  res.type("application/manifest+json").sendFile(path.join(ROOT,file));
+  const isLiveStandalone=process.env.FBI_LIVE_STANDALONE==="1"||/^live\.fbigh\.com$/i.test(String(req.hostname||""));
+  const file=isLiveStandalone?"live-manifest.webmanifest":"manifest.webmanifest";
+  res.type("application/manifest+json").set("Cache-Control","no-cache, no-store, must-revalidate").sendFile(path.join(ROOT,file));
 });
 app.get("/official-logo.png",(req,res)=>{
   res.type("image/png").set("Cache-Control","public, max-age=31536000, immutable").sendFile(path.join(ROOT,"official-logo.png"));
@@ -3669,8 +3670,9 @@ app.get("/pwa-icon.svg",(req,res)=>{
   res.type("image/svg+xml").sendFile(path.join(ROOT,"pwa-icon.svg"));
 });
 app.get("/sw.js",(req,res)=>{
-  const file=process.env.FBI_LIVE_STANDALONE==="1"?"live-sw.js":"sw.js";
-  res.type("application/javascript").set("Cache-Control","no-cache").sendFile(path.join(ROOT,file));
+  const isLiveStandalone=process.env.FBI_LIVE_STANDALONE==="1"||/^live\.fbigh\.com$/i.test(String(req.hostname||""));
+  const file=isLiveStandalone?"live-sw.js":"sw.js";
+  res.type("application/javascript").set("Cache-Control","no-cache, no-store, must-revalidate").sendFile(path.join(ROOT,file));
 });
 app.post("/portal",async(req,res)=>{
  try{
