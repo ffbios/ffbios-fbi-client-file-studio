@@ -250,4 +250,47 @@
     streamPoller=setInterval(function(){if(activeStudioView==="streams")loadStreams().catch(function(){})},5000);
   };
 
+/*
+ * Client gallery lightbox image recovery.
+ * The gallery thumbnails use the public thumbnail route successfully. Older
+ * lightbox markup could request /api/public/preview/, which can leave the
+ * viewer overlay open with a blank image. Keep this scoped to the client
+ * lightbox and transparently recover it to the known-good public thumbnail,
+ * with the original media URL as a final fallback.
+ */
+(function installClientLightboxImageRecovery(){
+  function repair(){
+    const box=document.querySelector('#clientLightbox');
+    if(!box)return;
+    box.querySelectorAll('img[src*="/api/public/preview/"]').forEach(function(img){
+      if(img.dataset.fbiPreviewRecovered==='1')return;
+      img.dataset.fbiPreviewRecovered='1';
+      const raw=img.getAttribute('src')||'';
+      try{
+        const u=new URL(raw,location.origin);
+        const match=u.pathname.match(/\\/api\\/public\\/preview\\/([^/]+)/);
+        const id=match&&match[1];
+        const token=u.searchParams.get('token')||'';
+        if(!id||!token)return;
+        const thumb='/api/public/thumb/'+encodeURIComponent(id)+'?token='+encodeURIComponent(token)+'&w=1800&h=1800';
+        const media='/api/public/media/'+encodeURIComponent(id)+'?token='+encodeURIComponent(token);
+        img.onerror=function(){
+          if(img.dataset.fbiMediaFallback==='1')return;
+          img.dataset.fbiMediaFallback='1';
+          img.src=media;
+        };
+        img.src=thumb;
+      }catch(_e){}
+    });
+  }
+  const observer=new MutationObserver(repair);
+  function start(){
+    if(!document.body)return;
+    observer.observe(document.body,{childList:true,subtree:true});
+    repair();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});
+  else start();
+})();
+
 })();
