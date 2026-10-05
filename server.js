@@ -3310,6 +3310,25 @@ app.delete("/api/files/:id",admin,async(req,res)=>{
  }catch(e){console.error(e);res.status(500).json({error:"Could not delete file"})}
 });
 
+async function creativeOwnerForProject(projectId){const r=await pool.query("SELECT owner_id FROM projects WHERE id=$1",[projectId]);return r.rowCount?r.rows[0].owner_id:null;}
+async function creativeBrandingForProject(projectId){const ownerId=await creativeOwnerForProject(projectId);return ownerId?loadCreativeSettings(ownerId):{...DEFAULT_CREATIVE_SETTINGS};}
+async function bodyToBuffer(body){if(!body)return Buffer.alloc(0);if(typeof body.transformToByteArray==="function")return Buffer.from(await body.transformToByteArray());return Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];body.on("data",c=>chunks.push(c));body.on("end",()=>resolve(Buffer.concat(chunks)));body.on("error",reject)}));}
+function escapeSvgText(v){return String(v||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");}
+async function applyCreativeWatermark(input,settings){
+  if(!settings||!settings.watermark_enabled)return {buffer:input,applied:false};
+  const base=await sharp(input).rotate().png().toBuffer();const meta=await sharp(base).metadata(),W=Number(meta.width||1600),H=Number(meta.height||1000);
+  const type=String(settings.watermark_type||"logo"),opacity=Math.max(.05,Math.min(1,Number(settings.watermark_opacity)||.32)),scale=Math.max(8,Math.min(45,Number(settings.watermark_size)||22)),pos=String(settings.watermark_position||"bottom-right");
+  const layers=[];const text=String(settings.watermark_text||settings.business_name||"").trim().slice(0,100);
+  if(text&&(type==="text"||type==="both")){const fs=Math.max(24,Math.round(W*(scale/100)*.18));layers.push(Buffer.from('<svg width="'+W+'" height="'+H+'" xmlns="http://www.w3.org/2000/svg"><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-family="Arial,Helvetica,sans-serif" font-size="'+fs+'" font-weight="700" fill="#fff" fill-opacity="'+opacity+'">'+escapeSvgText(text)+'</text></svg>'));}
+  if(settings.logo_key&&(type==="logo"||type==="both")&&s3Ready()){try{const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:settings.logo_key}));const bytes=await bodyToBuffer(obj.Body);layers.push(await sharp(bytes).resize({width:Math.max(120,Math.round(W*(scale/100))),height:Math.round(H*.65),fit:"inside",withoutEnlargement:true}).png().toBuffer())}catch(e){console.warn("Creative watermark logo unavailable:",e?.message||e)}}
+  if(!layers.length)return {buffer:input,applied:false};
+  const lastMeta=await sharp(layers[layers.length-1]).metadata(),lw=Number(lastMeta.width||0),lh=Number(lastMeta.height||0);let left=Math.round(W*.06),top=Math.round(H*.06);
+  if(pos==="top-right"||pos==="bottom-right")left=Math.max(0,W-lw-Math.round(W*.06));
+  if(pos==="bottom-left"||pos==="bottom-right")top=Math.max(0,H-lh-Math.round(H*.06));
+  if(pos==="center"){left=Math.max(0,Math.round((W-lw)/2));top=Math.max(0,Math.round((H-lh)/2))}
+  return {buffer:await sharp(base).composite(layers.map(x=>({input:x,left,top}))).toBuffer(),applied:true};
+}
+
 async function signedFileUrl(fileId,tokenValue=null){
  const q=await pool.query("SELECT f.*,p.shared,p.share_token,p.expires_at FROM files f JOIN projects p ON p.id=f.project_id WHERE f.id=$1",[fileId]);if(!q.rowCount)return null;
  const f=q.rows[0];
@@ -3494,10 +3513,11 @@ app.get("/api/public/share/:token",async(req,res)=>{
   const f=await pool.query("SELECT id,original_name,relative_path,mime_type,size_bytes,created_at FROM files WHERE project_id=$1 ORDER BY relative_path ASC,created_at DESC",[p.id]);
   const base=`${req.protocol}://${req.get("host")}`;
   const settings=await loadSettings();
+  const creative=await creativeBrandingForProject(p.id);
   res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
   res.set("Pragma","no-cache");
   res.set("Expires","0");
-  res.json({project:p,settings:{portal_title:settings.portal_title,allow_client_preview:settingBool(settings.allow_client_preview),show_file_size:settingBool(settings.show_file_size)},files:f.rows.map(x=>({...x,download_url:`${base}/api/public/file/${x.id}?token=${encodeURIComponent(req.params.token)}`}))});
+  res.json({project:p,settings:{portal_title:creative.portal_title||settings.portal_title,allow_client_preview:creative.preferences?.allow_client_preview!==false,show_file_size:creative.preferences?.show_file_size!==false,business_name:creative.business_name,accent_color:creative.accent_color,branding_logo_url:creative.logo_key?"/api/public/share/"+encodeURIComponent(req.params.token)+"/branding/logo":"",watermark_enabled:creative.watermark_enabled},files:f.rows.map(x=>({...x,download_url:`${base}/api/public/file/${x.id}?token=${encodeURIComponent(req.params.token)}`}))});
  }catch(e){console.error(e);res.status(500).json({error:"Could not load delivery"})}
 });
 
@@ -3567,6 +3587,15 @@ async function renderVideoPreviewClip(file,startSeconds=4,durationSeconds=8){
   }
 }
 
+app.get("/api/public/share/:token/branding/logo",async(req,res)=>{
+  try{
+    const q=await pool.query("SELECT owner_id,shared,expires_at FROM projects WHERE share_token=$1 LIMIT 1",[req.params.token]);
+    if(!q.rowCount||!q.rows[0].shared||(q.rows[0].expires_at&&new Date(q.rows[0].expires_at).getTime()<Date.now())||!validShareSession(req,req.params.token))return res.status(404).end();
+    const settings=await loadCreativeSettings(q.rows[0].owner_id);if(!settings.logo_key||!s3Ready())return res.status(404).end();
+    const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:settings.logo_key}));res.type("png").set("Cache-Control","private, max-age=3600");if(got.Body?.pipe)return got.Body.pipe(res);res.end(Buffer.from(await got.Body.transformToByteArray()));
+  }catch(e){console.error("Public branding logo failed:",e);res.status(404).end()}
+});
+
 app.get("/api/public/video-preview/:id",async(req,res)=>{
   try{
     const out=await signedFileUrl(req.params.id,String(req.query.token||""));
@@ -3596,7 +3625,9 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
   if(!out)return res.status(404).send("Invalid or expired delivery link.");
   const width=Math.max(240,Math.min(720,Number(req.query.w||420))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
   const kind=thumbKind(out.f),cacheKind=kind==="video"?"video-v3":kind;
-  const cacheKey=out.f.id+":"+cacheKind+":"+width+"x"+height+":natural";
+  const wmCreative=await creativeBrandingForProject(out.f.project_id);
+  const wmSig=wmCreative.watermark_enabled?crypto.createHash("sha1").update(JSON.stringify({e:wmCreative.watermark_enabled,t:wmCreative.watermark_type,x:wmCreative.watermark_text,o:wmCreative.watermark_opacity,p:wmCreative.watermark_position,z:wmCreative.watermark_size,l:wmCreative.logo_key})).digest("hex").slice(0,12):"none";
+  const cacheKey=out.f.id+":"+cacheKind+":"+width+"x"+height+":natural:"+wmSig;
   const cached=getThumbCache(cacheKey);
   if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(cached.buffer);
   const thumbKey="__thumbnails/"+crypto.createHash("sha1").update(String(out.f.id)+"|"+cacheKind+"|"+width+"|"+height+"|natural").digest("hex")+".webp";
@@ -3609,7 +3640,8 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
       return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(bytes);
     }
   }catch(_e){}
-  const webp=await generateThumbnail(out.f,width,height);
+  let webp=await generateThumbnail(out.f,width,height);
+  if(/^image\\/(jpeg|png|webp)$/i.test(out.f.mime_type||"")&&wmCreative.watermark_enabled){const wm=await applyCreativeWatermark(webp,wmCreative);webp=wm.buffer;}
   setThumbCache(cacheKey,webp);
   try{
     await s3.send(new PutObjectCommand({Bucket:bucket(),Key:thumbKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(out.f.id),generated_by:"fbi-client-file-studio-media-aware"}}));
@@ -3623,8 +3655,10 @@ app.get("/api/public/preview/:id",async(req,res)=>{
   if(!out)return res.status(404).send("Invalid or expired delivery link.");
   if(!/^image\//i.test(out.f.mime_type||""))return res.status(415).send("Image preview only.");
   const width=Math.max(600,Math.min(1800,Number(req.query.w||1400)));
+  const creative=await creativeBrandingForProject(out.f.project_id);
   const height=Math.max(400,Math.min(1200,Number(req.query.h||1000)));
-  const cacheKey=out.f.id+":preview:"+width+"x"+height;
+  const wmSig=creative.watermark_enabled?crypto.createHash("sha1").update(JSON.stringify({e:creative.watermark_enabled,t:creative.watermark_type,x:creative.watermark_text,o:creative.watermark_opacity,p:creative.watermark_position,z:creative.watermark_size,l:creative.logo_key})).digest("hex").slice(0,12):"none";
+  const cacheKey=out.f.id+":preview:"+width+"x"+height+":"+wmSig;
   const cached=getThumbCache(cacheKey);
   if(cached){
     return res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(cached.buffer);
@@ -3645,7 +3679,8 @@ app.get("/api/public/preview/:id",async(req,res)=>{
   const input=obj.Body?.transformToByteArray ? Buffer.from(await obj.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
     const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject);
   }));
-  const webp=await sharp(input).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:82,method:4}).toBuffer();
+  let webp=await sharp(input).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:82,method:4}).toBuffer();
+  if(/^image\\/(jpeg|png|webp)$/i.test(out.f.mime_type||"")&&creative.watermark_enabled){const wm=await applyCreativeWatermark(webp,creative);webp=wm.buffer;}
   setThumbCache(cacheKey,webp);
   try{await s3.send(new PutObjectCommand({Bucket:bucket(),Key:previewKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(out.f.id),generated_by:"fbi-client-file-studio"}}))}catch(err){console.warn("Could not persist preview",err?.message||err)}
   res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(webp);
@@ -3673,9 +3708,14 @@ app.get("/api/public/file/:id",async(req,res)=>{
  try{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));if(!out)return res.status(404).send("Invalid or expired delivery link.");
   const settings=await loadSettings();
+  const creative=await creativeBrandingForProject(out.f.project_id);
   if(settingBool(settings.log_downloads)){
     const share=validShareSession(req,String(req.query.token||""));
     await pool.query("INSERT INTO downloads(project_id,file_id,user_agent,ip_address,client_email) VALUES($1,$2,$3,$4,$5)",[out.f.project_id,out.f.id,String(req.headers["user-agent"]||"").slice(0,1000),clientIp(req),String(share?.email||"")]);
+  }
+  if(/^image\/(jpeg|png|webp)$/i.test(out.f.mime_type||"")&&creative.watermark_enabled&&creative.watermark_on_download){
+    const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}));const input=await bodyToBuffer(obj.Body);const wm=await applyCreativeWatermark(input,creative);
+    if(wm.applied){let bytes=wm.buffer;const ct=/png/i.test(out.f.mime_type)?"image/png":/webp/i.test(out.f.mime_type)?"image/webp":"image/jpeg";if(ct==="image/jpeg")bytes=await sharp(bytes).jpeg({quality:92}).toBuffer();else if(ct==="image/png")bytes=await sharp(bytes).png().toBuffer();else bytes=await sharp(bytes).webp({quality:92}).toBuffer();return res.status(200).set("Content-Type",ct).set("Content-Disposition",(req.query.download==="1"?"attachment":"inline")+"; filename*=UTF-8''"+encodeURIComponent(out.f.original_name)).set("Cache-Control","private, no-store").send(bytes);}
   }
   const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}),{expiresIn:900,responseContentDisposition:req.query.download==="1"?`attachment; filename*=UTF-8''${encodeURIComponent(out.f.original_name)}`:`inline; filename*=UTF-8''${encodeURIComponent(out.f.original_name)}`});
   res.redirect(url);
