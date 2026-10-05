@@ -3658,9 +3658,13 @@ app.get("/api/public/preview/:id",async(req,res)=>{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));
   if(!out)return res.status(404).send("Invalid or expired delivery link.");
   if(!/^image\//i.test(out.f.mime_type||""))return res.status(415).send("Image preview only.");
-  const width=Math.max(600,Math.min(1800,Number(req.query.w||1400)));
+  const widthValue=Array.isArray(req.query.w)?req.query.w[0]:req.query.w;
+  const widthNumber=Number(widthValue||1400);
+  const width=Number.isFinite(widthNumber)?Math.max(600,Math.min(1800,widthNumber)):1400;
   const creative=await creativeBrandingForProject(out.f.project_id);
-  const height=Math.max(400,Math.min(1200,Number(req.query.h||1000)));
+  const heightValue=Array.isArray(req.query.h)?req.query.h[0]:req.query.h;
+  const heightNumber=Number(heightValue||1000);
+  const height=Number.isFinite(heightNumber)?Math.max(400,Math.min(1200,heightNumber)):1000;
   const wmSig=creative.watermark_enabled?crypto.createHash("sha1").update(JSON.stringify({e:creative.watermark_enabled,t:creative.watermark_type,x:creative.watermark_text,o:creative.watermark_opacity,p:creative.watermark_position,z:creative.watermark_size,l:creative.logo_key})).digest("hex").slice(0,12):"none";
   const cacheKey=out.f.id+":preview:"+width+"x"+height+":"+wmSig;
   const cached=getThumbCache(cacheKey);
