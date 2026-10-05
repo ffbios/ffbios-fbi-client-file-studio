@@ -1913,9 +1913,13 @@ async function proxyPublicHlsStream(req,res){
     let sub=String(req.path||"/").replace(/^\/+/, "");
     if(/^index\.m3u8\/index\.m3u8$/i.test(sub))sub="index.m3u8";
     else if(/^index\.m3u8\//i.test(sub))sub=sub.slice("index.m3u8/".length);
-    const upstreamPath=programRouteActive(row.id)?"program/"+String(row.stream_key||""):"encoded/"+String(row.stream_key||"");
+    const forceOriginalInput=String(req.query?.source||"").toLowerCase()==="input";
+    const upstreamPath=forceOriginalInput
+      ?"live/"+String(row.stream_key||"")
+      :(programRouteActive(row.id)?"program/"+String(row.stream_key||""):"encoded/"+String(row.stream_key||""));
     const upstream=new URL(internalBase+"/"+upstreamPath+(sub?"/"+sub:""));
     for(const [k,v] of Object.entries(req.query||{}))upstream.searchParams.append(k,String(v));
+    if(forceOriginalInput)upstream.searchParams.delete("source");
     const incomingCookies=String(req.headers.cookie||"");
     const proxySession=(incomingCookies.match(/(?:^|;\s*)fbi_public_hls_session=([^;]+)/)||[])[1]||"";
     const sharedSession=publicHlsSessionGet(token);
