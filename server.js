@@ -1185,8 +1185,12 @@ app.get("/api/portal/projects",portalUser,async(req,res)=>{
 app.post("/api/portal/projects",portalUser,async(req,res)=>{
  try{
   const name=String(req.body.name||"").trim();if(!name)return res.status(400).json({error:"Project name is required."});
-  const id=uid(),shareToken=token(),settings=await loadSettings(),defaultNote=String(req.body.note||"").trim()||settings.default_client_note||"",days=settingInt(settings.default_expiry_days,30),expires=days?new Date(Date.now()+days*86400000):null;
-  const r=await pool.query("INSERT INTO projects(id,owner_id,name,client_name,client_email,note,share_token,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",[id,req.portalUser.id,name,String(req.body.client_name||"").trim(),String(req.body.client_email||"").trim(),defaultNote,shareToken,expires]);
+  const id=uid(),shareToken=token(),settings=await loadSettings(),creative=await loadCreativeSettings(req.portalUser.id);
+  const defaultNote=String(req.body.note||"").trim()||settings.default_client_note||"";
+  const days=settingInt(creative.preferences?.default_expiry_days,settingInt(settings.default_expiry_days,30));
+  const expires=days?new Date(Date.now()+days*86400000):null;
+  const autoShare=creative.preferences?.auto_share===true;
+  const r=await pool.query("INSERT INTO projects(id,owner_id,name,client_name,client_email,note,share_token,expires_at,shared) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *",[id,req.portalUser.id,name,String(req.body.client_name||"").trim(),String(req.body.client_email||"").trim(),defaultNote,shareToken,expires,autoShare]);
   res.json({project:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not create project."})}
 });
