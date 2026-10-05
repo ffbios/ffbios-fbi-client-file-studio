@@ -1631,6 +1631,17 @@ app.post("/api/live/streams/:id/local-studio/session",async(req,res)=>{
   }
 });
 
+app.post("/api/live/streams/:id/local-studio/stop",async(req,res)=>{
+  try{
+    stopLocalStudioBridge(req.params.id);
+    await pool.query("UPDATE streams SET status='offline',ended_at=now(),updated_at=now() WHERE id=$1",[req.params.id]);
+    res.set("Cache-Control","no-store").json({ok:true});
+  }catch(e){
+    console.error("Local Studio stop failed:",e);
+    res.status(500).json({error:"Could not stop local studio output."});
+  }
+});
+
 app.get("/api/live/streams/:id/audio-level",async(req,res)=>{
   try{
     const q=await pool.query("SELECT * FROM streams WHERE id=$1 AND enabled=true",[req.params.id]);
