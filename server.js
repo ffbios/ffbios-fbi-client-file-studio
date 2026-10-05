@@ -271,6 +271,24 @@ function portalUser(req,res,next){
   if(!u)return res.status(401).json({error:"Please log in to your account."});
   req.portalUser=u;next();
 }
+function shareSession(tokenValue,email){
+  const exp=Date.now()+30*86400000;
+  const payload=Buffer.from(JSON.stringify({token:String(tokenValue),email:String(email).toLowerCase(),exp})).toString("base64url");
+  const sig=crypto.createHmac("sha256",SESSION_SECRET).update(payload).digest("base64url");
+  return payload+"."+sig;
+}
+function validShareSession(req,tokenValue){
+  const s=cookies(req).fbi_share_session;if(!s)return null;
+  const parts=s.split("."),payload=parts[0],sig=parts[1];if(!payload||!sig)return null;
+  try{
+    const expected=crypto.createHmac("sha256",SESSION_SECRET).update(payload).digest("base64url");
+    if(!crypto.timingSafeEqual(Buffer.from(sig),Buffer.from(expected)))return null;
+    const data=JSON.parse(Buffer.from(payload,"base64url").toString("utf8"));
+    if(String(data.token)!==String(tokenValue)||!data.email||Number(data.exp)<=Date.now())return null;
+    return {email:String(data.email).toLowerCase()};
+  }catch{return null}
+}
+
 async function hashUserPassword(password){
   const N=32768,r=8,p=1,salt=crypto.randomBytes(16);
   const derived=await new Promise((resolve,reject)=>crypto.scrypt(password,salt,64,{N:N,r:r,p:p,maxmem:256*1024*1024},(e,d)=>e?reject(e):resolve(d)));
@@ -592,8 +610,10 @@ async function initDb(){
       file_id uuid REFERENCES files(id) ON DELETE SET NULL,
       downloaded_at timestamptz NOT NULL DEFAULT now(),
       user_agent text DEFAULT '',
-      ip_address text DEFAULT ''
+      ip_address text DEFAULT '',
+      client_email text DEFAULT ''
     );
+    ALTER TABLE downloads ADD COLUMN IF NOT EXISTS client_email text DEFAULT '';
     CREATE INDEX IF NOT EXISTS idx_files_project ON files(project_id);
     CREATE INDEX IF NOT EXISTS idx_downloads_project ON downloads(project_id);
 
@@ -3230,11 +3250,12 @@ async function streamStoredObject(req,res,f){
   if(obj.Body?.pipe)obj.Body.pipe(res);
   else for await(const chunk of obj.Body){if(!res.write(chunk))await new Promise(r=>res.once("drain",r))}
 }
-async function publicFileRecord(fileId,tokenValue){
+async function publicFileRecord(fileId,tokenValue,req){
   const q=await pool.query("SELECT f.*,p.shared,p.share_token,p.expires_at FROM files f JOIN projects p ON p.id=f.project_id WHERE f.id=$1",[fileId]);
   if(!q.rowCount)return null;
   const f=q.rows[0];
   if(f.share_token!==tokenValue||!f.shared||(f.expires_at&&new Date(f.expires_at).getTime()<Date.now()))return null;
+  if(!validShareSession(req,tokenValue))return null;
   return f;
 }
 
@@ -3286,11 +3307,30 @@ app.get("/api/admin/thumb/:id",admin,async(req,res)=>{
   res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(webp);
  }catch(e){console.error("Admin thumbnail generation failed",e?.stack||e);res.status(500).send("Unable to generate thumbnail");}
 });
+app.post("/api/public/share/:token/access",async(req,res)=>{
+ try{
+  const email=String(req.body?.email||"").trim().toLowerCase();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({error:"Enter a valid email address."});
+  const q=await pool.query("SELECT id,client_email,expires_at,shared FROM projects WHERE share_token=$1",[req.params.token]);
+  if(!q.rowCount||!q.rows[0].shared)return res.status(404).json({error:"This delivery link is invalid or disabled."});
+  const p=q.rows[0];
+  if(p.expires_at&&new Date(p.expires_at).getTime()<Date.now())return res.status(404).json({error:"This delivery link has expired."});
+  const existing=String(p.client_email||"").trim().toLowerCase();
+  if(existing&&existing!==email)return res.status(403).json({error:"This email is not authorized for this gallery.",code:"CLIENT_EMAIL_NOT_MATCH"});
+  if(!existing){
+    await pool.query("UPDATE projects SET client_email=$1,updated_at=now() WHERE id=$2 AND COALESCE(client_email,'')=''",[email,p.id]);
+  }
+  res.setHeader("Set-Cookie","fbi_share_session="+encodeURIComponent(shareSession(req.params.token,email))+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000");
+  res.json({ok:true,email});
+ }catch(e){console.error("Client email access failed:",e);res.status(500).json({error:"Could not authorize gallery access."})}
+});
+
 app.get("/api/public/share/:token",async(req,res)=>{
  try{
-  const q=await pool.query("SELECT id,name,client_name,note,expires_at FROM projects WHERE share_token=$1 AND shared=true",[req.params.token]);
+  const q=await pool.query("SELECT id,name,client_name,client_email,note,expires_at FROM projects WHERE share_token=$1 AND shared=true",[req.params.token]);
   if(!q.rowCount)return res.status(404).json({error:"This delivery link is invalid, disabled, or expired."});
   const p=q.rows[0];if(p.expires_at&&new Date(p.expires_at).getTime()<Date.now())return res.status(404).json({error:"This delivery link has expired."});
+  if(!validShareSession(req,req.params.token))return res.status(401).json({error:"Client email required.",code:"CLIENT_EMAIL_REQUIRED"});
   const f=await pool.query("SELECT id,original_name,relative_path,mime_type,size_bytes,created_at FROM files WHERE project_id=$1 ORDER BY relative_path ASC,created_at DESC",[p.id]);
   const base=`${req.protocol}://${req.get("host")}`;
   const settings=await loadSettings();
@@ -3457,7 +3497,7 @@ app.get("/api/public/preview/:id",async(req,res)=>{
 
 app.get("/api/public/media/:id",async(req,res)=>{
   try{
-    const f=await publicFileRecord(req.params.id,String(req.query.token||""));
+    const f=await publicFileRecord(req.params.id,String(req.query.token||""),req);
     if(!f)return res.status(404).send("Invalid or expired delivery link.");
     await streamStoredObject(req,res,f);
   }catch(e){console.error("Public media stream failed:",e?.stack||e);res.status(500).send("Unable to stream file")}
@@ -3474,7 +3514,8 @@ app.get("/api/public/file/:id",async(req,res)=>{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));if(!out)return res.status(404).send("Invalid or expired delivery link.");
   const settings=await loadSettings();
   if(settingBool(settings.log_downloads)){
-    await pool.query("INSERT INTO downloads(project_id,file_id,user_agent,ip_address) VALUES($1,$2,$3,$4)",[out.f.project_id,out.f.id,String(req.headers["user-agent"]||"").slice(0,1000),clientIp(req)]);
+    const share=validShareSession(req,String(req.query.token||""));
+    await pool.query("INSERT INTO downloads(project_id,file_id,user_agent,ip_address,client_email) VALUES($1,$2,$3,$4,$5)",[out.f.project_id,out.f.id,String(req.headers["user-agent"]||"").slice(0,1000),clientIp(req),String(share?.email||"")]);
   }
   const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}),{expiresIn:900,responseContentDisposition:req.query.download==="1"?`attachment; filename*=UTF-8''${encodeURIComponent(out.f.original_name)}`:`inline; filename*=UTF-8''${encodeURIComponent(out.f.original_name)}`});
   res.redirect(url);
