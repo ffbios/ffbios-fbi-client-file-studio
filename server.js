@@ -731,6 +731,75 @@ async function initDb(){
       updated_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS idx_ndi_gateways_seen ON ndi_gateways(last_seen DESC);
+    CREATE TABLE IF NOT EXISTS subscription_plans(
+      id text PRIMARY KEY,
+      name text NOT NULL,
+      storage_bytes bigint NOT NULL,
+      monthly_price_ghs numeric(12,2) NOT NULL DEFAULT 0,
+      active boolean NOT NULL DEFAULT true,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    INSERT INTO subscription_plans(id,name,storage_bytes,monthly_price_ghs,active) VALUES
+      ('trial','Free Trial',10000000000,0,true),
+      ('starter','Starter',100000000000,50,true),
+      ('creator','Creator',500000000000,80,true),
+      ('professional','Professional',1000000000000,120,true),
+      ('studio','Studio',2000000000000,180,true)
+    ON CONFLICT (id) DO UPDATE SET
+      name=excluded.name,
+      storage_bytes=excluded.storage_bytes,
+      monthly_price_ghs=excluded.monthly_price_ghs,
+      active=excluded.active,
+      updated_at=now();
+
+    CREATE TABLE IF NOT EXISTS creator_subscriptions(
+      id uuid PRIMARY KEY,
+      user_id uuid UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      plan_id text NOT NULL REFERENCES subscription_plans(id),
+      status text NOT NULL DEFAULT 'trialing',
+      storage_bytes bigint NOT NULL DEFAULT 10000000000,
+      monthly_price_ghs numeric(12,2) NOT NULL DEFAULT 0,
+      current_period_start timestamptz NOT NULL DEFAULT now(),
+      current_period_end timestamptz NOT NULL,
+      canceled_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_creator_subscriptions_status ON creator_subscriptions(status,current_period_end);
+
+    CREATE TABLE IF NOT EXISTS payment_transactions(
+      id uuid PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      subscription_id uuid REFERENCES creator_subscriptions(id) ON DELETE SET NULL,
+      plan_id text NOT NULL REFERENCES subscription_plans(id),
+      amount_ghs numeric(12,2) NOT NULL,
+      currency text NOT NULL DEFAULT 'GHS',
+      provider text NOT NULL DEFAULT 'moolre',
+      external_ref text UNIQUE NOT NULL,
+      provider_ref text DEFAULT '',
+      status text NOT NULL DEFAULT 'pending',
+      authorization_url text DEFAULT '',
+      customer_email text DEFAULT '',
+      provider_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+      paid_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_payment_transactions_user ON payment_transactions(user_id,created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_payment_transactions_status ON payment_transactions(status,created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS payment_webhook_events(
+      id uuid PRIMARY KEY,
+      provider text NOT NULL DEFAULT 'moolre',
+      event_key text UNIQUE NOT NULL,
+      external_ref text DEFAULT '',
+      payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+      received_at timestamptz NOT NULL DEFAULT now(),
+      processed_at timestamptz
+    );
+    CREATE INDEX IF NOT EXISTS idx_payment_webhook_events_external_ref ON payment_webhook_events(external_ref,received_at DESC);
+
     CREATE TABLE IF NOT EXISTS app_settings(
       key text PRIMARY KEY,
       value text NOT NULL DEFAULT ''
@@ -786,6 +855,141 @@ async function loadSettings(){
   return out;
 }
 const DEFAULT_CREATIVE_SETTINGS={business_name:"",portal_title:"Private Client Gallery",accent_color:"#d4af37",logo_key:"",watermark_enabled:false,watermark_type:"logo",watermark_text:"",watermark_opacity:0.32,watermark_position:"bottom-right",watermark_size:22,watermark_on_download:true,watermark_presets:[],email_templates:{delivery_subject:"Your files are ready",delivery_body:"Hi {{client_name}}, your files are ready in your private gallery.\n\n{{share_link}}",reminder_subject:"Your gallery is still available",reminder_body:"Hi {{client_name}}, your private gallery is available here:\n\n{{share_link}}"},preferences:{default_expiry_days:30,allow_client_preview:true,show_file_size:true,auto_share:false},integrations:{download_tracking:true,email_notifications:false}};
+
+const CREATOR_TRIAL_BYTES=10*1000*1000*1000;
+const CREATOR_BILLING_CURRENCY="GHS";
+const CREATOR_PLAN_IDS=["starter","creator","professional","studio"];
+
+function moolreBaseUrl(){return String(process.env.MOOLRE_API_BASE||"https://api.moolre.com").replace(/\\+$/,"");}
+function moolreConfigured(){return Boolean(String(process.env.MOOLRE_API_USER||"").trim()&&String(process.env.MOOLRE_API_PUBKEY||"").trim()&&String(process.env.MOOLRE_ACCOUNT_NUMBER||"").trim());}
+function moolreBusinessEmail(){return String(process.env.MOOLRE_BUSINESS_EMAIL||ADMIN_EMAIL||"").trim().toLowerCase();}
+function appPublicBaseUrl(req){return String(PUBLIC_BASE_URL||(`${req.protocol}://${req.get("host")}`)).replace(/\\+$/,"");}
+function addOneMonth(value){
+  const d=new Date(value||Date.now());
+  const day=d.getUTCDate();
+  d.setUTCMonth(d.getUTCMonth()+1);
+  if(d.getUTCDate()!==day)d.setUTCDate(0);
+  return d;
+}
+async function ensureCreatorSubscription(userId){
+  const existing=await pool.query("SELECT * FROM creator_subscriptions WHERE user_id=$1 LIMIT 1",[userId]);
+  if(existing.rowCount)return existing.rows[0];
+  const start=new Date(),end=addOneMonth(start),id=uid();
+  const r=await pool.query(
+    "INSERT INTO creator_subscriptions(id,user_id,plan_id,status,storage_bytes,monthly_price_ghs,current_period_start,current_period_end) VALUES($1,$2,'trial','trialing',$3,0,$4,$5) ON CONFLICT(user_id) DO NOTHING RETURNING *",
+    [id,userId,CREATOR_TRIAL_BYTES,start,end]
+  );
+  if(r.rowCount)return r.rows[0];
+  return (await pool.query("SELECT * FROM creator_subscriptions WHERE user_id=$1 LIMIT 1",[userId])).rows[0]||null;
+}
+async function getCreatorSubscription(userId){
+  return ensureCreatorSubscription(userId);
+}
+async function creatorStorageUsage(userId){
+  const [used,reserved]=await Promise.all([
+    pool.query("SELECT COALESCE(SUM(f.size_bytes),0) bytes FROM files f JOIN projects p ON p.id=f.project_id WHERE p.owner_id=$1",[userId]),
+    pool.query("SELECT COALESCE(SUM(u.size_bytes),0) bytes FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE p.owner_id=$1 AND u.status='active'",[userId])
+  ]);
+  return {usedBytes:Number(used.rows[0]?.bytes||0),reservedBytes:Number(reserved.rows[0]?.bytes||0)};
+}
+async function creatorQuota(userId){
+  const sub=await getCreatorSubscription(userId);
+  const now=new Date();
+  const active=!!sub&&["trialing","active"].includes(String(sub.status))&&new Date(sub.current_period_end).getTime()>now.getTime();
+  const quota=active?Number(sub.storage_bytes||0):0;
+  const usage=await creatorStorageUsage(userId);
+  const available=Math.max(0,quota-usage.usedBytes-usage.reservedBytes);
+  return {subscription:sub,active,quotaBytes:quota,usedBytes:usage.usedBytes,reservedBytes:usage.reservedBytes,availableBytes:available};
+}
+async function assertCreatorQuotaForUpload(userId,uploadId,sizeBytes){
+  const q=await creatorQuota(userId);
+  if(!q.active) {
+    const err=new Error("Your storage plan is not active. Please subscribe to continue uploading.");
+    err.code="SUBSCRIPTION_REQUIRED";
+    err.quota=q;
+    throw err;
+  }
+  const otherReserved=await pool.query(
+    "SELECT COALESCE(SUM(u.size_bytes),0) bytes FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE p.owner_id=$1 AND u.status='active' AND u.id<>$2",
+    [userId,uploadId||"00000000-0000-0000-0000-000000000000"]
+  );
+  const projected=q.usedBytes+Number(otherReserved.rows[0]?.bytes||0)+Number(sizeBytes||0);
+  if(projected>q.quotaBytes){
+    const err=new Error("This upload would exceed your current storage plan. Upgrade your plan to continue.");
+    err.code="STORAGE_QUOTA_EXCEEDED";
+    err.quota={...q,otherReservedBytes:Number(otherReserved.rows[0]?.bytes||0),projectedBytes:projected};
+    throw err;
+  }
+  return q;
+}
+async function fetchMoolre(pathname,body){
+  if(!moolreConfigured()){
+    const err=new Error("Moolre payment is not configured. Add MOOLRE_API_USER, MOOLRE_API_PUBKEY and MOOLRE_ACCOUNT_NUMBER in Railway.");
+    err.code="MOOLRE_NOT_CONFIGURED";
+    throw err;
+  }
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
+  try{
+    const r=await fetch(moolreBaseUrl()+pathname,{
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-API-USER":String(process.env.MOOLRE_API_USER),"X-API-PUBKEY":String(process.env.MOOLRE_API_PUBKEY)},
+      body:JSON.stringify(body),
+      signal:controller.signal
+    });
+    const text=await r.text();let data={};try{data=text?JSON.parse(text):{}}catch{}
+    if(!r.ok)throw new Error(String(data.message||data.error||("Moolre API HTTP "+r.status)));
+    return data;
+  }finally{clearTimeout(timer)}
+}
+async function verifyMoolrePayment(externalRef){
+  const result=await fetchMoolre("/open/transact/status",{
+    type:1,idtype:1,id:String(externalRef),accountnumber:String(process.env.MOOLRE_ACCOUNT_NUMBER)
+  });
+  const data=result?.data&&typeof result.data==="object"?result.data:{};
+  return {ok:Number(data.txstatus)===1||String(data.txstatus)==="1",status:Number(data.txstatus||0),data,result};
+}
+async function activateSubscriptionFromPayment(payment,providerPayload){
+  const plan=(await pool.query("SELECT * FROM subscription_plans WHERE id=$1",[payment.plan_id])).rows[0];
+  if(!plan)throw new Error("Subscription plan not found.");
+  const now=new Date();
+  await pool.query(
+    "UPDATE payment_transactions SET status='success',provider_ref=$2,provider_payload=$3,paid_at=COALESCE(paid_at,$4),updated_at=now() WHERE id=$1",
+    [payment.id,String(providerPayload?.transactionid||providerPayload?.reference||providerPayload?.id||""),JSON.stringify(providerPayload||{}),now]
+  );
+  await pool.query(
+    "UPDATE creator_subscriptions SET plan_id=$2,status='active',storage_bytes=$3,monthly_price_ghs=$4,current_period_start=$5,current_period_end=$6,canceled_at=NULL,updated_at=now() WHERE user_id=$1",
+    [payment.user_id,plan.id,Number(plan.storage_bytes),Number(plan.monthly_price_ghs),now,addOneMonth(now)]
+  );
+  return (await pool.query("SELECT * FROM creator_subscriptions WHERE user_id=$1 LIMIT 1",[payment.user_id])).rows[0];
+}
+async function processMoolreWebhookPayload(body){
+  const root=body&&typeof body==="object"?body:{};
+  const data=root.data&&typeof root.data==="object"?root.data:root;
+  const externalRef=String(data.externalref||root.externalref||"").trim();
+  const txstatus=Number(data.txstatus??root.txstatus??root.status??0);
+  if(!externalRef)return {ok:false,reason:"Missing external reference."};
+  const paymentQ=await pool.query("SELECT * FROM payment_transactions WHERE external_ref=$1 LIMIT 1",[externalRef]);
+  if(!paymentQ.rowCount)return {ok:false,reason:"Unknown payment reference.",externalRef};
+  const payment=paymentQ.rows[0];
+  const incomingAmount=Number(data.amount??data.value??root.amount??0);
+  if(incomingAmount>0&&Math.abs(incomingAmount-Number(payment.amount_ghs))>0.01){
+    return {ok:false,reason:"Payment amount does not match the pending transaction.",externalRef};
+  }
+  const incomingAccount=String(data.accountnumber||root.accountnumber||"").trim();
+  if(incomingAccount&&String(process.env.MOOLRE_ACCOUNT_NUMBER||"").trim()&&incomingAccount!==String(process.env.MOOLRE_ACCOUNT_NUMBER).trim()){
+    return {ok:false,reason:"Moolre account number does not match.",externalRef};
+  }
+  if(["success","successful","paid","completed"].includes(String(data.status||root.status||"").toLowerCase())) {
+    // Some webhook variants expose status as text while the documented flow uses txstatus=1.
+  }
+  if(txstatus===1){
+    const sub=await activateSubscriptionFromPayment(payment,data);
+    return {ok:true,success:true,externalRef,subscription:sub};
+  }
+  const statusText=String(data.message||root.message||"Payment not completed.");
+  await pool.query("UPDATE payment_transactions SET status='failed',provider_payload=$2,updated_at=now() WHERE id=$1 AND status<>'success'",[payment.id,JSON.stringify(data||root)]);
+  return {ok:true,success:false,externalRef,message:statusText};
+}
 async function loadCreativeSettings(userId){
   const r=await pool.query("SELECT * FROM creative_settings WHERE user_id=$1",[userId]);
   if(!r.rowCount)return {...DEFAULT_CREATIVE_SETTINGS,email_templates:{...DEFAULT_CREATIVE_SETTINGS.email_templates},preferences:{...DEFAULT_CREATIVE_SETTINGS.preferences},integrations:{...DEFAULT_CREATIVE_SETTINGS.integrations}};
@@ -1115,6 +1319,7 @@ app.post("/api/portal/register",async(req,res)=>{
   if(existing.rowCount)return res.status(409).json({error:"An account with that email already exists."});
   const id=uid(),hash=await hashUserPassword(password);
   const r=await pool.query("INSERT INTO users(id,email,full_name,password_hash) VALUES($1,$2,$3,$4) RETURNING id,email,full_name,created_at",[id,email,fullName,hash]);
+  await ensureCreatorSubscription(id);
   res.setHeader("Set-Cookie","fbi_user_session="+encodeURIComponent(userSession(r.rows[0]))+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000");
   res.json({ok:true,user:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not create your account."})}
@@ -1125,6 +1330,7 @@ app.post("/api/portal/login",async(req,res)=>{
   const r=await pool.query("SELECT id,email,full_name,password_hash FROM users WHERE email=$1",[email]);
   if(!r.rowCount||!(await userPasswordMatches(password,r.rows[0].password_hash)))return res.status(401).json({error:"Invalid email or password."});
   const u={id:r.rows[0].id,email:r.rows[0].email,full_name:r.rows[0].full_name};
+  await ensureCreatorSubscription(u.id);
   res.setHeader("Set-Cookie","fbi_user_session="+encodeURIComponent(userSession(u))+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000");
   res.json({ok:true,user:u});
  }catch(e){console.error(e);res.status(500).json({error:"Login service error."})}
@@ -1137,8 +1343,110 @@ app.get("/api/portal/me",portalUser,async(req,res)=>{
  try{
   const r=await pool.query("SELECT id,email,full_name,created_at FROM users WHERE id=$1",[req.portalUser.id]);
   if(!r.rowCount)return res.status(401).json({error:"Account not found."});
+  await ensureCreatorSubscription(req.portalUser.id);
   res.json({authenticated:true,user:r.rows[0]});
  }catch(e){res.status(500).json({error:"Could not load account."})}
+});
+
+
+app.get("/api/portal/billing",portalUser,async(req,res)=>{
+ try{
+  const sub=await getCreatorSubscription(req.portalUser.id);
+  const q=await creatorQuota(req.portalUser.id);
+  const plans=(await pool.query("SELECT id,name,storage_bytes,monthly_price_ghs FROM subscription_plans WHERE active=true AND id<>$1 ORDER BY monthly_price_ghs ASC",["trial"])).rows;
+  const payments=(await pool.query("SELECT id,plan_id,amount_ghs,currency,provider,external_ref,provider_ref,status,authorization_url,created_at,paid_at FROM payment_transactions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 8",[req.portalUser.id])).rows;
+  const plan=(await pool.query("SELECT id,name,storage_bytes,monthly_price_ghs FROM subscription_plans WHERE id=$1",[sub?.plan_id||"trial"])).rows[0]||null;
+  res.json({
+    plans:plans.map(p=>({id:p.id,name:p.name,storage_bytes:Number(p.storage_bytes),monthly_price_ghs:Number(p.monthly_price_ghs)})),
+    current:sub?{...sub,storage_bytes:Number(sub.storage_bytes),monthly_price_ghs:Number(sub.monthly_price_ghs),plan:plan?{id:plan.id,name:plan.name,storage_bytes:Number(plan.storage_bytes),monthly_price_ghs:Number(plan.monthly_price_ghs)}:null}:null,
+    usage:{quota_bytes:q.quotaBytes,used_bytes:q.usedBytes,reserved_bytes:q.reservedBytes,available_bytes:q.availableBytes,usage_percent:q.quotaBytes?Math.min(100,(q.usedBytes+q.reservedBytes)/q.quotaBytes*100):0},
+    moolre:{configured:moolreConfigured(),checkout_available:moolreConfigured(),currency:CREATOR_BILLING_CURRENCY}
+  });
+ }catch(e){console.error("Portal billing load failed:",e);res.status(500).json({error:"Could not load subscription details."})}
+});
+app.post("/api/portal/billing/checkout",portalUser,async(req,res)=>{
+ try{
+  const planId=String(req.body.plan_id||"").trim();
+  if(!CREATOR_PLAN_IDS.includes(planId))return res.status(400).json({error:"Select a valid storage plan."});
+  const planQ=await pool.query("SELECT * FROM subscription_plans WHERE id=$1 AND active=true",[planId]);
+  if(!planQ.rowCount)return res.status(404).json({error:"Storage plan not found."});
+  const plan=planQ.rows[0];
+  const sub=await getCreatorSubscription(req.portalUser.id);
+  const externalRef="FBI-CFS-"+Date.now()+"-"+crypto.randomBytes(6).toString("hex");
+  const paymentId=uid();
+  await pool.query(
+    "INSERT INTO payment_transactions(id,user_id,subscription_id,plan_id,amount_ghs,currency,provider,external_ref,status,customer_email) VALUES($1,$2,$3,$4,$5,$6,'moolre',$7,'pending',$8)",
+    [paymentId,req.portalUser.id,sub?.id||null,plan.id,Number(plan.monthly_price_ghs),CREATOR_BILLING_CURRENCY,externalRef,String(req.portalUser.email||"").toLowerCase()]
+  );
+  let response;
+  try{
+    response=await fetchMoolre("/embed/link",{
+      type:1,
+      amount:Number(plan.monthly_price_ghs).toFixed(2),
+      email:moolreBusinessEmail(),
+      externalref:externalRef,
+      callback:appPublicBaseUrl(req)+"/api/payments/moolre/webhook",
+      redirect:appPublicBaseUrl(req)+"/portal?payment=complete&ref="+encodeURIComponent(externalRef),
+      reusable:"0",
+      expiration_time:30,
+      currency:CREATOR_BILLING_CURRENCY,
+      accountnumber:String(process.env.MOOLRE_ACCOUNT_NUMBER),
+      metadata:{platform:"FBI Client File Studio",user_id:req.portalUser.id,plan_id:plan.id,payment_id:paymentId,creator_email:req.portalUser.email}
+    });
+  }catch(e){
+    await pool.query("UPDATE payment_transactions SET status='failed',provider_payload=$2,updated_at=now() WHERE id=$1",[paymentId,JSON.stringify({error:e.message||"Moolre request failed"})]).catch(()=>{});
+    const status=e.code==="MOOLRE_NOT_CONFIGURED"?503:502;
+    return res.status(status).json({error:e.message||"Moolre checkout could not be started.",code:e.code||"MOOLRE_ERROR"});
+  }
+  const data=response?.data&&typeof response.data==="object"?response.data:{};
+  const authorizationUrl=String(data.authorization_url||"");
+  if(!authorizationUrl){
+    await pool.query("UPDATE payment_transactions SET status='failed',provider_payload=$2,updated_at=now() WHERE id=$1",[paymentId,JSON.stringify(response||{})]);
+    return res.status(502).json({error:String(response?.message||"Moolre did not return a payment URL.")});
+  }
+  await pool.query("UPDATE payment_transactions SET authorization_url=$2,provider_ref=$3,provider_payload=$4,updated_at=now() WHERE id=$1",[paymentId,authorizationUrl,String(data.reference||""),JSON.stringify(response||{})]);
+  res.json({ok:true,authorization_url:authorizationUrl,external_ref:externalRef,plan:{id:plan.id,name:plan.name,monthly_price_ghs:Number(plan.monthly_price_ghs),storage_bytes:Number(plan.storage_bytes)}});
+ }catch(e){console.error("Portal billing checkout failed:",e);res.status(500).json({error:"Could not create the payment checkout."})}
+});
+app.get("/api/portal/billing/check",portalUser,async(req,res)=>{
+ try{
+  const externalRef=String(req.query.ref||"").trim();
+  if(!externalRef)return res.status(400).json({error:"Payment reference is required."});
+  const paymentQ=await pool.query("SELECT * FROM payment_transactions WHERE external_ref=$1 AND user_id=$2 LIMIT 1",[externalRef,req.portalUser.id]);
+  if(!paymentQ.rowCount)return res.status(404).json({error:"Payment transaction not found."});
+  let payment=paymentQ.rows[0];
+  if(payment.status==="pending"&&moolreConfigured()){
+    try{
+      const verified=await verifyMoolrePayment(externalRef);
+      if(verified.ok){
+        const payload=verified.data||{};
+        await activateSubscriptionFromPayment(payment,payload);
+      }else if(verified.status>1){
+        await pool.query("UPDATE payment_transactions SET status='failed',provider_payload=$2,updated_at=now() WHERE id=$1 AND status='pending'",[payment.id,JSON.stringify(verified.data||verified.result||{})]);
+      }
+    }catch(e){console.warn("Moolre payment status check failed:",e.message||e)}
+  }
+  payment=(await pool.query("SELECT * FROM payment_transactions WHERE id=$1",[payment.id])).rows[0]||payment;
+  const sub=await getCreatorSubscription(req.portalUser.id);
+  res.json({ok:true,status:payment.status,external_ref:externalRef,subscription:{plan_id:sub?.plan_id||"trial",status:sub?.status||"trialing",current_period_end:sub?.current_period_end||null}});
+ }catch(e){console.error("Portal billing check failed:",e);res.status(500).json({error:"Could not check payment status."})}
+});
+app.post("/api/payments/moolre/webhook",async(req,res)=>{
+ try{
+  const body=req.body&&typeof req.body==="object"?req.body:{};
+  const configuredSecret=String(process.env.MOOLRE_WEBHOOK_SECRET||"").trim();
+  const data=body.data&&typeof body.data==="object"?body.data:body;
+  const providedSecret=String(data.secret||body.secret||"").trim();
+  if(configuredSecret&&(providedSecret!==configuredSecret))return res.status(401).json({error:"Invalid webhook secret."});
+  const externalRef=String(data.externalref||body.externalref||"").trim();
+  const eventKey=crypto.createHash("sha256").update(JSON.stringify(body)).digest("hex");
+  await pool.query("INSERT INTO payment_webhook_events(id,event_key,external_ref,payload) VALUES($1,$2,$3,$4) ON CONFLICT(event_key) DO NOTHING",[uid(),eventKey,externalRef,JSON.stringify(body)]);
+  const result=await processMoolreWebhookPayload(body);
+  if(result.externalRef){
+    await pool.query("UPDATE payment_webhook_events SET processed_at=now() WHERE event_key=$1",[eventKey]).catch(()=>{});
+  }
+  return res.status(result.ok?200:202).json(result);
+ }catch(e){console.error("Moolre webhook processing failed:",e);res.status(500).json({error:"Webhook processing failed."})}
 });
 
 app.get("/api/portal/settings",portalUser,async(req,res)=>{
@@ -2746,6 +3054,8 @@ app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
   const project=await portalProjectOwned(req.portalUser.id,projectId);
   if(!project)return res.status(404).json({error:"Project not found."});
   if(!originalName||!Number.isFinite(size)||size<0||size>MAX_FILE_SIZE)return res.status(400).json({error:"Invalid file."});
+  const entitlement=await creatorQuota(req.portalUser.id);
+  if(!entitlement.active)return res.status(402).json({error:"Your storage trial or subscription is not active. Open Billing to choose a plan.",code:"SUBSCRIPTION_REQUIRED",storage:{quota_bytes:entitlement.quotaBytes,used_bytes:entitlement.usedBytes,reserved_bytes:entitlement.reservedBytes,available_bytes:entitlement.availableBytes}});
   // Sample-based large-file identity is only for resumable session binding,
   // not strong enough for duplicate detection.
   if(fingerprint && fingerprintType==="full"){
@@ -2766,6 +3076,12 @@ app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
     }
     if(u.mode==="multipart"&&u.multipart_upload_id)await s3.send(new AbortMultipartUploadCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id})).catch(function(){});
     await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
+  }
+  let quotaForNewUpload;
+  try{quotaForNewUpload=await assertCreatorQuotaForUpload(req.portalUser.id,null,size)}
+  catch(e){
+    const status=e.code==="STORAGE_QUOTA_EXCEEDED"?413:e.code==="SUBSCRIPTION_REQUIRED"?402:500;
+    return res.status(status).json({error:e.message,code:e.code||"UPLOAD_QUOTA_ERROR",storage:e.quota?{quota_bytes:e.quota.quotaBytes,used_bytes:e.quota.usedBytes,reserved_bytes:e.quota.reservedBytes,available_bytes:e.quota.availableBytes,projected_bytes:e.quota.projectedBytes}:undefined});
   }
   const id=uid(),partSize=choosePartSize(size||1),mode=size>=MIN_PART_SIZE?"multipart":"single",storageKey="projects/"+projectId+"/"+id+"/"+relativePath;
   let multipartUploadId=null,url=null,createdMultipartUploadId=null;
@@ -2872,6 +3188,11 @@ app.post("/api/portal/uploads/:id/complete",portalUser,async(req,res)=>{
   const u=q.rows[0];
 
   try{
+    try{await assertCreatorQuotaForUpload(req.portalUser.id,u.id,Number(u.size_bytes||0));}
+    catch(e){
+      const status=e.code==="STORAGE_QUOTA_EXCEEDED"?413:e.code==="SUBSCRIPTION_REQUIRED"?402:500;
+      return res.status(status).json({error:e.message,code:e.code||"UPLOAD_QUOTA_ERROR"});
+    }
     const fileRow=await finalizeStoredUpload(u);
     return res.json({ok:true,file:fileRow,alreadyCompleted:u.status==="completed"});
   }catch(e){
