@@ -6,6 +6,7 @@ const A={
   selectedSource:"",
   selectedChannel:"",
   programChannel:"",
+  channelData:null,
   localProgram:"",
   bridge:null,
   mv:null,
@@ -38,13 +39,15 @@ function destroyHls(v){
 }
 function setHls(v,url){
   if(!v||!url)return;
+  if(v.__fbiHlsUrl===url)return;
   destroyHls(v);v.srcObject=null;v.removeAttribute("src");v.load();
   if(window.Hls&&window.Hls.isSupported()){
     const h=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,maxBufferLength:20,maxMaxBufferLength:45,backBufferLength:30,capLevelToPlayerSize:true,startLevel:-1,xhrSetup:x=>{x.withCredentials=true}});
-    h.loadSource(url);h.attachMedia(v);h.on(Hls.Events.MANIFEST_PARSED,()=>v.play().catch(()=>{}));h.on(Hls.Events.ERROR,(e,d)=>{if(d?.fatal){try{h.destroy()}catch{}setTimeout(()=>setHls(v,url),1200)}});v.__fbiHls=h;
+    h.loadSource(url);h.attachMedia(v);h.on(Hls.Events.MANIFEST_PARSED,()=>v.play().catch(()=>{}));h.on(Hls.Events.ERROR,(e,d)=>{if(d?.fatal){try{h.destroy()}catch{}v.__fbiHls=null;setTimeout(()=>setHls(v,url),1200)}});
+    v.__fbiHls=h;
   }else{v.src=url;v.load();v.play().catch(()=>{})}
+  v.__fbiHlsUrl=url;
 }
-
 function selectedPreviewVideo(){
   const v=document.getElementById("previewVideo");return v||null
 }
@@ -77,77 +80,240 @@ function ensureAudio(out,src){
 function selectAudio(out,id){
   out.nodes.forEach((n,sid)=>{const v=sid===id?1:0;try{n.gain.gain.setTargetAtTime(v,out.audio.currentTime,.05)}catch{n.gain.gain.value=v}});
 }
+
 function makeProgramStream(){
-  const c=document.createElement("canvas");c.width=1920;c.height=1080;
-  const ctx=c.getContext("2d",{alpha:false});const video=c.captureStream(30);
-  const AudioContext=window.AudioContext||window.webkitAudioContext;if(!AudioContext)throw new Error("Web Audio is not supported.");
+  const canvas=document.createElement("canvas");canvas.width=1920;canvas.height=1080;
+  const ctx=canvas.getContext("2d",{alpha:false});const videoStream=canvas.captureStream(30);
+  const AudioContext=window.AudioContext||window.webkitAudioContext;
+  if(!AudioContext)throw new Error("Web Audio is not supported.");
   const audio=new AudioContext(),dest=audio.createMediaStreamDestination();
-  const combined=new MediaStream([...video.getVideoTracks(),...dest.stream.getAudioTracks()]);
+  const finalStream=new MediaStream([...videoStream.getVideoTracks(),...dest.stream.getAudioTracks()]);
   const types=["video/webm;codecs=vp8,opus","video/webm;codecs=vp9,opus","video/webm;codecs=vp8","video/webm"];
-  const mime=types.find(t=>MediaRecorder.isTypeSupported?.(t))||"";if(!mime)throw new Error("This browser cannot encode the Local Studio output.");
-  const recorder=new MediaRecorder(combined,{mimeType:mime,videoBitsPerSecond:4500000,audioBitsPerSecond:128000});
-  return {canvas:c,ctx,audio,dest,nodes:new Map(),recorder,raf:0};
+  const mime=types.find(t=>MediaRecorder.isTypeSupported?.(t))||"";
+  if(!mime)throw new Error("This browser cannot encode the Local Studio output.");
+  const recorder=new MediaRecorder(finalStream,{mimeType:mime,videoBitsPerSecond:4500000,audioBitsPerSecond:128000});
+  return {canvas,ctx,videoStream,audio,dest,nodes:new Map(),channelAudioNode:null,recorder,raf:0,sendChain:Promise.resolve(),transition:null};
 }
+
+function drawSource(ctx,src){
+  if(!src)return false;
+  if(src.kind==="NDI"){
+    const img=src.image;
+    if(!img||!img.complete||!img.naturalWidth)return false;
+    const w=img.naturalWidth,h=img.naturalHeight;
+    const scale=Math.max(1920/w,1080/h),dw=w*scale,dh=h*scale;
+    ctx.drawImage(img,(1920-dw)/2,(1080-dh)/2,dw,dh);
+    return true;
+  }
+  const v=src.video;
+  if(!v||v.readyState<2||!v.videoWidth||!v.videoHeight)return false;
+  const scale=Math.max(1920/v.videoWidth,1080/v.videoHeight),dw=v.videoWidth*scale,dh=v.videoHeight*scale;
+  ctx.drawImage(v,(1920-dw)/2,(1080-dh)/2,dw,dh);
+  return true;
+}
+
 function draw(out){
   if(!out)return;
   const ctx=out.ctx;ctx.fillStyle="#000";ctx.fillRect(0,0,1920,1080);
-  const src=A.sources.get(A.localProgram);const v=src?.video;
-  if(src?.kind!=="AUDIO"&&v&&v.readyState>=2&&v.videoWidth){
-    const scale=Math.max(1920/v.videoWidth,1080/v.videoHeight),w=v.videoWidth*scale,h=v.videoHeight*scale;
-    ctx.drawImage(v,(1920-w)/2,(1080-h)/2,w,h);
+  const tr=out.transition;
+  if(tr){
+    const p=Math.max(0,Math.min(1,(performance.now()-tr.started)/tr.duration));
+    const from=A.sources.get(tr.fromId),to=A.sources.get(tr.toId);
+    if(from) {ctx.save();ctx.globalAlpha=1-p;drawSource(ctx,from);ctx.restore()}
+    if(to) {ctx.save();ctx.globalAlpha=p;drawSource(ctx,to);ctx.restore()}
+    if(p>=1)out.transition=null;
+  }else{
+    const src=A.sources.get(A.localProgram)||A.sources.get("channel");
+    if(src?.kind!=="AUDIO")drawSource(ctx,src);
   }
   out.raf=requestAnimationFrame(()=>draw(out));
 }
 
-async function gatewayStart(src){
-  const id=activeChannelId();if(!id)throw new Error("Select a live channel first.");
-  const s=await channel(id);
-  if(!s.rtmp_server||!s.stream_key)throw new Error("This channel does not have RTMP encoder details.");
-  let status;
-  try{status=await fetch("http://127.0.0.1:8765/status",{cache:"no-store"}).then(r=>r.json())}catch{throw new Error("Local Studio Encoder is not running. Start the FBI NDI Gateway on this production computer.")}
-  if(!status)return;
-  if(!A.bridge){
-    const out=makeProgramStream();A.bridge={out,channelId:id,session:null};
-    const start=await fetch("http://127.0.0.1:8765/local/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({rtmp_url:s.rtmp_server.replace(/\/$/,"")+"/"+s.stream_key})});
-    const d=await start.json().catch(()=>({}));if(!start.ok||d.error){A.bridge=null;throw new Error(d.error||"Local Studio Encoder could not start.")}
-    A.bridge.session=d.session;
-    out.recorder.ondataavailable=async e=>{
-      if(e.data?.size&&A.bridge?.session===d.session){
-        try{
-          const body=await e.data.arrayBuffer();
-          const r=await fetch("http://127.0.0.1:8765/local/chunk?session="+encodeURIComponent(d.session),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body});
-          if(!r.ok)throw new Error();
-        }catch{toast("Local Studio Encoder stopped receiving video.");stopGateway()}}
-    };
-    out.recorder.onstop=()=>{};
-    await out.audio.resume().catch(()=>{});
-    out.recorder.start(500);
-    draw(out);
+function ensureChannelSource(s){
+  if(!s)return;
+  let v=document.getElementById("fbiLocalChannelFeed");
+  if(!v){
+    v=document.createElement("video");
+    v.id="fbiLocalChannelFeed";
+    v.playsInline=true;v.autoplay=true;v.controls=false;
+    v.style.cssText="position:fixed;left:-10000px;top:-10000px;width:2px;height:2px;opacity:0;pointer-events:none";
+    document.body.appendChild(v);
   }
-  A.bridge.channelId=id;return A.bridge;
+  v.volume=0;v.muted=false;
+  setHls(v,hlsUrl(s));
+  A.sources.set("channel",{id:"channel",name:s.name||"Channel Feed",kind:"CHANNEL",detail:"Existing OBS / vMix live channel feed",video:v,audioElement:v});
 }
-async function localTake(src){
-  A.selectedSource=src.id;A.localProgram=src.id;
+
+async function refreshChannelSource(){
+  const id=activeChannelId();
+  if(!id)return;
   try{
-    const out=(await gatewayStart(src)).out;
-    A.sources.forEach(x=>{if(x.stream)ensureAudio(out,x)});
-    selectAudio(out,src.id);
-    setLocalProgramVisual(src);
-    const ch=await channel(activeChannelId());
-    if(ch.viewer_url)window.open(ch.viewer_url,"_blank","noopener");
-    refresh();toast(src.name+" is now PROGRAM / ON AIR");
+    const s=await channel(id);
+    A.selectedChannel=id;A.programChannel=id;A.channelData=s;
+    ensureChannelSource(s);
+    const pv=selectedPreviewVideo();
+    if(pv&&A.selectedSource==="channel"&&!A.bridge){destroyHls(pv);pv.srcObject=null;pv.removeAttribute("src");pv.load();setHls(pv,hlsUrl(s))}
+  }catch{}
+}
+
+async function putChannelInProgram(openWatch=false){
+  const id=activeChannelId();if(!id){toast("Select a channel first.");return}
+  await refreshChannelSource();
+  if(A.bridge)await stopGateway();
+  A.programChannel=id;A.localProgram="";A.selectedSource="channel";
+  const pv=selectedPreviewVideo();if(pv&&A.channelData){destroyHls(pv);pv.srcObject=null;pv.removeAttribute("src");pv.load();setHls(pv,hlsUrl(A.channelData))}
+  restoreProgram();
+  refresh();
+  toast((A.channelData?.name||"Channel Feed")+" is back on PROGRAM");
+  if(openWatch&&A.channelData?.viewer_url)window.open(A.channelData.viewer_url,"_blank","noopener");
+}
+
+function setProgramMonitor(out){
+  const v=programVideo();if(!v||!out)return;
+  destroyHls(v);v.srcObject=out.videoStream||null;v.removeAttribute("src");v.load();
+  v.autoplay=true;v.muted=true;v.playsInline=true;v.style.display="block";v.dataset.fbiProgram="local";
+  v.play().catch(()=>{});
+}
+
+function ensureAudio(out,src){
+  if(!out||!src)return null;
+  if(src.kind==="CHANNEL"&&src.audioElement&&out.channelAudioNode)return out.channelAudioNode;
+  if(src.kind==="CHANNEL"&&src.audioElement){
+    try{
+      const input=out.audio.createMediaElementSource(src.audioElement);
+      const gain=out.audio.createGain();gain.gain.value=0;input.connect(gain);gain.connect(out.dest);
+      out.channelAudioNode={input,gain};return out.channelAudioNode;
+    }catch{return null}
+  }
+  if(!src.stream?.getAudioTracks?.().length||out.nodes.has(src.id))return out.nodes.get(src.id)||null;
+  try{
+    const ms=new MediaStream(src.stream.getAudioTracks());
+    const input=out.audio.createMediaStreamSource(ms);
+    const gain=out.audio.createGain();gain.gain.value=0;input.connect(gain);gain.connect(out.dest);
+    out.nodes.set(src.id,{input,gain});return out.nodes.get(src.id);
+  }catch{return null}
+}
+
+function selectAudio(out,id){
+  if(!out)return;
+  const ch=ensureAudio(out,A.sources.get("channel"));
+  if(ch)try{ch.gain.gain.setTargetAtTime(id==="channel"?1:0,out.audio.currentTime,.04)}catch{ch.gain.gain.value=id==="channel"?1:0}
+  out.nodes.forEach((node,sid)=>{
+    const v=sid===id?1:0;
+    try{node.gain.gain.setTargetAtTime(v,out.audio.currentTime,.04)}catch{node.gain.gain.value=v}
+  });
+}
+
+async function gatewayStart(){
+  const id=activeChannelId();if(!id)throw new Error("Select a live channel first.");
+  await refreshChannelSource();
+  const s=A.channelData;
+  if(!s?.rtmp_server||!s?.stream_key)throw new Error("This channel does not have RTMP encoder details.");
+
+  try{await fetch("http://127.0.0.1:8765/status",{cache:"no-store"}).then(r=>r.json())}
+  catch{throw new Error("The FBI NDI Gateway / Local Studio Encoder is not running on this production computer.")}
+
+  const prep=await api("/api/live/streams/"+encodeURIComponent(id)+"/program/start",{method:"POST"});
+  let out=null;
+  try{
+    out=makeProgramStream();
+    const start=await fetch("http://127.0.0.1:8765/local/start",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({rtmp_url:prep.program_rtmp_url})
+    });
+    const d=await start.json().catch(()=>({}));
+    if(!start.ok||d.error)throw new Error(d.error||"Local Studio Encoder could not start.");
+
+    A.bridge={out,channelId:id,session:d.session,ready:false};
+
+    out.recorder.ondataavailable=e=>{
+      if(!e.data?.size||!A.bridge||A.bridge.session!==d.session)return;
+      out.sendChain=out.sendChain.then(async()=>{
+        if(!A.bridge||A.bridge.session!==d.session)return;
+        const body=await e.data.arrayBuffer();
+        const rr=await fetch("http://127.0.0.1:8765/local/chunk?session="+encodeURIComponent(d.session),{
+          method:"POST",headers:{"Content-Type":"application/octet-stream"},body
+        });
+        if(!rr.ok)throw new Error("Local encoder rejected Program data");
+      }).catch(err=>toast(err.message||"Local encoder input failed."));
+    };
+
+    await out.audio.resume().catch(()=>{});
+    A.sources.forEach(src=>ensureAudio(out,src));
+    out.recorder.start(500);
+    A.localProgram=A.localProgram||"channel";
+    draw(out);
+    const deadline=Date.now()+12000;
+    while(Date.now()<deadline){
+      try{
+        const st=await fetch("http://127.0.0.1:8765/local/status?session="+encodeURIComponent(d.session),{cache:"no-store"}).then(r=>r.json());
+        if(st.running&&Number(st.bytes)>0){out.ready=true;break}
+        if(st.error)throw new Error(st.error);
+      }catch(e){
+        if(e.message&&e.message!==""&&Date.now()+100>deadline)throw e;
+      }
+      await new Promise(r=>setTimeout(r,350));
+    }
+    if(!out.ready)throw new Error("Local Program encoder did not receive video data.");
+    await api("/api/live/streams/"+encodeURIComponent(id)+"/program/activate",{method:"POST"});
+    setProgramMonitor(out);
+    return A.bridge;
+  }catch(e){
+    if(A.bridge){try{await fetch("http://127.0.0.1:8765/local/stop?session="+encodeURIComponent(A.bridge.session),{method:"POST"})}catch{}try{A.bridge.out.recorder.stop()}catch{}cancelAnimationFrame(A.bridge.out.raf);try{A.bridge.out.audio.close()}catch{}A.bridge=null}
+    await api("/api/live/streams/"+encodeURIComponent(id)+"/program/stop",{method:"POST"}).catch(()=>{});
+    throw e;
+  }
+}
+
+async function localTake(src){
+  const id=activeChannelId();if(!id){toast("Select a live channel first.");return}
+  await refreshChannelSource();
+  A.selectedSource=src.id;
+  if(src.kind==="CHANNEL"){await putChannelInProgram(false);return}
+
+  try{
+    const previous=A.localProgram||"channel";
+    const bridge=await gatewayStart();
+    if(src.kind!=="AUDIO"&&previous!==src.id&&bridge.out){
+      bridge.out.transition={fromId:previous,toId:src.id,started:performance.now(),duration:650};
+      A.localProgram=src.id;
+    }else if(src.kind!=="AUDIO"){
+      A.localProgram=src.id;
+    }
+    if(src.kind==="AUDIO"){
+      A.audioProgram=src.id;
+      selectAudio(bridge.out,src.id);
+    }else{
+      selectAudio(bridge.out,src.stream?.getAudioTracks?.().length?src.id:"channel");
+    }
+    setProgramMonitor(bridge.out);
+    refresh();toast(src.name+(src.kind==="AUDIO"?" added to PROGRAM AUDIO":" is now PROGRAM / ON AIR"));
   }catch(e){toast(e.message||"Could not put local source on air.")}
 }
+
 async function stopGateway(){
-  const b=A.bridge;if(!b)return;
+  const b=A.bridge;
+  if(!b){
+    if(M.channelData)await api("/api/live/streams/"+encodeURIComponent(M.channelData.id)+"/program/stop",{method:"POST"}).catch(()=>{});
+    restoreProgram();return;
+  }
+  const id=b.channelId;
   try{if(b.session)await fetch("http://127.0.0.1:8765/local/stop?session="+encodeURIComponent(b.session),{method:"POST"})}catch{}
-  try{b.out.recorder.stop()}catch{}cancelAnimationFrame(b.out.raf);try{b.out.audio.close()}catch{}A.bridge=null;A.localProgram="";
+  try{b.out.recorder.stop()}catch{}
+  cancelAnimationFrame(b.out.raf);
+  try{b.out.audio.close()}catch{}
+  A.bridge=null;A.localProgram="";
+  await api("/api/live/streams/"+encodeURIComponent(id)+"/program/stop",{method:"POST"}).catch(()=>{});
   restoreProgram();refresh();
 }
+
 function restoreProgram(){
   const v=programVideo();if(!v)return;
-  destroyHls(v);v.srcObject=null;v.removeAttribute("src");v.load();
-  if(A.programChannel){channel(A.programChannel).then(s=>{setHls(v,hlsUrl(s))}).catch(()=>{})}
+  v.style.display="block";v.dataset.fbiProgram="channel";
+  try{v.srcObject=null}catch{}
+  destroyHls(v);v.removeAttribute("src");v.load();
+  const id=A.programChannel||activeChannelId();
+  if(id)channel(id).then(s=>{A.channelData=s;ensureChannelSource(s);setHls(v,hlsUrl(s))}).catch(()=>{});
 }
 
 async function addCamera(){
@@ -184,27 +350,40 @@ async function addNdi(){
 function removeSource(id){const s=A.sources.get(id);if(!s)return;try{s.stream?.getTracks?.().forEach(t=>t.stop())}catch{}if(A.bridge?.out?.nodes?.has(id)){const n=A.bridge.out.nodes.get(id);try{n.input.disconnect();n.gain.disconnect()}catch{}A.bridge.out.nodes.delete(id)}if(A.selectedSource===id)A.selectedSource="";if(A.localProgram===id){A.localProgram="";restoreProgram()}A.sources.delete(id);refresh()}
 function selectPreview(id){const s=A.sources.get(id);if(!s)return;A.selectedSource=id;if(s.kind==="DEVICE"||s.kind==="SCREEN"){const v=selectedPreviewVideo();if(v){destroyHls(v);v.srcObject=s.stream;v.removeAttribute("src");v.load();v.play().catch(()=>{})}}refresh();toast(s.name+" selected in PREVIEW")}
 function refresh(){
+  refreshChannelSource().catch(()=>{});
   const grid=document.getElementById("fbiLocalGrid");if(!grid)return;grid.innerHTML="";
   for(const s of A.sources.values()){
     const card=document.createElement("div");card.className="fbi-addon-source "+(s.id===A.selectedSource?"preview ":"")+(s.id===A.localProgram?"program":"");
     const visual=document.createElement("div");visual.className="fbi-addon-visual";
-    if(s.kind==="DEVICE"||s.kind==="SCREEN"){const v=document.createElement("video");v.autoplay=true;v.muted=true;v.playsInline=true;v.srcObject=s.stream;v.play().catch(()=>{});visual.appendChild(v);s.galleryVideo=v}
-    else if(s.kind==="NDI"){const img=document.createElement("img");img.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(s.ndiName||s.name)+"&t="+Date.now();visual.appendChild(img);const b=document.createElement("div");b.className="fbi-addon-badge";b.textContent="NDI";visual.appendChild(b)}
-    else{visual.innerHTML='<div class="fbi-addon-special">AUDIO<span>Microphone / line input</span></div>'}
+    if(s.kind==="CHANNEL"||s.kind==="DEVICE"||s.kind==="SCREEN"){
+      const v=document.createElement("video");v.autoplay=true;v.muted=true;v.playsInline=true;v.srcObject=null;
+      if(s.kind==="CHANNEL")attachPreviewChannelTo(v,s);else{v.srcObject=s.stream;v.play().catch(()=>{})}
+      visual.appendChild(v);
+    }else if(s.kind==="NDI"){
+      const img=document.createElement("img");img.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(s.ndiName||s.name)+"&t="+Date.now();visual.appendChild(img);
+      const b=document.createElement("div");b.className="fbi-addon-badge";b.textContent="NDI";visual.appendChild(b);
+    }else{
+      visual.innerHTML='<div class="fbi-addon-special">AUDIO<span>Microphone / line input</span></div>';
+    }
     const body=document.createElement("div");body.className="fbi-addon-source-body";body.innerHTML='<div class="fbi-addon-source-name">'+esc(s.name)+'</div><div class="fbi-addon-source-meta">'+esc(s.kind)+' • '+esc(s.detail)+'</div>';
     const acts=document.createElement("div");acts.className="fbi-addon-source-actions";
     const p=document.createElement("button");p.textContent="PREVIEW";p.className=s.id===A.selectedSource?"fbi-addon-take":"";
-    const t=document.createElement("button");t.textContent=s.kind==="NDI"?"TAKE NDI":"TAKE";t.className="primary";t.onclick=()=>s.kind==="NDI"?takeNdi(s):localTake(s);
+    const t=document.createElement("button");t.textContent="TAKE";t.className="primary";t.onclick=()=>localTake(s);
     const rm=document.createElement("button");rm.textContent="×";rm.onclick=()=>removeSource(s.id);
+    if(s.id==="channel"){rm.disabled=true;rm.style.opacity=".35"}
     p.onclick=()=>selectPreview(s.id);acts.append(p,t,rm);body.appendChild(acts);card.append(visual,body);grid.appendChild(card);
   }
   const stop=document.getElementById("fbiLocalStop");if(stop)stop.disabled=!A.bridge;
-  const st=document.getElementById("fbiLocalState");if(st)st.textContent=A.bridge?"LOCAL OUTPUT LIVE":"LOCAL OUTPUT STANDBY";
-  const tx=document.getElementById("fbiLocalText");if(tx)tx.textContent=A.bridge?"Local Studio is feeding the selected channel through the existing RTMP ingest.":"Select a source for Preview, then TAKE it to Program.";
+  const st=document.getElementById("fbiLocalState");if(st)st.textContent=A.bridge?"PROGRAM / LOCAL MIX LIVE":"PROGRAM / NORMAL CHANNEL";
+  const tx=document.getElementById("fbiLocalText");if(tx)tx.textContent=A.bridge?"Local source is on Program. OBS/vMix continues feeding the same channel in the background.":"Select a source for Preview, then TAKE it to Program on the same live channel.";
 }
-async function takeNdi(s){
-  const id=activeChannelId();if(!id){toast("Select a channel first.");return}
-  try{const ch=await channel(id);await fetch("http://127.0.0.1:8765/input/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({source_name:s.ndiName,rtmp_server:ch.rtmp_server,stream_key:ch.stream_key})}).then(async r=>{const d=await r.json().catch(()=>({}));if(!r.ok||d.error)throw new Error(d.error||"NDI input failed")});A.localProgram=s.id;A.programChannel=id;window.open(ch.viewer_url,"_blank","noopener");setProgramNdi(s);refresh();toast(s.name+" is now PROGRAM / ON AIR")}catch(e){toast(e.message||"NDI input failed")}}
+function attachPreviewChannelTo(v,s){
+  if(!v||!s||!s.video)return;
+  setHls(v,hlsUrl(A.channelData||{}));
+}
+
+async function takeNdi(s){return localTake(s)}
+
 function setProgramNdi(s){const v=programVideo();if(!v)return;destroyHls(v);v.srcObject=null;v.removeAttribute("src");v.load();const img=document.createElement("img");img.style.cssText="width:100%;height:100%;object-fit:cover;display:block;background:#000";img.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(s.ndiName||s.name)+"&t="+Date.now();v.style.display="none";v.parentElement?.appendChild(img)}
 function build(){
   injectStyle();
@@ -229,18 +408,10 @@ function addControls(){
   build();
 }
 function protectProgram(){
-  const id=activeChannelId();if(!id)return;
-  const pv=selectedPreviewVideo(),pr=programVideo();
-  if(A.localProgram){
-    const src=A.sources.get(A.localProgram);
-    if(src?.kind==="NDI")setProgramNdi(src);
-    else if(src)setLocalProgramVisual(src);
-  }else if(A.programChannel&&A.programChannel!==id){
-    channel(A.programChannel).then(s=>{const v=programVideo();if(v){setHls(v,hlsUrl(s))}}).catch(()=>{});
-  }
-  if(!A.programChannel)A.programChannel=id;
-  if(pv&&A.selectedSource&&A.sources.get(A.selectedSource)){const s=A.sources.get(A.selectedSource);if(s.kind==="DEVICE"||s.kind==="SCREEN"){try{destroyHls(pv);pv.srcObject=s.stream;pv.play().catch(()=>{})}catch{}}}
+  if(A.bridge){setProgramMonitor(A.bridge.out);return}
+  const id=activeChannelId();if(id&&id!==A.programChannel){A.programChannel=id;refreshChannelSource().catch(()=>{})}
 }
+
 function openMultiView(){
   if(!A.mv){
     const m=document.createElement("div");m.id="fbiLocalMultiView";m.className="fbi-addon-mv";m.innerHTML='<div class="fbi-addon-mv-card"><div class="fbi-addon-head"><div><b>MULTIVIEW</b><span>All Local Studio sources</span></div><div class="fbi-addon-actions"><button class="fbi-addon-btn" id="fbiMvRefresh">REFRESH</button><button class="fbi-addon-btn danger" id="fbiMvClose">CLOSE</button></div></div><div class="fbi-addon-mv-grid" id="fbiMvGrid"></div></div>';document.body.appendChild(m);A.mv=m;m.querySelector("#fbiMvClose").onclick=()=>m.classList.remove("open");m.querySelector("#fbiMvRefresh").onclick=renderMultiView;m.onclick=e=>{if(e.target===m)m.classList.remove("open")}}
@@ -253,7 +424,7 @@ function renderMultiView(){
     if(s.kind==="DEVICE"||s.kind==="SCREEN"){const x=document.createElement("video");x.autoplay=true;x.muted=true;x.playsInline=true;x.srcObject=s.stream;x.play().catch(()=>{});v.appendChild(x)}
     else if(s.kind==="NDI"){const x=document.createElement("img");x.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(s.ndiName||s.name)+"&t="+Date.now();v.appendChild(x)}
     else{v.innerHTML='<div class="fbi-addon-special">AUDIO<span>Audio source</span></div>'}
-    const body=document.createElement("div");body.className="fbi-addon-mv-body";body.innerHTML='<b>'+esc(s.name)+'</b><span>'+esc(s.kind)+' • '+esc(s.detail)+'</span>';const acts=document.createElement("div");acts.className="fbi-addon-mv-actions";const p=document.createElement("button");p.textContent="PREVIEW";p.onclick=()=>{selectPreview(s.id);A.mv.classList.remove("open")};const t=document.createElement("button");t.textContent=s.kind==="NDI"?"TAKE NDI":"TAKE";t.className="primary";t.onclick=()=>{A.mv.classList.remove("open");s.kind==="NDI"?takeNdi(s):localTake(s)};acts.append(p,t);body.appendChild(acts);c.append(v,body);g.appendChild(c);
+    const body=document.createElement("div");body.className="fbi-addon-mv-body";body.innerHTML='<b>'+esc(s.name)+'</b><span>'+esc(s.kind)+' • '+esc(s.detail)+'</span>';const acts=document.createElement("div");acts.className="fbi-addon-mv-actions";const p=document.createElement("button");p.textContent="PREVIEW";p.onclick=()=>{selectPreview(s.id);A.mv.classList.remove("open")};const t=document.createElement("button");t.textContent=s.kind==="NDI"?"TAKE NDI":"TAKE";t.className="primary";t.onclick=()=>{A.mv.classList.remove("open");localTake(s)};acts.append(p,t);body.appendChild(acts);c.append(v,body);g.appendChild(c);
   }
 }
 function watch(){
