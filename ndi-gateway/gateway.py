@@ -238,121 +238,6 @@ def media_to_ndi(source_url, ndi_name):
         except Exception:
             pass
 
-def stream_ndi_preview(handler, source_name):
-    if ndi is None or av is None:
-        handler.send_error(503, "NDI preview dependencies are not installed")
-        return
-    source_name = str(source_name or "").strip()
-    if not source_name:
-        handler.send_error(400, "source_name is required")
-        return
-
-    recv = None
-    finder = None
-    initialized = False
-    try:
-        if not ndi.initialize():
-            handler.send_error(503, "NDI initialization failed")
-            return
-        initialized = True
-        finder = ndi.find_create_v2()
-        if finder is None:
-            handler.send_error(503, "NDI source finder failed")
-            return
-        ndi.find_wait_for_sources(finder, 800)
-        sources = ndi.find_get_current_sources(finder)
-        source = next((x for x in sources if str(x.ndi_name) == source_name), None)
-        if source is None:
-            handler.send_error(404, "NDI source not found: " + source_name)
-            return
-
-        settings = ndi.RecvCreateV3()
-        settings.color_format = ndi.RECV_COLOR_FORMAT_BGRX_BGRA
-        settings.bandwidth = ndi.RECV_BANDWIDTH_LOWEST
-        recv = ndi.recv_create_v3(settings)
-        if recv is None:
-            handler.send_error(503, "Could not create NDI preview receiver")
-            return
-        ndi.recv_connect(recv, source)
-
-        handler.send_response(200)
-        handler.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
-        handler.send_header("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
-        handler.send_header("Pragma", "no-cache")
-        handler.send_header("Access-Control-Allow-Origin", "*")
-        handler.end_headers()
-
-        encoder = None
-        frame_index = 0
-
-        while not STOP.is_set():
-            typ, vf, _, _ = ndi.recv_capture_v2(
-                recv, 500, want_video=True, want_audio=False, want_metadata=False
-            )
-            if typ != ndi.FRAME_TYPE_VIDEO or vf is None:
-                continue
-            try:
-                arr = np.ascontiguousarray(vf.data)
-                if arr.ndim != 3 or arr.shape[-1] < 4:
-                    continue
-
-                frame = av.VideoFrame.from_ndarray(arr[:, :, :4], format="bgra")
-                frame = frame.reformat(format="yuvj420p")
-
-                if encoder is None:
-                    encoder = av.CodecContext.create("mjpeg", "w")
-                    encoder.width = frame.width
-                    encoder.height = frame.height
-                    encoder.pix_fmt = "yuvj420p"
-                    encoder.time_base = Fraction(1, 15)
-                    try:
-                        encoder.options = {"qmin": "5", "qmax": "12"}
-                    except Exception:
-                        pass
-                    encoder.open()
-
-                packets = encoder.encode(frame)
-                for packet in packets:
-                    jpeg = bytes(packet)
-                    handler.wfile.write(
-                        b"--frame\r\n"
-                        b"Content-Type: image/jpeg\r\n"
-                        + ("Content-Length: " + str(len(jpeg)) + "\r\n\r\n").encode()
-                        + jpeg
-                        + b"\r\n"
-                    )
-                    handler.wfile.flush()
-
-                frame_index += 1
-                if frame_index >= 2:
-                    time.sleep(0.01)
-            except (BrokenPipeError, ConnectionResetError):
-                return
-            except Exception:
-                continue
-            finally:
-                try:
-                    ndi.recv_free_video_v2(recv, vf)
-                except Exception:
-                    pass
-    except (BrokenPipeError, ConnectionResetError):
-        return
-    except Exception as exc:
-        try:
-            handler.send_error(500, str(exc))
-        except Exception:
-            pass
-    finally:
-        try:
-            if recv is not None:
-                ndi.recv_destroy(recv)
-            if finder is not None:
-                ndi.find_destroy(finder)
-            if initialized:
-                ndi.destroy()
-        except Exception:
-            pass
-
 def start_input(payload):
     global INPUT_THREAD
     if INPUT_THREAD and INPUT_THREAD.is_alive():
@@ -398,8 +283,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         reply(self, {"ok": True})
     def do_GET(self):
-        parsed = urlparse(self.path)
-        path = parsed.path
+        path = urlparse(self.path).path
         if path == "/status":
             with LOCK:
                 reply(self, dict(STATE))
@@ -407,16 +291,6 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/sources":
             with LOCK:
                 reply(self, {"sources": list(STATE["source_names"])})
-            return
-        if path == "/preview":
-            params = {}
-            try:
-                from urllib.parse import parse_qs
-                params = parse_qs(parsed.query or "")
-            except Exception:
-                params = {}
-            source_name = (params.get("source_name") or [""])[0]
-            stream_ndi_preview(self, source_name)
             return
         reply(self, {"error": "Not found"}, 404)
     def do_POST(self):
