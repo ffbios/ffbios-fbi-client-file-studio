@@ -417,8 +417,8 @@ function renderBilling(){
   const plans=Array.isArray(d.plans)?d.plans:[];
   const planCards=plans.map(function(p){
     const same=c.plan_id===p.id&&c.status==="active";
-    const label=!d.moolre?.configured?"Setup payment":same?"Current plan":"Choose Plan";
-    return '<div class="billing-plan '+(same?"current":"")+'"><div class="billing-plan-head"><h4>'+esc(p.name)+'</h4>'+(same?'<span class="billing-badge">ACTIVE</span>':"")+'</div><div class="billing-price">GH₵'+Number(p.monthly_price_ghs||0).toFixed(2)+' <small>/ month</small></div><div class="billing-storage">'+fmt(p.storage_bytes||0)+' cloud storage</div><button class="btn '+(same?"":"primary")+'" data-buy-plan="'+esc(p.id)+'" '+((same||!d.moolre?.configured)?"disabled":"")+'>'+label+'</button></div>';
+    const label=same?"Current plan":"Pay with Moolre";
+    return '<div class="billing-plan '+(same?"current":"")+'"><div class="billing-plan-head"><h4>'+esc(p.name)+'</h4>'+(same?'<span class="billing-badge">ACTIVE</span>':"")+'</div><div class="billing-price">GH₵'+Number(p.monthly_price_ghs||0).toFixed(2)+' <small>/ month</small></div><div class="billing-storage">'+fmt(p.storage_bytes||0)+' cloud storage</div><button class="btn '+(same?"":"primary")+'" data-buy-plan="'+esc(p.id)+'" '+(same?"disabled":"")+'>'+label+'</button></div>';
   }).join("");
   const payments=Array.isArray(d.payments)?d.payments:[];
   const history=payments.length?payments.map(function(p){
@@ -434,14 +434,20 @@ async function loadBilling(){
 async function startBillingCheckout(planId){
   const plan=(billingData?.plans||[]).find(function(x){return x.id===planId});
   if(!plan)return;
-  if(!billingData?.moolre?.configured){toastPortal("Moolre payment credentials are not configured yet.");return}
   const btn=document.querySelector('[data-buy-plan="'+CSS.escape(planId)+'"]');
-  if(btn){btn.disabled=true;btn.textContent="Preparing…";}
+  if(btn){btn.disabled=true;btn.textContent="Preparing payment…";}
   try{
     const d=await api("/api/portal/billing/checkout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({plan_id:planId}),timeoutMs:30000});
-    if(!d.authorization_url)throw new Error("Moolre did not return a checkout link.");
-    window.location.assign(d.authorization_url);
-  }catch(e){toastPortal(e.message||"Unable to start payment.");renderBilling()}
+    const checkoutUrl=String(d.authorization_url||d.payment_url||d.url||"").trim();
+    if(!checkoutUrl)throw new Error("Moolre did not return a checkout link.");
+    window.location.assign(checkoutUrl);
+  }catch(e){
+    const message=e&&e.code==="MOOLRE_NOT_CONFIGURED"
+      ?"Moolre checkout is not connected yet. Add the Moolre merchant credentials in Railway, then click Pay with Moolre again."
+      :(e&&e.message)||"Unable to start payment.";
+    toastPortal(message);
+    renderBilling();
+  }
 }
 
 function openCreativeSettings(){api("/api/portal/settings").then(d=>{creativeSettings=d.settings||{};renderCreativeSettings();document.querySelectorAll("[data-cstab]").forEach(x=>x.classList.remove("active"));document.querySelectorAll("[data-cspane]").forEach(x=>x.classList.remove("active"));const first=document.querySelector("[data-cstab=branding]"),pane=document.querySelector("[data-cspane=branding]");if(first)first.classList.add("active");if(pane)pane.classList.add("active");$("#creativeSettingsModal").classList.add("show");setTimeout(()=>$("#csBusinessName")?.focus(),320)}).catch(e=>toastPortal(e.message||"Could not load settings."))}
