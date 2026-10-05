@@ -268,7 +268,7 @@
       const raw=img.getAttribute('src')||'';
       try{
         const u=new URL(raw,location.origin);
-        const match=u.pathname.match(/\\/api\\/public\\/preview\\/([^/]+)/);
+        const match=u.pathname.match(/\/api\/public\/preview\/([^/]+)/);
         const id=match&&match[1];
         const token=u.searchParams.get('token')||'';
         if(!id||!token)return;
