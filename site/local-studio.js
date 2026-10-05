@@ -307,18 +307,32 @@
     S.inputs.forEach(x=>{x.previewEl=x.videoEl||null;if(x.stream)connectAudio(out,x)});
     S.output=out;
 
-    ws.onopen=()=>{
-      try{audioCtx.resume()}catch{}
-      recorder.start(750);
-      const toVideo=src.kind==="AUDIO"?(out.frameSource?.videoEl||out.fallback):src.videoEl;
-      out.transition=out.fallback&&toVideo?{from:out.fallback,to:toVideo,start:performance.now(),ms:650}:null;
-      if(!out.transition)selectAudio(out,src.id);
-      frameLoop();
-      refreshDrawer();
-    };
+    const opened=new Promise((resolve,reject)=>{
+      let settled=false;
+      const done=(fn,value)=>{if(settled)return;settled=true;fn(value)};
+      ws.onopen=()=>{
+        try{audioCtx.resume()}catch{}
+        recorder.start(750);
+        const toVideo=src.kind==="AUDIO"?(out.frameSource?.videoEl||out.fallback):src.videoEl;
+        out.transition=out.fallback&&toVideo?{from:out.fallback,to:toVideo,start:performance.now(),ms:650}:null;
+        if(!out.transition)selectAudio(out,src.id);
+        frameLoop();
+        refreshDrawer();
+        done(resolve,true);
+      };
+      ws.onerror=()=>{toast("Local Studio output connection failed.");done(reject,new Error("Local Studio output connection failed."))};
+      ws.onclose=()=>{
+        if(S.output===out){
+          try{recorder.stop()}catch{}
+          cancelAnimationFrame(out.raf);
+          try{audioCtx.close()}catch{}
+          S.output=null;
+          refreshDrawer();
+        }
+      };
+    });
     recorder.ondataavailable=e=>{if(e.data?.size&&ws.readyState===WS.OPEN)ws.send(e.data)};
-    ws.onerror=()=>toast("Local Studio output connection failed.");
-    ws.onclose=()=>{if(S.output===out){try{recorder.stop()}catch{}cancelAnimationFrame(out.raf);try{audioCtx.close()}catch{}S.output=null;refreshDrawer()}};
+    await Promise.race([opened,new Promise((_,reject)=>setTimeout(()=>reject(new Error("Local Studio output timed out.")),12000))]);
     return out;
   }
 
