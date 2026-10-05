@@ -966,11 +966,14 @@ async function processMoolreWebhookPayload(body){
   const root=body&&typeof body==="object"?body:{};
   const data=root.data&&typeof root.data==="object"?root.data:root;
   const externalRef=String(data.externalref||root.externalref||"").trim();
-  const txstatus=Number(data.txstatus??root.txstatus??root.status??0);
+  const txstatus=Number(data.txstatus??data.status??root.txstatus??0);
   if(!externalRef)return {ok:false,reason:"Missing external reference."};
   const paymentQ=await pool.query("SELECT * FROM payment_transactions WHERE external_ref=$1 LIMIT 1",[externalRef]);
   if(!paymentQ.rowCount)return {ok:false,reason:"Unknown payment reference.",externalRef};
   const payment=paymentQ.rows[0];
+  if(payment.status==="success"){
+    return {ok:true,success:true,alreadyProcessed:true,externalRef};
+  }
   const incomingAmount=Number(data.amount??data.value??root.amount??0);
   if(incomingAmount>0&&Math.abs(incomingAmount-Number(payment.amount_ghs))>0.01){
     return {ok:false,reason:"Payment amount does not match the pending transaction.",externalRef};
