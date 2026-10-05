@@ -1,4 +1,4 @@
-const CACHE_NAME="fbi-live-pwa-v3";
+const CACHE_NAME="fbi-live-pwa-v4";
 const SHELL=["/","/manifest.webmanifest","/official-logo.png"];
 
 self.addEventListener("install",event=>{
