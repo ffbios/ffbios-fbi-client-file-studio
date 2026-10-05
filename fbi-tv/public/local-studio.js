@@ -124,7 +124,7 @@ function updateLocalTileStates(){
 
 function ensurePanel(){
   if(!document.getElementById("mcrRoot")?.querySelector(".mcr-bottom-panel"))return;
-  if(document.getElementById("localStudioPanel")){renderLocalTiles();return}
+  if(document.getElementById("localStudioPanel")){localState.panel=document.getElementById("localStudioPanel");return}
   injectStyles();
   const panel=document.createElement("section");panel.id="localStudioPanel";panel.className="local-studio-panel";
   panel.innerHTML=
@@ -427,15 +427,33 @@ function refreshPanelState(){
   updateLocalTileStates();
 }
 
+function wrapRenderMcr(){
+  const orig=window.renderMcr;
+  if(typeof orig!=="function"||orig.__localStudioWrapped)return;
+  const wrapped=async function(...args){
+    const result=await orig.apply(this,args);
+    setTimeout(()=>{
+      ensurePanel();
+      const source=activePreviewSource();
+      if(source)replaceExistingPreviewWithLocal(source);
+      refreshPanelState();
+    },0);
+    return result;
+  };
+  wrapped.__localStudioWrapped=true;
+  window.renderMcr=wrapped;
+}
+
 function boot(){
   injectStyles();
+  wrapRenderMcr();
   const root=document.getElementById("mcrRoot");if(!root)return;
   const observer=new MutationObserver(()=>ensurePanel());
   observer.observe(root,{childList:true,subtree:true});
   localState.observer=observer;
   ensurePanel();
   clearInterval(localState.uiTimer);
-  localState.uiTimer=setInterval(()=>{ensurePanel();refreshPanelState()},1000);
+  localState.uiTimer=setInterval(()=>{wrapRenderMcr();ensurePanel();refreshPanelState()},1000);
   window.addEventListener("beforeunload",()=>{try{navigator.sendBeacon?.("/api/local-studio/stop","")}catch{}});
 }
 
