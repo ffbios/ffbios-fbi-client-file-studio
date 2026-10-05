@@ -2006,6 +2006,7 @@ async function clientView(token){
     if(e&&e.status===401&&e.code==='CLIENT_EMAIL_REQUIRED'){return clientEmailGate(token,'');}
     throw e;
   }
+  const galleryLogo=d.settings?.branding_logo_url||LOGO;
   const files=d.files||[];
   const images=files.filter(f=>/^image\//i.test(f.mime_type||''));
   const videos=files.filter(f=>/^video\//i.test(f.mime_type||''));
@@ -2023,7 +2024,7 @@ async function clientView(token){
     '<div class="fbi-gallery-page">'+
       '<header class="fbi-gallery-top">'+
         '<div class="fbi-gallery-topbar">'+
-          '<div class="fbi-gallery-brand"><img src="'+LOGO+'" alt="FBI"><span>Film Beyond Imagination</span></div>'+
+          '<div class="fbi-gallery-brand"><img src="'+galleryLogo+'" alt="FBI"><span>Film Beyond Imagination</span></div>'+
           '<div class="fbi-gallery-spacer"></div>'+
           '<button class="fbi-gallery-toplink" id="favTop">♡ Favorites <span id="favTopCount"></span></button>'+
           '<button class="fbi-gallery-toplink" id="slideTop">Slideshow</button>'+
@@ -2345,7 +2346,7 @@ async function clientView(token){
   updateFavoritesUi();renderGrid();
   selectBestCover();
  }catch(e){
-  document.body.innerHTML='<div class="client"><div class="clientwrap"><div class="ctop"><img src="'+LOGO+'"><h1>Delivery unavailable</h1><p>'+esc(e.message)+'</p></div></div></div>';
+  document.body.innerHTML='<div class="client"><div class="clientwrap"><div class="ctop"><img src="'+galleryLogo+'"><h1>Delivery unavailable</h1><p>'+esc(e.message)+'</p></div></div></div>';
  }
 }
 
