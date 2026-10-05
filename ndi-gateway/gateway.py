@@ -472,6 +472,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == "/local/status":
+            from urllib.parse import parse_qs
+            session = (parse_qs(parsed.query or "").get("session") or [""])[0]
+            with LOCAL_LOCK:
+                item = LOCAL_SESSIONS.get(session)
+                if item is None:
+                    return reply(self, {"ok": False, "running": False, "bytes": 0, "error": "Session not found"}, 404)
+                proc = item["proc"]
+                return reply(self, {"ok": True, "running": proc.poll() is None, "bytes": int(item.get("bytes", 0)), "error": item.get("error", "")})
         if path == "/local/chunk":
             try:
                 from urllib.parse import parse_qs
