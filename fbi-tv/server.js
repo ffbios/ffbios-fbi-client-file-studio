@@ -1,4 +1,6 @@
 const express=require("express");
+const http=require("http");
+const {attachBrowserIngest}=require("./browser-ingest");
 const crypto=require("crypto");
 const path=require("path");
 const {Pool}=require("pg");
@@ -54,6 +56,8 @@ function readSigned(value,purpose){
 }
 function signSession(user){return signPayload({uid:user.id,email:user.email,exp:Date.now()+7*86400000},"session")}
 function signReset(user){return signPayload({uid:user.id,email:user.email,exp:Date.now()+10*60*1000,nonce:crypto.randomBytes(12).toString("hex")},"reset")}
+function signLocalBridge(streamId,userId){return signPayload({sid:String(streamId),uid:String(userId),exp:Date.now()+12*60*60*1000},"local-studio")}
+function readLocalBridge(value){return readSigned(value,"local-studio")}
 function setSession(res,user){res.setHeader("Set-Cookie","fbi_tv_session="+encodeURIComponent(signSession(user))+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800")}
 function clearSession(res){res.setHeader("Set-Cookie","fbi_tv_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0")}
 async function sessionUser(req){
@@ -229,6 +233,61 @@ app.get("/api/auth/me",async(req,res)=>{
   }catch(e){res.status(500).json({error:"Could not verify session"})}
 });
 app.post("/api/auth/logout",(req,res)=>{clearSession(res);res.json({ok:true})});
+
+const LOCAL_STUDIO_NAME="FBI TV Studio Output";
+
+app.post("/api/local-studio/start",admin,async(req,res)=>{
+  try{
+    let q=await pool.query("SELECT * FROM tv_streams WHERE name=$1 LIMIT 1",[LOCAL_STUDIO_NAME]);
+    if(!q.rowCount){
+      const row={
+        id:uid(),
+        name:LOCAL_STUDIO_NAME,
+        title:"FBI TV Local Studio Program",
+        description:"Browser-based local camera, capture-card, screen and window studio output.",
+        stream_key:token(18),
+        viewer_token:token(24)
+      };
+      q=await pool.query(
+        "INSERT INTO tv_streams(id,name,title,description,stream_key,viewer_token,enabled,shared,record_enabled,status) VALUES($1,$2,$3,$4,$5,$6,true,true,false,'offline') RETURNING *",
+        [row.id,row.name,row.title,row.description,row.stream_key,row.viewer_token]
+      );
+    }else{
+      await pool.query("UPDATE tv_streams SET enabled=true,shared=true,status='offline',updated_at=now() WHERE id=$1",[q.rows[0].id]);
+      q=await pool.query("SELECT * FROM tv_streams WHERE id=$1",[q.rows[0].id]);
+    }
+    const row=q.rows[0];
+    const cfg=await mcrConfig();
+    const bridgeToken=signLocalBridge(row.id,req.adminUser.id);
+    const wsProtocol=req.secure||req.headers["x-forwarded-proto"]==="https"?"wss":"ws";
+    const host=req.get("host");
+    res.json({
+      ok:true,
+      stream:streamView(row,req,cfg.program_stream_id,cfg.preview_stream_id),
+      output_stream_id:row.id,
+      ws_url:wsProtocol+"://"+host+"/ws/local-studio?token="+encodeURIComponent(bridgeToken),
+      instructions:{
+        cameras:"Camera and USB capture cards appear as browser video devices after permission.",
+        screens:"Screen or Window opens the browser's native screen-share picker."
+      }
+    });
+  }catch(e){
+    console.error("Local studio start failed:",e);
+    res.status(500).json({error:"Could not start local studio output"});
+  }
+});
+
+app.post("/api/local-studio/stop",admin,async(req,res)=>{
+  try{
+    if(browserIngest)browserIngest.stopForUser(req.adminUser.id);
+    const q=await pool.query("SELECT id FROM tv_streams WHERE name=$1 LIMIT 1",[LOCAL_STUDIO_NAME]);
+    if(q.rowCount)await pool.query("UPDATE tv_streams SET status='offline',updated_at=now() WHERE id=$1",[q.rows[0].id]);
+    res.json({ok:true});
+  }catch(e){
+    console.error("Local studio stop failed:",e);
+    res.status(500).json({error:"Could not stop local studio output"});
+  }
+});
 
 
 function hlsBackends(){
@@ -737,7 +796,14 @@ async function primeLiveBridges(){
     for(const row of q.rows)await kickBridge(row.stream_key);
   }catch(e){console.error("Bridge priming failed:",e?.message||e)}
 }
+const httpServer=http.createServer(app);
+const browserIngest=attachBrowserIngest(httpServer,{
+  pool,
+  verifyToken:readLocalBridge,
+  rtmpBase:"rtmp://fbi-tv-live-ingest:1935/live"
+});
+
 init().then(async()=>{
   await primeLiveBridges();
-  app.listen(PORT,()=>console.log("FBI TV Control listening on port "+PORT));
+  httpServer.listen(PORT,()=>console.log("FBI TV Control listening on port "+PORT));
 }).catch(e=>{console.error(e);process.exit(1)});
