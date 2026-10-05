@@ -9,7 +9,56 @@
 :root{--bg:#09090a;--panel:#121214;--panel2:#171719;--border:#29292e;--text:#f6f6f7;--muted:#9b9ba4;--gold:#d4af37;--gold2:#f4d56d;--red:#fb7185;--green:#4ade80;--shadow:0 18px 50px rgba(0,0,0,.28);--r:18px}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 0,rgba(212,175,55,.08),transparent 38%),linear-gradient(180deg,#080809,#111114);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh}button,input,textarea{font:inherit}button{cursor:pointer}
 .shell{min-height:100vh}.topbar{height:66px;border-bottom:1px solid var(--border);background:rgba(13,13,15,.88);backdrop-filter:blur(14px);display:flex;align-items:center;gap:14px;padding:0 20px;position:sticky;top:0;z-index:10}.brand{display:flex;align-items:center;gap:10px}.brand-logo{width:48px;height:42px;object-fit:contain;border-radius:8px}.brandmark{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--gold2),var(--gold));display:grid;place-items:center;color:#111;font-weight:900}.brand b{font-size:13px}.brand small{display:block;color:var(--muted);font-size:8px;margin-top:2px}.spacer{flex:1}.userbox{display:flex;align-items:center;gap:9px;color:#ddd;font-size:9px}.avatar{width:31px;height:31px;border-radius:50%;background:#26262a;display:grid;place-items:center;font-size:10px}.btn{border:1px solid var(--border);background:#18181b;color:#eee;padding:9px 12px;border-radius:10px;font-size:9px}.btn:hover{background:#222226}.btn.primary{background:linear-gradient(135deg,var(--gold2),var(--gold));color:#111;border-color:#d1ac3a;font-weight:800}.btn.danger{border-color:rgba(251,113,133,.35);color:#fecaca;background:#211317}
-.auth{min-height:calc(100vh - 66px);display:grid;place-items:center;padding:24px}.auth-card{width:min(460px,100%);background:rgba(18,18,20,.96);border:1px solid var(--border);border-radius:22px;box-shadow:0 30px 90px rgba(0,0,0,.48);overflow:hidden}.auth-logo{width:min(220px,70vw);height:76px;object-fit:contain;display:block;margin:0 auto 10px}.auth-head{text-align:center;padding:30px 24px 22px;border-bottom:1px solid var(--border)}.auth-head h1{margin:0;font-size:24px}.auth-head p{margin:7px 0 0;color:var(--muted);font-size:10px}.auth-body{padding:22px 24px}.field{display:grid;gap:5px;margin-bottom:11px}.field label{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}.field input,.field textarea{width:100%;padding:11px;background:#0d0d0f;border:1px solid var(--border);border-radius:10px;color:var(--text);outline:none}.field input:focus,.field textarea:focus{border-color:rgba(212,175,55,.7)}.auth-actions{display:flex;gap:8px;align-items:center;margin-top:14px}.linkbtn{border:0;background:transparent;color:var(--gold2);font-size:9px;padding:8px}.error{color:#fecaca;font-size:9px;margin-top:8px;min-height:16px}
+.auth{min-height:100vh;display:grid;place-items:center;padding:28px;background:
+radial-gradient(circle at 18% 18%,rgba(212,175,55,.16),transparent 25%),
+radial-gradient(circle at 82% 85%,rgba(255,255,255,.05),transparent 28%),
+linear-gradient(135deg,#070708 0%,#0e0e10 52%,#09090a 100%);position:relative;overflow:hidden}
+.auth:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:54px 54px;mask-image:linear-gradient(to bottom,rgba(0,0,0,.9),transparent 90%);pointer-events:none}
+.auth-wrap{width:min(1180px,100%);min-height:720px;display:grid;grid-template-columns:1.08fr .92fr;background:#0c0c0f;border:1px solid #29292e;border-radius:30px;overflow:hidden;box-shadow:0 30px 120px rgba(0,0,0,.55);position:relative;z-index:1}
+.auth-visual{position:relative;padding:44px;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;background:
+radial-gradient(circle at 14% 14%,rgba(244,213,109,.2),transparent 24%),
+linear-gradient(145deg,#111114,#0a0a0b 58%,#15120b)}
+.auth-visual:after{content:"";position:absolute;width:420px;height:420px;border:1px solid rgba(244,213,109,.13);border-radius:50%;right:-160px;bottom:-170px;box-shadow:0 0 0 32px rgba(244,213,109,.025),0 0 0 64px rgba(244,213,109,.018),0 0 0 96px rgba(244,213,109,.012)}
+.auth-brandline{display:flex;align-items:center;gap:12px;position:relative;z-index:2}
+.auth-brandline img{width:66px;height:50px;object-fit:contain;border-radius:10px;background:rgba(255,255,255,.025);padding:4px}
+.auth-brandline strong{font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.auth-brandline span{display:block;color:#8f8f98;font-size:8px;margin-top:3px;letter-spacing:.08em;text-transform:uppercase}
+.creative-copy{max-width:520px;position:relative;z-index:2}
+.creative-eyebrow{font-size:9px;color:#f4d56d;letter-spacing:.22em;text-transform:uppercase;font-weight:800;margin-bottom:14px}
+.creative-copy h1{margin:0;font-size:52px;line-height:1.02;letter-spacing:-.045em;max-width:520px}
+.creative-copy h1 em{font-style:normal;color:#f4d56d}
+.creative-copy p{margin:18px 0 0;color:#bdbdc4;font-size:13px;line-height:1.7;max-width:470px}
+.creative-pills{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}
+.creative-pill{font-size:8px;color:#e3e3e7;border:1px solid #303036;background:rgba(255,255,255,.035);padding:8px 10px;border-radius:999px}
+.studio-stage{position:absolute;right:34px;top:22%;width:44%;height:44%;min-width:280px;transform:rotate(4deg);opacity:.92}
+.stage-window{position:absolute;inset:0;border:1px solid rgba(255,255,255,.11);background:linear-gradient(155deg,#222229,#111116 52%,#09090b);border-radius:22px;box-shadow:0 24px 55px rgba(0,0,0,.4)}
+.stage-window:before{content:"";position:absolute;inset:12px;border:1px solid rgba(255,255,255,.08);border-radius:15px;background:linear-gradient(145deg,rgba(244,213,109,.12),rgba(255,255,255,.02) 45%,rgba(244,213,109,.05))}
+.stage-frame{position:absolute;left:10%;right:10%;top:12%;height:54%;border-radius:14px;background:
+linear-gradient(125deg,rgba(244,213,109,.25),transparent 30%),
+linear-gradient(140deg,#273025,#10161a 48%,#40311b);border:1px solid rgba(255,255,255,.12);overflow:hidden}
+.stage-frame:before,.stage-frame:after{content:"";position:absolute;border-radius:50%;border:2px solid rgba(255,255,255,.16)}
+.stage-frame:before{width:86px;height:86px;left:15%;top:13%;box-shadow:0 0 0 10px rgba(255,255,255,.03)}
+.stage-frame:after{width:130px;height:130px;right:-20px;bottom:-22px;border-color:rgba(244,213,109,.2)}
+.stage-strip{position:absolute;left:10%;right:10%;bottom:11%;display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+.stage-strip span{height:48px;border-radius:9px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(145deg,#2a2b2e,#121216)}
+.stage-strip span:nth-child(1){background:linear-gradient(145deg,#6c5b34,#1c1c1f)}
+.stage-strip span:nth-child(2){background:linear-gradient(145deg,#4c2f33,#17171b)}
+.stage-strip span:nth-child(3){background:linear-gradient(145deg,#3a4c43,#14171a)}
+.stage-strip span:nth-child(4){background:linear-gradient(145deg,#3d3a54,#15151a)}
+.stage-badge{position:absolute;left:16px;top:16px;padding:7px 9px;border-radius:999px;font-size:7px;letter-spacing:.14em;text-transform:uppercase;background:rgba(0,0,0,.48);border:1px solid rgba(255,255,255,.12);color:#ececf0}
+.auth-footerline{display:flex;align-items:center;gap:10px;font-size:8px;color:#81818a;position:relative;z-index:2}.auth-footerline b{color:#e8e8ec}
+.auth-formside{padding:44px;display:flex;align-items:center;background:linear-gradient(180deg,#121215,#0c0c0e);border-left:1px solid #242429}
+.auth-card{width:100%;max-width:430px;margin:auto;background:transparent;border:0;border-radius:0;box-shadow:none;overflow:visible}
+.auth-head{text-align:left;padding:0 0 22px;border-bottom:1px solid #25252a}
+.auth-head .auth-logo{display:none}
+.auth-head h1{margin:0;font-size:31px;letter-spacing:-.03em}.auth-head p{margin:8px 0 0;color:#90909a;font-size:10px;line-height:1.6}
+.auth-context{font-size:8px;color:#6f6f77;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px}
+.auth-body{padding:24px 0 0}.field{display:grid;gap:7px;margin-bottom:14px}.field label{font-size:8px;color:#8f8f98;text-transform:uppercase;letter-spacing:.12em}.field input,.field textarea{width:100%;padding:13px 14px;background:#0a0a0c;border:1px solid #2b2b31;border-radius:11px;color:#f6f6f7;outline:none}.field input::placeholder{color:#5d5d65}.field input:focus,.field textarea:focus{border-color:rgba(244,213,109,.7);box-shadow:0 0 0 3px rgba(244,213,109,.06)}
+.auth-actions{display:grid;gap:10px;margin-top:18px}.auth-actions .btn.primary{width:100%;padding:13px 14px;font-size:10px}.linkbtn{border:0;background:transparent;color:#f4d56d;font-size:9px;padding:9px 4px;text-align:left}
+.auth-note{display:flex;gap:8px;align-items:flex-start;margin-top:16px;padding-top:14px;border-top:1px solid #25252a;color:#72727b;font-size:8px;line-height:1.6}.auth-note i{font-style:normal;color:#f4d56d}
+.error{color:#fecaca;font-size:9px;margin-top:8px;min-height:16px}
+@media(max-width:920px){.auth{padding:14px}.auth-wrap{grid-template-columns:1fr;min-height:auto}.auth-visual{min-height:440px}.auth-formside{padding:34px}.studio-stage{right:8%;top:28%;width:46%;height:48%;min-width:230px}.creative-copy h1{font-size:42px}}
+@media(max-width:620px){.auth{padding:0}.auth-wrap{border-radius:0;border:0;min-height:100vh}.auth-visual{padding:28px 22px;min-height:410px}.auth-formside{padding:28px 22px}.studio-stage{position:relative;right:auto;top:auto;width:100%;min-width:0;height:210px;margin:18px 0 0;transform:rotate(2deg)}.creative-copy h1{font-size:34px}.creative-copy p{font-size:11px}.auth-footerline{font-size:7px}.auth-brandline img{width:58px;height:44px}}
 .app{display:none;min-height:calc(100vh - 66px)}.app.show{display:grid;grid-template-columns:285px minmax(0,1fr)}.sidebar{border-right:1px solid var(--border);background:#0c0c0e;padding:16px 12px;display:flex;flex-direction:column}.sidehead{padding:8px 8px 14px;border-bottom:1px solid var(--border)}.sidehead .eyebrow{font-size:7px;color:#777;text-transform:uppercase;letter-spacing:.12em}.sidehead h2{font-size:15px;margin:5px 0 2px}.sidehead p{margin:0;color:var(--muted);font-size:8px;line-height:1.45}.newbtn{margin-top:12px;width:100%}.project-list{margin-top:14px;display:grid;gap:7px;overflow:auto}.project{padding:11px;border:1px solid var(--border);background:#111113;border-radius:12px;cursor:pointer}.project:hover,.project.active{border-color:rgba(212,175,55,.55);background:#171719}.project.active{box-shadow:inset 3px 0 var(--gold2)}.project b{display:block;font-size:10px}.project span{display:block;color:var(--muted);font-size:8px;margin-top:4px}.sidefoot{margin-top:auto;color:#66666d;font-size:8px;line-height:1.5;padding:9px}
 .main{min-width:0;padding:18px 20px 26px}.hero{display:flex;gap:14px;align-items:flex-start;margin-bottom:15px}.hero h1{font-size:22px;margin:0}.hero p{margin:4px 0 0;color:var(--muted);font-size:9px}.grow{flex:1}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-bottom:13px}.card{border:1px solid var(--border);background:linear-gradient(180deg,#161619,#121214);border-radius:13px;padding:12px}.card small{font-size:7px;color:#777;text-transform:uppercase;letter-spacing:.08em}.card strong{display:block;font-size:17px;margin-top:5px}.card span{display:block;color:var(--muted);font-size:7px;margin-top:2px}
 .panel{border:1px solid var(--border);background:rgba(18,18,20,.96);border-radius:16px;overflow:hidden;box-shadow:var(--shadow)}.panelhead{padding:13px 15px;border-bottom:1px solid var(--border);display:flex;gap:9px;align-items:center}.panelhead h2{margin:0;font-size:13px}.panelhead p{margin:3px 0 0;color:var(--muted);font-size:8px}.panelbody{padding:14px}
@@ -30,19 +79,58 @@
   </header>
 
   <section id="auth" class="auth">
-    <div class="auth-card">
-      <div class="auth-head"><img class="auth-logo" src="/official-logo.png?v=2" alt="FBI logo"><h1 id="authTitle">Create your account</h1><p>Upload, organize and share your files with your own clients.</p></div>
-      <form id="authForm" class="auth-body"><input id="authModeField" name="auth_mode" type="hidden" value="signup">
-        <div id="nameField" class="field"><label>Full Name</label><input id="authName" autocomplete="name"></div>
-        <div class="field"><label>Email Address</label><input id="authEmail" type="email" autocomplete="email" required></div>
-        <div class="field"><label>Password</label><input id="authPassword" type="password" minlength="10" autocomplete="new-password" required></div>
-        <div id="authError" class="error"></div>
-        <div class="auth-actions"><button id="authSubmit" class="btn primary" type="submit">Create Account</button><button id="switchAuth" type="button" class="linkbtn">Already have an account? Sign in</button></div>
-      </form>
-    </div>
-  </section>
+  <div class="auth-wrap">
+    <div class="auth-visual">
+      <div class="auth-brandline">
+        <img src="/official-logo.png?v=2" alt="FBI logo">
+        <div><strong>FBI Client File Studio</strong><span>Creative Workspace</span></div>
+      </div>
 
-  <section id="app" class="app">
+      <div class="creative-copy">
+        <div class="creative-eyebrow">For photographers • filmmakers • designers • creative teams</div>
+        <h1>Your work.<br><em>Your studio.</em><br>Your clients.</h1>
+        <p>Upload original files, keep projects organized, and deliver your work from one private creative workspace built around your workflow.</p>
+        <div class="creative-pills">
+          <span class="creative-pill">Original-quality files</span>
+          <span class="creative-pill">Resumable large uploads</span>
+          <span class="creative-pill">Secure client delivery</span>
+        </div>
+      </div>
+
+      <div class="studio-stage" aria-hidden="true">
+        <div class="stage-window"></div>
+        <div class="stage-frame"><span class="stage-badge">CREATIVE WORKSPACE</span></div>
+        <div class="stage-strip"><span></span><span></span><span></span><span></span></div>
+      </div>
+
+      <div class="auth-footerline"><b>FBI Creative Portal</b><span>•</span><span>One workspace for every project.</span></div>
+    </div>
+
+    <div class="auth-formside">
+      <div class="auth-card">
+        <div class="auth-head">
+          <div class="auth-context">Creator access</div>
+          <h1 id="authTitle">Create your account</h1>
+          <p>Sign in to your creative workspace or create your account to start uploading projects.</p>
+        </div>
+        <form id="authForm" class="auth-body">
+          <input id="authModeField" name="auth_mode" type="hidden" value="signup">
+          <div id="nameField" class="field"><label>Full Name</label><input id="authName" autocomplete="name" placeholder="Your name"></div>
+          <div class="field"><label>Email Address</label><input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com" required></div>
+          <div class="field"><label>Password</label><input id="authPassword" type="password" minlength="10" autocomplete="new-password" placeholder="Minimum 10 characters" required></div>
+          <div id="authError" class="error"></div>
+          <div class="auth-actions">
+            <button id="authSubmit" class="btn primary" type="submit">Create Account</button>
+            <button id="switchAuth" type="button" class="linkbtn">Already have an account? Sign in</button>
+          </div>
+          <div class="auth-note"><i>●</i><span>Your projects stay inside your private creative workspace. Large uploads can resume after an interrupted connection.</span></div>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="app" class="app">
     <aside class="sidebar">
       <div class="sidehead"><div class="eyebrow">Your workspace</div><h2>My Projects</h2><p>Create delivery projects, upload originals and share secure client links.</p><button id="newProjectBtn" class="btn primary newbtn">＋ New Project</button></div>
       <div id="projectList" class="project-list"></div>
