@@ -243,6 +243,11 @@ async function gatewayStart(){
 async function localTake(src){
   const id=activeChannelId();if(!id){toast("Select a live channel first.");return}
   await refreshChannelSource();
+  if(A.channelData?.status!=="live"){
+    updateLocalUi();
+    toast("TAKE requires the selected channel to be LIVE from OBS/vMix.");
+    return;
+  }
   A.selectedSource=src.id;
   if(src.kind==="CHANNEL"){await putChannelInProgram(false);return}
   try{
@@ -395,15 +400,29 @@ function selectPreview(id){
 
 function updateLocalUi(){
   const grid=document.getElementById("fbiLocalGrid");
+  const channelLive=A.channelData?.status==="live";
+  const selected=A.sources.get(A.selectedSource);
   if(grid)for(const card of grid.children){
     const id=card.dataset.sourceId||"";
     card.className="fbi-addon-source "+(id===A.selectedSource?"preview ":"")+(id===A.localProgram?"program":"");
     const p=card.querySelector("[data-act=preview]");if(p)p.classList.toggle("fbi-addon-take",id===A.selectedSource);
+    const t=card.querySelector("[data-act=take]");
+    if(t){
+      t.disabled=!channelLive;
+      t.title=channelLive?"Take source to Program":"Start OBS/vMix and make the selected channel LIVE before TAKE";
+    }
   }
   const stop=document.getElementById("fbiLocalStop");if(stop)stop.disabled=!A.bridge;
-  const range=document.getElementById("fbiLocalTbar");if(range)range.disabled=!A.selectedSource;
-  const st=document.getElementById("fbiLocalState");if(st)st.textContent=A.bridge?"PROGRAM / LOCAL MIX LIVE":"PROGRAM / NORMAL CHANNEL";
-  const tx=document.getElementById("fbiLocalText");if(tx)tx.textContent=A.bridge?"Local source is on Program. OBS/vMix continues feeding the same channel in the background.":"Select a source for Preview, then TAKE it to Program on the same live channel.";
+  const range=document.getElementById("fbiLocalTbar");if(range)range.disabled=!selected;
+  const st=document.getElementById("fbiLocalState");if(st)st.textContent=A.bridge?"PROGRAM / LOCAL MIX LIVE":(channelLive?"PROGRAM / NORMAL CHANNEL":"CHANNEL OFFLINE");
+  const tx=document.getElementById("fbiLocalText");
+  if(tx)tx.textContent=A.bridge
+    ?"Local source is on Program. OBS/vMix continues feeding the same channel in the background."
+    :(channelLive
+      ?"Select a source for Preview, then TAKE it to Program."
+      :"Preview is available now. Start OBS/vMix and make this channel LIVE before using TAKE.");
+  const master=document.getElementById("fbiTakeLocal");
+  if(master)master.disabled=!channelLive||!selected;
 }
 function renderLocalGridOnly(){
   const grid=document.getElementById("fbiLocalGrid");if(!grid)return;
@@ -430,7 +449,7 @@ function renderLocalGridOnly(){
       const meta=document.createElement("div");meta.className="fbi-addon-source-meta";meta.textContent=s.kind+" • "+s.detail;
       const acts=document.createElement("div");acts.className="fbi-addon-source-actions";
       const p=document.createElement("button");p.textContent="PREVIEW";p.dataset.act="preview";
-      const t=document.createElement("button");t.textContent="TAKE";t.className="primary";t.onclick=()=>localTake(s);
+      const t=document.createElement("button");t.textContent="TAKE";t.dataset.act="take";t.className="primary";t.onclick=()=>localTake(s);
       const rm=document.createElement("button");rm.textContent="×";rm.onclick=()=>removeSource(s.id);
       if(s.id==="channel"){rm.disabled=true;rm.style.opacity=".35"}
       p.onclick=()=>selectPreview(s.id);acts.append(p,t,rm);body.append(name,meta,acts);card.append(visual,body);s.card=card;
