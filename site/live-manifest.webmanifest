@@ -9,14 +9,24 @@
   "background_color": "#09090a",
   "theme_color": "#0a0a0b",
   "description": "FBI Live broadcast control center using the official Film Beyond Imagination logo.",
-  "categories": ["video", "broadcast", "business"],
+  "categories": [
+    "video",
+    "broadcast",
+    "business"
+  ],
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/official-logo.png",
-      "sizes": "any",
-      "type": "image/png",
+      "src": "/live-pwa-icon.svg?v=2",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
       "purpose": "any"
+    },
+    {
+      "src": "/live-pwa-icon.svg?v=2",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ]
 }
