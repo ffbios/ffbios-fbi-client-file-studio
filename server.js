@@ -3645,7 +3645,7 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
     }
   }catch(_e){}
   let webp=await generateThumbnail(out.f,width,height);
-  if(/^image\\/(jpeg|png|webp)$/i.test(out.f.mime_type||"")&&wmCreative.watermark_enabled){const wm=await applyCreativeWatermark(webp,wmCreative);webp=wm.buffer;}
+  if(/^image\/(jpeg|png|webp)$/i.test(out.f.mime_type||"")&&wmCreative.watermark_enabled){const wm=await applyCreativeWatermark(webp,wmCreative);webp=wm.buffer;}
   setThumbCache(cacheKey,webp);
   try{
     await s3.send(new PutObjectCommand({Bucket:bucket(),Key:thumbKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(out.f.id),generated_by:"fbi-client-file-studio-media-aware"}}));
@@ -3684,7 +3684,7 @@ app.get("/api/public/preview/:id",async(req,res)=>{
     const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject);
   }));
   let webp=await sharp(input).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:82,method:4}).toBuffer();
-  if(/^image\\/(jpeg|png|webp)$/i.test(out.f.mime_type||"")&&creative.watermark_enabled){const wm=await applyCreativeWatermark(webp,creative);webp=wm.buffer;}
+  if(/^image\/(jpeg|png|webp)$/i.test(out.f.mime_type||"")&&creative.watermark_enabled){const wm=await applyCreativeWatermark(webp,creative);webp=wm.buffer;}
   setThumbCache(cacheKey,webp);
   try{await s3.send(new PutObjectCommand({Bucket:bucket(),Key:previewKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(out.f.id),generated_by:"fbi-client-file-studio"}}))}catch(err){console.warn("Could not persist preview",err?.message||err)}
   res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(webp);
