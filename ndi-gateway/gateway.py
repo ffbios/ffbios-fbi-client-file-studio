@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, json, threading, time, traceback
+import argparse, json, threading, time, traceback, subprocess, uuid, os
 from fractions import Fraction
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import Request, urlopen
 from urllib.parse import urlparse
 import numpy as np
+try:
+    from imageio_ffmpeg import get_ffmpeg_exe
+except Exception:
+    get_ffmpeg_exe = None
 
 try:
     import av
@@ -23,6 +27,9 @@ STOP = threading.Event()
 LOCK = threading.Lock()
 INPUT_THREAD = None
 OUTPUT_THREAD = None
+LOCAL_LOCK = threading.Lock()
+LOCAL_SESSIONS = {}
+
 STATE = {
     "connected": ndi is not None,
     "version": VERSION,
@@ -238,6 +245,163 @@ def media_to_ndi(source_url, ndi_name):
         except Exception:
             pass
 
+def local_start(payload):
+    if get_ffmpeg_exe is None:
+        raise RuntimeError("Local Studio FFmpeg package is not installed")
+    rtmp_url = str(payload.get("rtmp_url", "")).strip()
+    if not (rtmp_url.startswith("rtmp://") or rtmp_url.startswith("rtmps://")):
+        raise RuntimeError("A valid RTMP destination is required")
+    ffmpeg = get_ffmpeg_exe()
+    cmd = [
+        ffmpeg, "-hide_banner", "-loglevel", "warning", "-fflags", "+genpts",
+        "-f", "webm", "-i", "pipe:0",
+        "-map", "0:v:0?", "-map", "0:a:0?",
+        "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
+        "-pix_fmt", "yuv420p", "-r", "30", "-g", "60",
+        "-b:v", "5M", "-maxrate", "6M", "-bufsize", "10M",
+        "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
+        "-f", "flv", rtmp_url
+    ]
+    try:
+        proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE
+        )
+    except Exception as exc:
+        raise RuntimeError("Could not start Local Studio FFmpeg: " + str(exc))
+    session = uuid.uuid4().hex
+    with LOCAL_LOCK:
+        LOCAL_SESSIONS[session] = {
+            "proc": proc, "rtmp_url": rtmp_url, "started": time.time(),
+            "bytes": 0, "error": ""
+        }
+    return session
+
+def local_chunk(session, body):
+    with LOCAL_LOCK:
+        item = LOCAL_SESSIONS.get(session)
+    if not item:
+        raise RuntimeError("Local Studio session not found")
+    proc = item["proc"]
+    if proc.poll() is not None:
+        err = ""
+        try:
+            err = proc.stderr.read().decode(errors="ignore")[-1000:]
+        except Exception:
+            pass
+        with LOCAL_LOCK:
+            item["error"] = err or "FFmpeg stopped"
+        raise RuntimeError("Local Studio encoder stopped")
+    try:
+        proc.stdin.write(body)
+        proc.stdin.flush()
+        item["bytes"] += len(body)
+    except Exception as exc:
+        raise RuntimeError("Local Studio encoder input failed: " + str(exc))
+
+def local_stop(session):
+    with LOCAL_LOCK:
+        item = LOCAL_SESSIONS.pop(session, None)
+    if not item:
+        return False
+    proc = item["proc"]
+    try:
+        proc.stdin.close()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=6)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    return True
+
+def stream_ndi_preview(handler, source_name):
+    if ndi is None or av is None:
+        handler.send_error(503, "NDI preview dependencies are not installed")
+        return
+    source_name = str(source_name or "").strip()
+    if not source_name:
+        handler.send_error(400, "source_name is required")
+        return
+    recv = None
+    finder = None
+    initialized = False
+    try:
+        if not ndi.initialize():
+            handler.send_error(503, "NDI initialization failed")
+            return
+        initialized = True
+        finder = ndi.find_create_v2()
+        if finder is None:
+            handler.send_error(503, "NDI source finder failed")
+            return
+        ndi.find_wait_for_sources(finder, 800)
+        sources = ndi.find_get_current_sources(finder)
+        source = next((x for x in sources if str(x.ndi_name) == source_name), None)
+        if source is None:
+            handler.send_error(404, "NDI source not found")
+            return
+        settings = ndi.RecvCreateV3()
+        settings.color_format = ndi.RECV_COLOR_FORMAT_BGRX_BGRA
+        settings.bandwidth = ndi.RECV_BANDWIDTH_LOWEST
+        recv = ndi.recv_create_v3(settings)
+        if recv is None:
+            handler.send_error(503, "Could not create NDI preview receiver")
+            return
+        ndi.recv_connect(recv, source)
+        handler.send_response(200)
+        handler.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("Access-Control-Allow-Origin", "*")
+        handler.end_headers()
+        encoder = None
+        while not STOP.is_set():
+            typ, vf, _, _ = ndi.recv_capture_v2(recv, 500, want_video=True, want_audio=False, want_metadata=False)
+            if typ != ndi.FRAME_TYPE_VIDEO or vf is None:
+                continue
+            try:
+                arr = np.ascontiguousarray(vf.data)
+                if arr.ndim != 3 or arr.shape[-1] < 4:
+                    continue
+                frame = av.VideoFrame.from_ndarray(arr[:, :, :4], format="bgra").reformat(format="yuvj420p")
+                if encoder is None:
+                    encoder = av.CodecContext.create("mjpeg", "w")
+                    encoder.width = frame.width
+                    encoder.height = frame.height
+                    encoder.pix_fmt = "yuvj420p"
+                    encoder.time_base = Fraction(1, 15)
+                    encoder.open()
+                for packet in encoder.encode(frame):
+                    raw = bytes(packet)
+                    handler.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "+str(len(raw)).encode()+b"\r\n\r\n"+raw+b"\r\n")
+                    handler.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            except Exception:
+                pass
+            finally:
+                try:
+                    ndi.recv_free_video_v2(recv, vf)
+                except Exception:
+                    pass
+    except (BrokenPipeError, ConnectionResetError):
+        return
+    except Exception as exc:
+        try:
+            handler.send_error(500, str(exc))
+        except Exception:
+            pass
+    finally:
+        try:
+            if recv is not None: ndi.recv_destroy(recv)
+            if finder is not None: ndi.find_destroy(finder)
+            if initialized: ndi.destroy()
+        except Exception:
+            pass
+
 def start_input(payload):
     global INPUT_THREAD
     if INPUT_THREAD and INPUT_THREAD.is_alive():
@@ -281,9 +445,16 @@ def start_output(payload):
 
 class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
-        reply(self, {"ok": True})
+        h = self
+        h.send_response(204)
+        h.send_header("Access-Control-Allow-Origin", "*")
+        h.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+        h.send_header("Access-Control-Allow-Headers", "Content-Type")
+        h.send_header("Access-Control-Max-Age", "86400")
+        h.end_headers()
     def do_GET(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path == "/status":
             with LOCK:
                 reply(self, dict(STATE))
@@ -292,9 +463,42 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 reply(self, {"sources": list(STATE["source_names"])})
             return
+        if path == "/preview":
+            from urllib.parse import parse_qs
+            source_name = (parse_qs(parsed.query or "").get("source_name") or [""])[0]
+            stream_ndi_preview(self, source_name)
+            return
         reply(self, {"error": "Not found"}, 404)
     def do_POST(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path == "/local/chunk":
+            try:
+                from urllib.parse import parse_qs
+                session = (parse_qs(parsed.query or "").get("session") or [""])[0]
+                length = int(self.headers.get("Content-Length", "0"))
+                body = self.rfile.read(length) if length else b""
+                local_chunk(session, body)
+                return reply(self, {"ok": True, "bytes": len(body)})
+            except Exception as exc:
+                return reply(self, {"error": str(exc)}, 400)
+        if path == "/local/start":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length).decode() if length else "{}")
+                session = local_start(payload)
+                return reply(self, {"ok": True, "session": session})
+            except Exception as exc:
+                return reply(self, {"error": str(exc)}, 400)
+        if path == "/local/stop":
+            try:
+                from urllib.parse import parse_qs
+                session = (parse_qs(parsed.query or "").get("session") or [""])[0]
+                local_stop(session)
+                return reply(self, {"ok": True})
+            except Exception as exc:
+                return reply(self, {"error": str(exc)}, 400)
+
         try:
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode() if length else "{}")
