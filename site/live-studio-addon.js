@@ -231,8 +231,11 @@ function addControls(){
 function protectProgram(){
   const id=activeChannelId();if(!id)return;
   const pv=selectedPreviewVideo(),pr=programVideo();
-  if(A.localProgram)return;
-  if(A.programChannel&&A.programChannel!==id){
+  if(A.localProgram){
+    const src=A.sources.get(A.localProgram);
+    if(src?.kind==="NDI")setProgramNdi(src);
+    else if(src)setLocalProgramVisual(src);
+  }else if(A.programChannel&&A.programChannel!==id){
     channel(A.programChannel).then(s=>{const v=programVideo();if(v){setHls(v,hlsUrl(s))}}).catch(()=>{});
   }
   if(!A.programChannel)A.programChannel=id;
