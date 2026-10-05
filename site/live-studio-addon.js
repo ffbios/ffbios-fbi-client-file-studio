@@ -32,6 +32,7 @@ function injectStyle(){
 
 async function channel(id){return api("/api/live/streams/"+encodeURIComponent(id),{cache:"no-store"}).then(x=>x.stream)}
 function hlsUrl(s){const token=s?.viewer_url?String(s.viewer_url).split("/watch/").pop().split(/[?#]/)[0]:"";return token?"/api/public/stream/"+encodeURIComponent(token)+"/hls/index.m3u8":""}
+function inputHlsUrl(s){const u=hlsUrl(s);return u?(u+(u.includes("?")?"&":"?")+"source=input"):""}
 function destroyHls(v){
   if(!v)return;
   try{v.__fbiHls?.destroy?.()}catch{}
@@ -59,7 +60,7 @@ async function putChannelInProgram(openWatch=true){
   const id=activeChannelId();if(!id){toast("Select a channel first.");return}
   let s;try{s=await channel(id)}catch(e){toast(e.message||"Could not load channel.");return}
   A.programChannel=id;A.localProgram="";
-  const pv=programVideo();if(pv){pv.dataset.fbiProgram="channel";setHls(pv,hlsUrl(s))}
+  const pv=programVideo();if(pv){pv.dataset.fbiProgram="channel";setHls(pv,inputHlsUrl(s))}
   const btn=document.getElementById("fbiTakeChannel");if(btn)btn.classList.add("fbi-addon-take");
   toast(s.name+" is now PROGRAM");
   if(openWatch&&s.viewer_url)window.open(s.viewer_url,"_blank","noopener");
@@ -140,7 +141,7 @@ function ensureChannelSource(s){
     document.body.appendChild(v);
   }
   v.volume=0;v.muted=false;
-  setHls(v,hlsUrl(s));
+  setHls(v,inputHlsUrl(s));
   A.sources.set("channel",{id:"channel",name:s.name||"Channel Feed",kind:"CHANNEL",detail:"Existing OBS / vMix live channel feed",video:v,audioElement:v});
 }
 
@@ -161,7 +162,7 @@ async function putChannelInProgram(openWatch=false){
   await refreshChannelSource();
   if(A.bridge)await stopGateway();
   A.programChannel=id;A.localProgram="";A.selectedSource="channel";
-  const pv=selectedPreviewVideo();if(pv&&A.channelData){destroyHls(pv);pv.srcObject=null;pv.removeAttribute("src");pv.load();setHls(pv,hlsUrl(A.channelData))}
+  const pv=selectedPreviewVideo();if(pv&&A.channelData){destroyHls(pv);pv.srcObject=null;pv.removeAttribute("src");pv.load();setHls(pv,inputHlsUrl(A.channelData))}
   restoreProgram();
   refresh();
   toast((A.channelData?.name||"Channel Feed")+" is back on PROGRAM");
