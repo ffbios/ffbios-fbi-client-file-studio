@@ -1966,9 +1966,46 @@ function previewAdmin(f){
  const modal=document.createElement('div');modal.className='viewer show';modal.innerHTML=`<div class="viewerbox"><div class="vh"><b>${esc(f.original_name)}</b><button class="close">×</button></div><div class="vc">${isImage(f)?`<img src="${url}">`:isVideo(f)?`<video controls src="${url}"></video>`:isPdf(f)?`<iframe src="${url}"></iframe>`:`<div class="empty">No inline preview. <a href="${url}&download=1" style="color:var(--gold2)">Download file</a></div>`}</div></div>`;
  document.body.appendChild(modal);modal.querySelector('.close').onclick=()=>modal.remove();modal.onclick=e=>{if(e.target===modal)modal.remove()};
 }
+async function clientEmailGate(token,initialMessage){
+  document.title='Client Gallery Access • FBI Client File Studio';
+  document.body.innerHTML=
+    '<div style="min-height:100vh;background:#09090a;color:#f4f3ef;display:grid;place-items:center;padding:24px;font-family:Inter,system-ui,sans-serif">'+
+      '<div style="width:min(430px,100%);background:#111114;border:1px solid #29292e;border-radius:18px;padding:28px;box-shadow:0 24px 80px rgba(0,0,0,.35)">'+
+        '<div style="text-align:center;margin-bottom:22px"><img src="'+LOGO+'" alt="Film Beyond Imagination" style="width:150px;max-width:70%;height:56px;object-fit:contain"><div style="font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#8f8f98;margin-top:8px">Client Gallery</div></div>'+
+        '<h1 style="font-size:22px;margin:0 0 8px;text-align:center">Enter your email</h1>'+
+        '<p style="font-size:12px;line-height:1.6;color:#a7a7ae;text-align:center;margin:0 0 22px">Enter your email address to access your shared gallery.</p>'+
+        '<label for="clientGalleryEmail" style="display:block;font-size:10px;font-weight:700;color:#d7d7dc;margin-bottom:7px">Client Email</label>'+
+        '<input id="clientGalleryEmail" type="email" autocomplete="email" placeholder="you@example.com" style="width:100%;box-sizing:border-box;background:#0c0c0e;border:1px solid #34343a;border-radius:9px;color:#fff;padding:12px 13px;font-size:13px;outline:none">'+
+        '<button id="clientGalleryContinue" style="width:100%;margin-top:12px;border:0;border-radius:9px;padding:12px;background:linear-gradient(135deg,#f4d56d,#c7a53d);color:#111;font-weight:800;cursor:pointer">Access Gallery</button>'+
+        '<div id="clientGalleryError" style="min-height:18px;color:#fb7185;font-size:10px;text-align:center;margin-top:10px">'+esc(initialMessage||'')+'</div>'+
+      '</div>'+
+    '</div>';
+  const input=document.querySelector('#clientGalleryEmail'),button=document.querySelector('#clientGalleryContinue'),error=document.querySelector('#clientGalleryError');
+  async function submit(){
+    const email=String(input.value||'').trim().toLowerCase();
+    error.textContent='';
+    button.disabled=true;button.textContent='Checking…';
+    try{
+      await api('/api/public/share/'+encodeURIComponent(token)+'/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});
+      await clientView(token);
+    }catch(e){
+      error.textContent=e.message||'Unable to access this gallery.';
+      button.disabled=false;button.textContent='Access Gallery';
+    }
+  }
+  button.onclick=submit;
+  input.addEventListener('keydown',e=>{if(e.key==='Enter')submit()});
+  setTimeout(()=>input.focus(),50);
+}
 async function clientView(token){
  try{
-  const d=await api('/api/public/share/'+encodeURIComponent(token));
+  let d;
+  try{
+    d=await api('/api/public/share/'+encodeURIComponent(token));
+  }catch(e){
+    if(e&&e.status===401&&e.code==='CLIENT_EMAIL_REQUIRED'){return clientEmailGate(token,'');}
+    throw e;
+  }
   const files=d.files||[];
   const images=files.filter(f=>/^image\//i.test(f.mime_type||''));
   const videos=files.filter(f=>/^video\//i.test(f.mime_type||''));
