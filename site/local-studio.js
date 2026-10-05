@@ -38,6 +38,21 @@
 .local-output-state b{display:block;font-size:8px}.local-output-state span{display:block;margin-top:3px;color:#71717a;font-size:6px;line-height:1.4}
 .local-tbar{width:100%;accent-color:#e7c44f}.local-tbar-label{display:flex;justify-content:space-between;color:#73737c;font-size:6px}.local-tbar-label b{color:#ddd}
 .local-program-note{padding:0 10px 9px;color:#5f5f67;font-size:6px}
+.local-source-special{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:radial-gradient(circle at 50% 45%,rgba(231,196,79,.15),transparent 55%);color:#e7c44f;font-size:10px}
+.local-source-special span{font-size:6px;color:#777780}
+.local-multiview{position:fixed;inset:0;z-index:7000;background:rgba(0,0,0,.82);display:none;padding:18px}
+.local-multiview.open{display:grid;place-items:center}
+.local-multiview-card{width:min(1220px,100%);max-height:calc(100vh - 36px);overflow:auto;background:#0d0d0f;border:1px solid #34343b;border-radius:14px;box-shadow:0 30px 100px rgba(0,0,0,.75)}
+.local-mv-grid{padding:10px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.local-mv-card{border:1px solid #2b2b31;background:#111113;border-radius:9px;overflow:hidden}
+.local-mv-visual{aspect-ratio:16/9;background:#000;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.local-mv-visual video{width:100%;height:100%;object-fit:cover}
+.local-mv-icon{font-size:20px;font-weight:900;color:#e7c44f}
+.local-mv-caption{position:absolute;left:6px;bottom:6px;background:rgba(0,0,0,.68);border:1px solid rgba(255,255,255,.12);padding:4px 6px;border-radius:4px;font-size:6px;color:#ddd}
+.local-mv-body{padding:7px}.local-mv-body b{display:block;font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.local-mv-body span{display:block;margin-top:3px;color:#74747d;font-size:6px}
+.local-mv-actions{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:6px}.local-mv-actions button{border:1px solid #303037;background:#18181b;color:#e9e9ed;border-radius:6px;padding:7px;font-size:6px;font-weight:850}.local-mv-actions button.primary{background:#e7c44f;color:#15150f;border-color:#e7c44f}
+@media(max-width:1000px){.local-mv-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:720px){.local-mv-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
 @media(max-width:1000px){.local-drawer{left:18px;right:18px}.local-source-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.local-tbar-wrap{grid-template-columns:1fr}}
 @media(max-width:650px){.local-source-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 `;
@@ -64,7 +79,7 @@
 
   function stopInput(src){
     if(!src)return;
-    try{src.stream.getTracks().forEach(t=>t.stop())}catch{}
+    try{src.stream?.getTracks?.().forEach(t=>t.stop())}catch{}
     if(src.videoEl){try{src.videoEl.srcObject=null}catch{}}
   }
 
@@ -110,6 +125,104 @@
       stream.getVideoTracks()[0].onended=()=>removeSource(source.id);
       S.inputs.set(source.id,source);renderSources();refreshDrawer();toast(source.name+" added");
     }catch(e){if(e?.name!=="NotAllowedError")toast(e.message||"Screen capture could not be started.")}
+  }
+
+  async function addAudioInput(){
+    if(!navigator.mediaDevices?.getUserMedia)throw new Error("This browser does not support microphone/audio input.");
+    if(S.inputs.size>=8)throw new Error("Up to 8 local inputs can be added.");
+    const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    const source={id:"audio-"+crypto.randomUUID(),name:"Audio Input "+([...S.inputs.values()].filter(x=>x.kind==="AUDIO").length+1),kind:"AUDIO",detail:"Microphone / audio capture",stream,audioOnly:true};
+    stream.getAudioTracks()[0].onended=()=>removeSource(source.id);
+    S.inputs.set(source.id,source);
+    if(S.output){connectAudio(S.output,source)}
+    renderSources();refreshDrawer();toast(source.name+" added");
+  }
+
+  async function loadNdiSources(){
+    try{
+      const res=await fetch("http://127.0.0.1:8765/sources",{cache:"no-store"});
+      if(!res.ok)throw new Error("NDI Gateway is not responding.");
+      const data=await res.json();
+      const names=Array.isArray(data.sources)?data.sources.map(String).filter(Boolean):[];
+      if(!names.length)throw new Error("NDI Gateway is running but no NDI sources were discovered.");
+      return names;
+    }catch(e){
+      if(e?.message?.includes("NDI Gateway"))throw e;
+      throw new Error("NDI Gateway not available on this computer. Run the FBI NDI Gateway first.");
+    }
+  }
+
+  async function openNdiPicker(){
+    const names=await loadNdiSources();
+    const modal=document.createElement("div");modal.className="channel-modal";modal.style.zIndex="6000";
+    modal.innerHTML='<div class="channel-box"><div class="channel-head"><b>NDI SOURCES</b><button class="channel-close" id="ndiClose">×</button></div><div class="channel-body"><p class="channel-help">Sources are discovered from the FBI NDI Gateway on this production computer. Select a source to add it to the MultiView/source tray.</p><div id="ndiSourceList"></div></div></div>';
+    document.body.appendChild(modal);
+    const list=modal.querySelector("#ndiSourceList");
+    names.forEach(name=>{
+      const row=document.createElement("div");row.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px;border:1px solid #2a2a30;background:#111113;border-radius:8px;margin-bottom:6px";
+      row.innerHTML='<div style="min-width:0"><b style="display:block;font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(name)+'</b><span style="display:block;color:#73737c;font-size:6px;margin-top:3px">NDI Gateway • LAN discovered</span></div><button class="btn primary" style="font-size:7px">ADD</button>';
+      row.querySelector("button").onclick=()=>{
+        const source={id:"ndi-"+crypto.randomUUID(),name,kind:"NDI",detail:"NDI Gateway source",ndiName:name,gateway:true,stream:null};
+        S.inputs.set(source.id,source);
+        renderSources();refreshDrawer();modal.remove();toast(name+" added to MultiView");
+      };
+      list.appendChild(row);
+    });
+    modal.querySelector("#ndiClose").onclick=()=>modal.remove();
+    modal.onclick=e=>{if(e.target===modal)modal.remove()};
+  }
+
+  async function takeNdiSource(source){
+    const channel=window.getSelectedLiveChannel?.();
+    if(!channel)throw new Error("Select a live channel first.");
+    try{
+      await fetch("http://127.0.0.1:8765/input/start",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({source_name:source.ndiName,rtmp_server:channel.rtmp_server,stream_key:channel.stream_key})
+      }).then(async res=>{const d=await res.json().catch(()=>({}));if(!res.ok||d.error)throw new Error(d.error||"NDI input could not be started.")});
+      S.ndiActiveId=source.id;
+      toast(source.name+" is now feeding the selected channel");
+      await new Promise(r=>setTimeout(r,600));
+      window.setProgramChannel?.(channel.id,{openWatch:true});
+      refreshDrawer();renderSources();
+    }catch(e){toast(e.message||"NDI input could not be started.");throw e}
+  }
+
+  function openMultiview(){
+    if(document.getElementById("localMultiView")){document.getElementById("localMultiView").classList.add("open");refreshMultiview();return}
+    injectStyles();
+    const m=document.createElement("div");m.id="localMultiView";m.className="local-multiview";
+    m.innerHTML='<div class="local-multiview-card"><div class="local-drawer-head"><div class="local-drawer-title"><b>MULTIVIEW</b><span>All Local Studio inputs • Preview / Program selection</span></div><div class="local-drawer-actions"><button id="mvRefresh">REFRESH</button><button class="danger" id="mvClose">CLOSE</button></div></div><div class="local-mv-grid" id="localMvGrid"></div></div>';
+    document.body.appendChild(m);
+    m.querySelector("#mvClose").onclick=()=>m.classList.remove("open");
+    m.querySelector("#mvRefresh").onclick=refreshMultiview;
+    m.onclick=e=>{if(e.target===m)m.classList.remove("open")};
+    refreshMultiview();
+  }
+
+  function refreshMultiview(){
+    const grid=document.getElementById("localMvGrid");if(!grid)return;
+    grid.innerHTML="";
+    const sources=[...S.inputs.values()];
+    if(!sources.length){grid.innerHTML='<div class="local-no-inputs">No local sources have been added.</div>';return}
+    sources.forEach(src=>{
+      const card=document.createElement("div");card.className="local-mv-card";
+      const visual=document.createElement("div");visual.className="local-mv-visual";
+      if(src.kind==="DEVICE"||src.kind==="SCREEN"){
+        const v=document.createElement("video");v.autoplay=true;v.muted=true;v.playsInline=true;v.srcObject=src.stream;visual.appendChild(v);
+      }else if(src.kind==="AUDIO"){
+        visual.innerHTML='<div class="local-mv-icon">AUDIO</div><div class="local-mv-caption">Audio input</div>';
+      }else{
+        visual.innerHTML='<div class="local-mv-icon">NDI</div><div class="local-mv-caption">'+esc(src.name)+'</div>';
+      }
+      const body=document.createElement("div");body.className="local-mv-body";
+      body.innerHTML='<b>'+esc(src.name)+'</b><span>'+esc(src.kind)+' • '+esc(src.detail)+'</span>';
+      const act=document.createElement("div");act.className="local-mv-actions";
+      const p=document.createElement("button");p.textContent="PREVIEW";p.onclick=()=>selectPreview(src.id);
+      const t=document.createElement("button");t.textContent=src.kind==="NDI"?"TAKE NDI":"TAKE";t.className="primary";
+      t.onclick=()=>src.kind==="NDI"?takeNdiSource(src):take(src.id);
+      act.append(p,t);body.appendChild(act);card.append(visual,body);grid.appendChild(card);
+    });
   }
 
   function removeSource(id){
@@ -168,8 +281,9 @@
       fit(ctx,out.transition.from,1-p);fit(ctx,out.transition.to,p);
       if(p>=1){out.transition=null;selectAudio(out,out.programId||"")}
     }else{
-      const src=S.inputs.get(out.programId||"");
-      if(src)fit(ctx,src.videoEl||src.previewEl,1);
+      const src=S.inputs.get(out.frameSource?.id||out.programId||"");
+      if(src&&src.kind!=="AUDIO")fit(ctx,src.videoEl||src.previewEl,1);
+      else if(out.frameSource&&out.frameSource.videoEl)fit(ctx,out.frameSource.videoEl,1);
       else if(out.fallback)fit(ctx,out.fallback,1);
     }
     out.raf=requestAnimationFrame(frameLoop);
@@ -188,14 +302,16 @@
     const recMime=mime();if(!recMime)throw new Error("This browser cannot encode the local studio output.");
     const recorder=new MediaRecorder(combined,{mimeType:recMime,videoBitsPerSecond:4500000,audioBitsPerSecond:128000});
     const fallback=document.getElementById("programVideo");
-    const out={ws,canvas,ctx,audioCtx,audioDest,audioNodes:new Map(),recorder,raf:0,programId:src.id,fallback: fallback&&fallback.readyState>=2?fallback:null,transition:null};
-    S.inputs.forEach(x=>{x.previewEl=x.videoEl||null;connectAudio(out,x)});
+    const firstVideo=S.inputs.get(S.previewId)?.kind!=="AUDIO"?S.inputs.get(S.previewId):[...S.inputs.values()].find(x=>x.kind==="DEVICE"||x.kind==="SCREEN");
+    const out={ws,canvas,ctx,audioCtx,audioDest,audioNodes:new Map(),recorder,raf:0,programId:src.kind==="AUDIO"?(firstVideo?.id||""):src.id,frameSource:firstVideo||null,fallback: fallback&&fallback.readyState>=2?fallback:null,transition:null};
+    S.inputs.forEach(x=>{x.previewEl=x.videoEl||null;if(x.stream)connectAudio(out,x)});
     S.output=out;
 
     ws.onopen=()=>{
       try{audioCtx.resume()}catch{}
       recorder.start(750);
-      out.transition=out.fallback?{from:out.fallback,to:src.videoEl||src.startVideo,start:performance.now(),ms:650}:null;
+      const toVideo=src.kind==="AUDIO"?(out.frameSource?.videoEl||out.fallback):src.videoEl;
+      out.transition=out.fallback&&toVideo?{from:out.fallback,to:toVideo,start:performance.now(),ms:650}:null;
       if(!out.transition)selectAudio(out,src.id);
       frameLoop();
       refreshDrawer();
@@ -208,16 +324,43 @@
 
   async function take(id){
     const src=S.inputs.get(id);if(!src)return;
-    const v=src.videoEl||document.createElement("video");v.autoplay=true;v.muted=true;v.playsInline=true;v.srcObject=src.stream;src.videoEl=v;try{await v.play()}catch{}
-    S.previewId=id;localPreviewElement(src);
+    const channel=window.getSelectedLiveChannel?.();
+    if(!channel){toast("Select a live channel first.");return}
+    let v=null;
+    if(src.kind!=="AUDIO"){
+      v=src.videoEl||document.createElement("video");
+      v.autoplay=true;v.muted=true;v.playsInline=true;v.srcObject=src.stream;src.videoEl=v;
+      try{await v.play()}catch{}
+      S.previewId=id;
+      localPreviewElement(src);
+    }
     try{
-      if(!S.output)await startOutput(src);
-      else{
-        const out=S.output,current=S.inputs.get(out.programId||"");
-        out.transition={from:current?.videoEl||document.getElementById("programVideo"),to:v,start:performance.now(),ms:650};
-        out.programId=id;S.output.programId=id;selectAudio(out,id);
+      if(!S.output){
+        if(src.kind==="AUDIO"){
+          const videoBase=[...S.inputs.values()].find(x=>x.kind==="DEVICE"||x.kind==="SCREEN");
+          if(!videoBase)throw new Error("Add a camera, capture card or screen source before taking an audio-only source.");
+        }
+        await startOutput(src);
+      }else{
+        const out=S.output;
+        const current=out.frameSource?.videoEl||document.getElementById("programVideo");
+        if(src.kind!=="AUDIO"){
+          out.transition={from:current,to:v,start:performance.now(),ms:650};
+          out.frameSource=src;out.programId=id;
+        }
+        selectAudio(out,id);
       }
-      refreshDrawer();toast(src.name+" taken to PROGRAM");
+      if(src.kind==="AUDIO"){
+        selectAudio(S.output,src.id);
+      }
+      if(src.kind!=="AUDIO"){
+        const pv=document.getElementById("programVideo");
+        if(pv){try{pv.__studioHls?.destroy?.()}catch{}pv.__studioHls=null;pv.removeAttribute("src");pv.load();pv.srcObject=src.stream;pv.autoplay=true;pv.muted=true;pv.playsInline=true;pv.play().catch(()=>{})}
+      }
+      S.channelId=channel.id;
+      window.setProgramChannel?.(channel.id,{openWatch:true});
+      refreshDrawer();renderSources();refreshMultiview();
+      toast(src.name+" TAKEN TO PROGRAM");
     }catch(e){toast(e.message||"Could not take local input to Program")}
   }
 
@@ -227,7 +370,9 @@
     if(out){
       try{out.ws.close()}catch{}try{out.recorder.stop()}catch{}try{out.audioCtx.close()}catch{}cancelAnimationFrame(out.raf)
     }
-    S.output=null;refreshDrawer();toast("Local Studio output stopped");
+    S.output=null;
+    if(S.ndiActiveId){fetch("http://127.0.0.1:8765/input/stop",{method:"POST"}).catch(()=>{});S.ndiActiveId="";}
+    refreshDrawer();renderSources();refreshMultiview();toast("Local Studio output stopped");
   }
 
   function handleTbar(){
@@ -239,20 +384,28 @@
   function renderSources(){
     const grid=document.getElementById("localSourceGrid");if(!grid)return;
     grid.innerHTML="";
-    if(!S.inputs.size){grid.innerHTML='<div class="local-no-inputs">No local inputs yet. Add a camera, USB capture card, screen, or window.</div>';return}
+    if(!S.inputs.size){grid.innerHTML='<div class="local-no-inputs">No local inputs yet. Add a camera, USB capture card, screen, audio input or NDI source.</div>';return}
     S.inputs.forEach(src=>{
-      const card=document.createElement("div");card.className="local-source "+(src.id===S.previewId?"preview ":"")+(src.id===S.output?.programId?"live":"");
-      const v=document.createElement("video");v.className="local-source-video";v.autoplay=true;v.muted=true;v.playsInline=true;v.srcObject=src.stream;src.videoEl=v;
+      const card=document.createElement("div");card.className="local-source "+(src.id===S.previewId?"preview ":"")+(src.id===S.output?.programId||src.id===S.ndiActiveId?"live":"");
+      let visual;
+      if(src.kind==="DEVICE"||src.kind==="SCREEN"){
+        const v=document.createElement("video");v.className="local-source-video";v.autoplay=true;v.muted=true;v.playsInline=true;v.srcObject=src.stream;src.videoEl=v;visual=v;
+      }else{
+        visual=document.createElement("div");visual.className="local-source-video local-source-special";
+        visual.innerHTML=src.kind==="AUDIO"?'<b>MIC / AUDIO</b><span>Audio source</span>':'<b>NDI</b><span>'+esc(src.name)+'</span>';
+      }
       const body=document.createElement("div");body.className="local-source-body";
       body.innerHTML='<div class="local-source-name">'+esc(src.name)+'</div><div class="local-source-meta">'+esc(src.kind)+" • "+esc(src.detail)+"</div>";
       const actions=document.createElement("div");actions.className="local-source-actions";
       const p=document.createElement("button");p.textContent="PREVIEW";p.className=src.id===S.previewId?"active":"";
-      const tk=document.createElement("button");tk.textContent="TAKE";tk.className=src.id===S.output?.programId?"active":"";
+      const tk=document.createElement("button");tk.textContent=src.kind==="NDI"?"TAKE NDI":"TAKE";tk.className=src.id===S.output?.programId||src.id===S.ndiActiveId?"active":"";
       const rm=document.createElement("button");rm.textContent="×";
-      p.onclick=()=>selectPreview(src.id);tk.onclick=()=>take(src.id);rm.onclick=()=>removeSource(src.id);
-      actions.append(p,tk,rm);body.appendChild(actions);card.append(v,body);grid.appendChild(card);
+      p.onclick=()=>{if(src.kind!=="NDI"&&src.kind!=="AUDIO")selectPreview(src.id);else{S.previewId=src.id;renderSources();refreshDrawer();toast(src.name+" selected in PREVIEW")}};
+      tk.onclick=()=>src.kind==="NDI"?takeNdiSource(src):take(src.id);
+      rm.onclick=()=>removeSource(src.id);
+      actions.append(p,tk,rm);body.appendChild(actions);card.append(visual,body);grid.appendChild(card);
     });
-    refreshDrawer();
+    refreshMultiview();
   }
 
   function refreshDrawer(){
@@ -260,8 +413,10 @@
     if(!st)return;
     const live=!!S.output;
     st.textContent=live?"LOCAL OUTPUT LIVE":"LOCAL OUTPUT STANDBY";
-    tx.textContent=live?"Local Studio is feeding the selected FBI Live channel through the existing RTMP/HLS engine.":"Select a local source for Preview, then press TAKE or move the T-bar to 100%.";
-    if(stop)stop.disabled=!live;if(t)t.disabled=!S.previewId;
+    tx.textContent=live
+      ?"Local Studio is feeding the selected FBI Live channel through the existing RTMP/HLS engine."
+      :(S.ndiActiveId?"NDI source is feeding the selected FBI Live channel through the local NDI Gateway.":"Select a local source for Preview, then press TAKE or move the T-bar to 100%.");
+    if(stop)stop.disabled=!live&&!S.ndiActiveId;if(t)t.disabled=!S.previewId;
     const c=currentChannelId();if(c&&S.channelId&&c!==S.channelId&&live)stopOutput();
   }
 
@@ -270,10 +425,13 @@
     if(existing){S.drawer=existing;return}
     injectStyles();
     const d=document.createElement("div");d.id="localStudioDrawer";d.className="local-drawer";
-    d.innerHTML='<div class="local-drawer-head"><div class="local-drawer-title"><b>LOCAL STUDIO INPUTS</b><span>Camera • USB Capture Card • Screen • Window • Browser Tab</span></div><div class="local-drawer-actions"><button class="gold" id="addLocalCamera">＋ CAMERA / CAPTURE</button><button id="addLocalScreen">＋ SCREEN / WINDOW</button><button class="danger" id="localStop" disabled>STOP LOCAL OUTPUT</button><button id="localClose">CLOSE</button></div></div><div id="localSourceGrid" class="local-source-grid"></div><div class="local-tbar-wrap"><div class="local-output-state"><b id="localOutputState">LOCAL OUTPUT STANDBY</b><span id="localOutputText">Select a local source for Preview, then press TAKE or move the T-bar to 100%.</span></div><div><input id="localTbar" class="local-tbar" type="range" min="0" max="100" value="0" step="1" disabled><div class="local-tbar-label"><span>PREVIEW</span><b id="localTbarValue">0%</b><span>PROGRAM</span></div></div><div><button class="btn primary" id="localTakeSelected" style="font-size:8px">TAKE PREVIEW TO PROGRAM</button></div></div><div class="local-program-note">The existing streaming engine is not replaced. Local Studio encodes the selected source in the browser and publishes it into the same channel input path already used by OBS/vMix.</div>';
+    d.innerHTML='<div class="local-drawer-head"><div class="local-drawer-title"><b>LOCAL STUDIO INPUTS</b><span>Camera • USB Capture Card • Screen • Window • Audio • NDI</span></div><div class="local-drawer-actions"><button class="gold" id="addLocalCamera">＋ CAMERA / CAPTURE</button><button id="addLocalScreen">＋ SCREEN / WINDOW</button><button id="addLocalAudio">＋ AUDIO</button><button id="addLocalNdi">＋ NDI</button><button id="openLocalMv">MULTIVIEW</button><button class="danger" id="localStop" disabled>STOP LOCAL OUTPUT</button><button id="localClose">CLOSE</button></div></div><div id="localSourceGrid" class="local-source-grid"></div><div class="local-tbar-wrap"><div class="local-output-state"><b id="localOutputState">LOCAL OUTPUT STANDBY</b><span id="localOutputText">Select a local source for Preview, then press TAKE or move the T-bar to 100%.</span></div><div><input id="localTbar" class="local-tbar" type="range" min="0" max="100" value="0" step="1" disabled><div class="local-tbar-label"><span>PREVIEW</span><b id="localTbarValue">0%</b><span>PROGRAM</span></div></div><div><button class="btn primary" id="localTakeSelected" style="font-size:8px">TAKE PREVIEW TO PROGRAM</button></div></div><div class="local-program-note">The existing streaming engine is not replaced. Local Studio encodes the selected source in the browser and publishes it into the same channel input path already used by OBS/vMix.</div>';
     document.body.appendChild(d);S.drawer=d;
     d.querySelector("#addLocalCamera").onclick=()=>addCamera().catch(e=>toast(e.message||"Could not open video devices"));
     d.querySelector("#addLocalScreen").onclick=()=>addScreen().catch(e=>toast(e.message||"Could not start screen capture"));
+    d.querySelector("#addLocalAudio").onclick=()=>addAudioInput().catch(e=>toast(e.message||"Could not open audio input"));
+    d.querySelector("#addLocalNdi").onclick=()=>openNdiPicker().catch(e=>toast(e.message||"NDI Gateway unavailable"));
+    d.querySelector("#openLocalMv").onclick=openMultiview;
     d.querySelector("#localStop").onclick=stopOutput;d.querySelector("#localClose").onclick=closeDrawer;
     d.querySelector("#localTbar").oninput=handleTbar;d.querySelector("#localTakeSelected").onclick=()=>{const s=S.inputs.get(S.previewId);if(s)take(s.id)};
   }
@@ -282,6 +440,7 @@
     const btn=document.getElementById("localStudioOpen");
     if(btn)btn.onclick=openDrawer;
     window.openLocalStudio=openDrawer;
+    window.localStudioTake=take;
   }
 
   function keepPreviewMounted(){
