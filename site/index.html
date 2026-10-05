@@ -2234,11 +2234,55 @@ async function clientView(token){
     currentLightIndex=(index+list.length)%list.length;
     const f=list[currentLightIndex];
     const box=document.querySelector('#clientLightbox'),stage=document.querySelector('#lightStage');
-    const t=typeOf(f),src=t==='image'?('/api/public/preview/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w=1600&h=1600'):'/api/public/media/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token);
+    const t=typeOf(f);
+    const mediaId=encodeURIComponent(f.id);
+    const quickSrc=t==='image'
+      ?('/api/public/thumb/'+mediaId+'?token='+encodeURIComponent(token)+'&w=720&h=900')
+      :('/api/public/media/'+mediaId+'?token='+encodeURIComponent(token));
+    const highSrc=t==='image'
+      ?('/api/public/preview/'+mediaId+'?token='+encodeURIComponent(token)+'&w=1600&h=1600')
+      :quickSrc;
+
     document.querySelector('#lightTitle').textContent=f.original_name;
     document.querySelector('#lightFav').textContent=favorites.has(f.id)?'♥ Favorite':'♡ Favorite';
-    stage.innerHTML=t==='image'?'<img src="'+src+'" alt="">':t==='video'?'<video controls autoplay playsinline preload="metadata" src="'+src+'"></video>':'<audio controls autoplay src="'+src+'"></audio>';
-    document.querySelector('#lightFav').onclick=function(){toggleFavorite(f.id);document.querySelector('#lightFav').textContent=favorites.has(f.id)?'♥ Favorite':'♡ Favorite'};
+
+    if(t==='image'){
+      stage.innerHTML='<div class="fbi-lightbox-image-wrap"><img class="fbi-lightbox-image" src="'+quickSrc+'" alt="" decoding="async" fetchpriority="high"><span class="fbi-lightbox-loading" id="lightImageLoading">Loading full resolution…</span></div>';
+      const img=stage.querySelector('.fbi-lightbox-image');
+      const loading=stage.querySelector('#lightImageLoading');
+
+      const high=new Image();
+      high.decoding='async';
+      high.onload=function(){
+        if(!stage.contains(img))return;
+        img.src=high.src;
+        img.classList.add('is-hires');
+        if(loading)loading.remove();
+        // Warm the next image while the client is viewing this one.
+        const next=((currentLightIndex+1)%list.length);
+        const nf=list[next];
+        if(nf&&typeOf(nf)==='image'){
+          const n=new Image();
+          n.decoding='async';
+          n.src='/api/public/thumb/'+encodeURIComponent(nf.id)+'?token='+encodeURIComponent(token)+'&w=720&h=900';
+        }
+      };
+      high.onerror=function(){
+        if(loading)loading.textContent='';
+      };
+      // Start the expensive high-resolution request only after the fast image
+      // has been placed in the viewer.
+      setTimeout(function(){high.src=highSrc},0);
+    }else if(t==='video'){
+      stage.innerHTML='<video controls autoplay playsinline preload="metadata" src="'+highSrc+'"></video>';
+    }else{
+      stage.innerHTML='<audio controls autoplay src="'+highSrc+'"></audio>';
+    }
+
+    document.querySelector('#lightFav').onclick=function(){
+      toggleFavorite(f.id);
+      document.querySelector('#lightFav').textContent=favorites.has(f.id)?'♥ Favorite':'♡ Favorite';
+    };
     document.querySelector('#lightDownload').onclick=function(){startDownload([f])};
     box.classList.add('show');
   }
