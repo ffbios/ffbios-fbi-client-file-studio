@@ -810,6 +810,24 @@ function streamEncodedRtmpUrl(row){
   const base=streamRtmpServer();
   return base&&row?.stream_key?base.replace(/\/live$/,"/encoded")+"/"+row.stream_key:"";
 }
+
+// Additive MCR Program route. Normal OBS/vMix publishing and the proven
+// encoded/<key> playback path remain unchanged until this route is activated.
+const activeProgramRoutes=new Map();
+function streamProgramRtmpUrl(row){
+  const base=streamRtmpServer();
+  return base&&row?.stream_key?base.replace(/\/live$/,"/program")+"/"+row.stream_key:"";
+}
+function programRouteActive(streamId){
+  return activeProgramRoutes.has(String(streamId));
+}
+function activateProgramRoute(streamId){
+  activeProgramRoutes.set(String(streamId),Date.now());
+}
+function deactivateProgramRoute(streamId){
+  activeProgramRoutes.delete(String(streamId));
+}
+
 const activeStreamAudioMeters=new Map();
 
 function stopStreamAudioMeter(streamId){
@@ -1482,29 +1500,50 @@ app.post("/api/stream/auth",async(req,res)=>{
     const presentedToken=String(req.body.token||query.token||"");
     const presentedPassword=String(req.body.password||"");
     if(!pathValue)return res.status(401).end();
-    // MediaMTX authenticates not only the parent HLS path (live/<key>)
-    // but also child playlists and media segments such as
-    // live/<key>/video1_stream.m3u8. Resolve both the exact stream path
-    // and any descendant path to the same stream record.
+
     const r=await pool.query(
       "SELECT * FROM streams WHERE stream_path=$1 OR $1 LIKE stream_path || '/%' ORDER BY length(stream_path) DESC LIMIT 1",
       [pathValue]
     );
+    if(!r.rowCount){
+      const m=/^(?:program|encoded)\/([^/]+)/.exec(pathValue);
+      if(m){
+        const rr=await pool.query("SELECT * FROM streams WHERE stream_key=$1 LIMIT 1",[m[1]]);
+        if(rr.rowCount)r.rows=rr.rows.length?rr.rows:[]; 
+      }
+    }
     if(!r.rowCount)return res.status(403).end();
+
     const stream=r.rows[0];
+    const isProgram=pathValue===("program/"+String(stream.stream_key||""));
+    const programActive=programRouteActive(stream.id);
+
     if(action==="publish"){
-      const pathMatches=pathValue===stream.stream_path;
-      if(!stream.enabled || (!pathMatches && presentedPassword!==stream.stream_key && presentedToken!==stream.stream_key))return res.status(403).end();
+      const directLive=pathValue===stream.stream_path;
+      const programPublish=isProgram&&(
+        presentedPassword===stream.stream_key ||
+        presentedToken===stream.stream_key ||
+        presentedPassword==="" && presentedToken===""
+      );
+      if(!stream.enabled)return res.status(403).end();
+      if(!directLive&&!programPublish)return res.status(403).end();
+      if(isProgram&&!programActive)return res.status(403).end();
       await pool.query("UPDATE streams SET updated_at=now() WHERE id=$1",[stream.id]);
       return res.status(200).end();
     }
+
     if(action==="read"||action==="playback"){
-      if(!stream.enabled || !stream.shared)return res.status(403).end();
+      if(!stream.enabled||!stream.shared)return res.status(403).end();
+      if(isProgram&&!programActive)return res.status(403).end();
       return res.status(200).end();
     }
+
     if(action==="api"||action==="metrics"||action==="pprof")return res.status(200).end();
     return res.status(403).end();
-  }catch(e){console.error(e);res.status(500).end();}
+  }catch(e){
+    console.error(e);
+    res.status(500).end();
+  }
 });
 
 app.get("/api/streams",admin,async(req,res)=>{
@@ -1581,6 +1620,43 @@ app.get("/api/live/streams/:id",async(req,res)=>{
     }});
   }catch(e){console.error(e);res.status(500).json({error:"Could not load live stream"});}
 })
+app.post("/api/live/streams/:id/program/start",async(req,res)=>{
+  try{
+    const q=await pool.query("SELECT * FROM streams WHERE id=$1 AND enabled=true",[req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Stream not found."});
+    const stream=await refreshStreamStatus(q.rows[0]);
+    if(stream.status!=="live")return res.status(409).json({error:"The channel must already be live from OBS/vMix before Local Studio can take Program."});
+    const url=streamProgramRtmpUrl(stream);
+    if(!url)return res.status(503).json({error:"Program RTMP output is not configured."});
+    res.set("Cache-Control","no-store").json({ok:true,stream_id:stream.id,program_rtmp_url:url,viewer_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+stream.viewer_token});
+  }catch(e){
+    console.error("Program start failed:",e);
+    res.status(500).json({error:"Could not prepare Program output."});
+  }
+});
+
+app.post("/api/live/streams/:id/program/activate",async(req,res)=>{
+  try{
+    const q=await pool.query("SELECT id FROM streams WHERE id=$1 AND enabled=true",[req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Stream not found."});
+    activateProgramRoute(q.rows[0].id);
+    res.set("Cache-Control","no-store").json({ok:true,active:true});
+  }catch(e){
+    console.error("Program activate failed:",e);
+    res.status(500).json({error:"Could not activate Program output."});
+  }
+});
+
+app.post("/api/live/streams/:id/program/stop",async(req,res)=>{
+  try{
+    deactivateProgramRoute(req.params.id);
+    res.set("Cache-Control","no-store").json({ok:true,active:false});
+  }catch(e){
+    console.error("Program stop failed:",e);
+    res.status(500).json({error:"Could not stop Program output."});
+  }
+});
+
 app.get("/api/live/streams/:id/audio-level",async(req,res)=>{
   try{
     const q=await pool.query("SELECT * FROM streams WHERE id=$1 AND enabled=true",[req.params.id]);
@@ -1673,7 +1749,7 @@ async function proxyHlsStream(req,res){
     if(/^index\.m3u8\/index\.m3u8$/i.test(sub))sub="index.m3u8";
     else if(/^index\.m3u8\//i.test(sub))sub=sub.slice("index.m3u8/".length);
 
-    const upstreamPath="encoded/"+String(row.stream_key||"");
+    const upstreamPath=programRouteActive(row.id)?"program/"+String(row.stream_key||""):"encoded/"+String(row.stream_key||"");
     const upstream=new URL(internalBase+"/"+upstreamPath+(sub?"/"+sub:""));
 
     for(const [k,v] of Object.entries(req.query||{}))upstream.searchParams.append(k,String(v));
@@ -1821,7 +1897,7 @@ async function proxyPublicHlsStream(req,res){
     let sub=String(req.path||"/").replace(/^\/+/, "");
     if(/^index\.m3u8\/index\.m3u8$/i.test(sub))sub="index.m3u8";
     else if(/^index\.m3u8\//i.test(sub))sub=sub.slice("index.m3u8/".length);
-    const upstreamPath="encoded/"+String(row.stream_key||"");
+    const upstreamPath=programRouteActive(row.id)?"program/"+String(row.stream_key||""):"encoded/"+String(row.stream_key||"");
     const upstream=new URL(internalBase+"/"+upstreamPath+(sub?"/"+sub:""));
     for(const [k,v] of Object.entries(req.query||{}))upstream.searchParams.append(k,String(v));
     const incomingCookies=String(req.headers.cookie||"");
