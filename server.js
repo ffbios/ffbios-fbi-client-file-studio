@@ -3627,7 +3627,7 @@ app.get("/local-studio.js",(req,res)=>{
 
 app.get("/manifest.webmanifest",(req,res)=>{
   const file=process.env.FBI_LIVE_STANDALONE==="1"?"live-manifest.webmanifest":"manifest.webmanifest";
-  res.type("application/manifest+json").sendFile(path.join(ROOT,file));
+  res.type("application/manifest+json").set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate").set("Pragma","no-cache").set("Expires","0").sendFile(path.join(ROOT,file));
 });
 app.get("/official-logo.png",(req,res)=>{
   res.type("image/png").set("Cache-Control","public, max-age=31536000, immutable").sendFile(path.join(ROOT,"official-logo.png"));
