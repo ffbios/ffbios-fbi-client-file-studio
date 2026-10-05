@@ -814,17 +814,32 @@ function streamEncodedRtmpUrl(row){
 // Additive MCR Program route. Normal OBS/vMix publishing and the proven
 // encoded/<key> playback path remain unchanged until this route is activated.
 const activeProgramRoutes=new Map();
+const pendingProgramRoutes=new Map();
 function streamProgramRtmpUrl(row){
   const base=streamRtmpServer();
   return base&&row?.stream_key?base.replace(/\/live$/,"/program")+"/"+row.stream_key:"";
 }
 function programRouteActive(streamId){
-  return activeProgramRoutes.has(String(streamId));
+  const item=activeProgramRoutes.get(String(streamId));
+  if(!item)return false;
+  if(Date.now()-Number(item)>6*60*60*1000){activeProgramRoutes.delete(String(streamId));return false;}
+  return true;
+}
+function programRoutePending(streamId){
+  const item=pendingProgramRoutes.get(String(streamId));
+  if(!item)return false;
+  if(Date.now()-Number(item)>10*60*1000){pendingProgramRoutes.delete(String(streamId));return false;}
+  return true;
+}
+function prepareProgramRoute(streamId){
+  pendingProgramRoutes.set(String(streamId),Date.now());
 }
 function activateProgramRoute(streamId){
+  pendingProgramRoutes.delete(String(streamId));
   activeProgramRoutes.set(String(streamId),Date.now());
 }
 function deactivateProgramRoute(streamId){
+  pendingProgramRoutes.delete(String(streamId));
   activeProgramRoutes.delete(String(streamId));
 }
 
@@ -1626,6 +1641,7 @@ app.post("/api/live/streams/:id/program/start",async(req,res)=>{
     if(!q.rowCount)return res.status(404).json({error:"Stream not found."});
     const stream=await refreshStreamStatus(q.rows[0]);
     if(stream.status!=="live")return res.status(409).json({error:"The channel must already be live from OBS/vMix before Local Studio can take Program."});
+    prepareProgramRoute(stream.id);
     const url=streamProgramRtmpUrl(stream);
     if(!url)return res.status(503).json({error:"Program RTMP output is not configured."});
     res.set("Cache-Control","no-store").json({ok:true,stream_id:stream.id,program_rtmp_url:url,viewer_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+stream.viewer_token});
