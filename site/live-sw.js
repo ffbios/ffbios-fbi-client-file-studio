@@ -1,4 +1,4 @@
-const CACHE_NAME="fbi-live-pwa-v4";
+const CACHE_NAME="fbi-live-pwa-v5";
 const SHELL=["/","/manifest.webmanifest","/official-logo.png"];
 
 self.addEventListener("install",event=>{
@@ -16,6 +16,7 @@ self.addEventListener("fetch",event=>{
   const url=new URL(req.url);
   if(req.method!=="GET"||url.origin!==self.location.origin)return;
   if(url.pathname.startsWith("/api/"))return;
+  if(url.pathname==="/local-studio.js"||url.pathname==="/manifest.webmanifest")return;
   if(url.pathname.startsWith("/watch/")||url.pathname.startsWith("/share/"))return;
   event.respondWith((async()=>{
     if(req.mode==="navigate"){
