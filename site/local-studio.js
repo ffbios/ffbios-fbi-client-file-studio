@@ -117,8 +117,8 @@
     const view=document.querySelector("#studio .views .view:first-child");if(!view)return null;
     let video=document.getElementById("previewVideo");
     if(video){
-      try{window.__studioHls?.destroy?.()}catch{}
-      window.__studioHls=null;
+      try{video.__studioHls?.destroy?.()}catch{}
+      video.__studioHls=null;
       video.removeAttribute("src");video.load();video.srcObject=src.stream;video.autoplay=true;video.muted=true;video.playsInline=true;video.play().catch(()=>{});
       video.dataset.localPreview="1";return video;
     }
@@ -127,7 +127,7 @@
     view.appendChild(video);video.dataset.localPreview="1";return video;
   }
 
-  function resetLocalPreview(){delete document.getElementById("previewVideo")?.dataset.localPreview;window.__studioHls=null}
+  function resetLocalPreview(){const v=document.getElementById("previewVideo");if(v?.__studioHls){try{v.__studioHls.destroy()}catch{}v.__studioHls=null}if(v)delete v.dataset.localPreview;}
   function selectPreview(id){
     const src=S.inputs.get(id);if(!src)return;
     S.previewId=id;localPreviewElement(src);renderSources();refreshDrawer();toast(src.name+" selected in PREVIEW");
