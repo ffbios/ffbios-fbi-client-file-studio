@@ -3413,11 +3413,10 @@ app.post("/api/public/share/:token/access",async(req,res)=>{
   if(!q.rowCount||!q.rows[0].shared)return res.status(404).json({error:"This delivery link is invalid or disabled."});
   const p=q.rows[0];
   if(p.expires_at&&new Date(p.expires_at).getTime()<Date.now())return res.status(404).json({error:"This delivery link has expired."});
-  const existing=String(p.client_email||"").trim().toLowerCase();
-  if(existing&&existing!==email)return res.status(403).json({error:"This email is not authorized for this gallery.",code:"CLIENT_EMAIL_NOT_MATCH"});
-  if(!existing){
-    await pool.query("UPDATE projects SET client_email=$1,updated_at=now() WHERE id=$2 AND COALESCE(client_email,'')=''",[email,p.id]);
-  }
+  // The share link itself grants access. The email entered here is the client's
+  // contact email and is written to the project/client registry. It is NOT
+  // required to have been pre-authorized in the project before the gallery opens.
+  await pool.query("UPDATE projects SET client_email=$1,updated_at=now() WHERE id=$2",[email,p.id]);
   res.setHeader("Set-Cookie","fbi_share_session="+encodeURIComponent(shareSession(req.params.token,email))+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000");
   res.json({ok:true,email});
  }catch(e){console.error("Client email access failed:",e);res.status(500).json({error:"Could not authorize gallery access."})}
