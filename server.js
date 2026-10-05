@@ -561,6 +561,27 @@ async function initDb(){
     );
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
+    CREATE TABLE IF NOT EXISTS creative_settings(
+      user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      business_name text NOT NULL DEFAULT '',
+      portal_title text NOT NULL DEFAULT 'Private Client Gallery',
+      accent_color text NOT NULL DEFAULT '#d4af37',
+      logo_key text NOT NULL DEFAULT '',
+      watermark_enabled boolean NOT NULL DEFAULT false,
+      watermark_type text NOT NULL DEFAULT 'logo',
+      watermark_text text NOT NULL DEFAULT '',
+      watermark_opacity numeric NOT NULL DEFAULT 0.32,
+      watermark_position text NOT NULL DEFAULT 'bottom-right',
+      watermark_size integer NOT NULL DEFAULT 22,
+      watermark_on_download boolean NOT NULL DEFAULT true,
+      watermark_presets jsonb NOT NULL DEFAULT '[]'::jsonb,
+      email_templates jsonb NOT NULL DEFAULT '{}'::jsonb,
+      preferences jsonb NOT NULL DEFAULT '{}'::jsonb,
+      integrations jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+
     CREATE TABLE IF NOT EXISTS projects(
       id uuid PRIMARY KEY,
       owner_id uuid REFERENCES users(id) ON DELETE SET NULL,
@@ -764,6 +785,15 @@ async function loadSettings(){
   for(const row of r.rows)out[row.key]=row.value;
   return out;
 }
+const DEFAULT_CREATIVE_SETTINGS={business_name:"",portal_title:"Private Client Gallery",accent_color:"#d4af37",logo_key:"",watermark_enabled:false,watermark_type:"logo",watermark_text:"",watermark_opacity:0.32,watermark_position:"bottom-right",watermark_size:22,watermark_on_download:true,watermark_presets:[],email_templates:{delivery_subject:"Your files are ready",delivery_body:"Hi {{client_name}}, your files are ready in your private gallery.\n\n{{share_link}}",reminder_subject:"Your gallery is still available",reminder_body:"Hi {{client_name}}, your private gallery is available here:\n\n{{share_link}}"},preferences:{default_expiry_days:30,allow_client_preview:true,show_file_size:true,auto_share:false},integrations:{download_tracking:true,email_notifications:false}};
+async function loadCreativeSettings(userId){
+  const r=await pool.query("SELECT * FROM creative_settings WHERE user_id=$1",[userId]);
+  if(!r.rowCount)return {...DEFAULT_CREATIVE_SETTINGS,email_templates:{...DEFAULT_CREATIVE_SETTINGS.email_templates},preferences:{...DEFAULT_CREATIVE_SETTINGS.preferences},integrations:{...DEFAULT_CREATIVE_SETTINGS.integrations}};
+  const x=r.rows[0];
+  const parse=(v,f)=>{try{return typeof v==="object"&&v!==null?v:JSON.parse(v||"")}catch{return f}};
+  return {business_name:String(x.business_name||""),portal_title:String(x.portal_title||"Private Client Gallery"),accent_color:String(x.accent_color||"#d4af37"),logo_key:String(x.logo_key||""),watermark_enabled:Boolean(x.watermark_enabled),watermark_type:String(x.watermark_type||"logo"),watermark_text:String(x.watermark_text||""),watermark_opacity:Math.max(.05,Math.min(1,Number(x.watermark_opacity)||.32)),watermark_position:String(x.watermark_position||"bottom-right"),watermark_size:Math.max(8,Math.min(45,Math.round(Number(x.watermark_size)||22))),watermark_on_download:x.watermark_on_download!==false,watermark_presets:Array.isArray(parse(x.watermark_presets,[]))?parse(x.watermark_presets,[]):[],email_templates:{...DEFAULT_CREATIVE_SETTINGS.email_templates,...parse(x.email_templates,{})},preferences:{...DEFAULT_CREATIVE_SETTINGS.preferences,...parse(x.preferences,{})},integrations:{...DEFAULT_CREATIVE_SETTINGS.integrations,...parse(x.integrations,{})}};
+}
+async function ensureCreativeSettings(userId){await pool.query("INSERT INTO creative_settings(user_id) VALUES($1) ON CONFLICT(user_id) DO NOTHING",[userId]);}
 function settingBool(v){return String(v)==="true";}
 function settingInt(v,fallback){const n=Number(v);return Number.isFinite(n)?Math.max(0,Math.min(3650,Math.round(n))):fallback;}
 function formatStorageBytes(v){
@@ -1111,6 +1141,39 @@ app.get("/api/portal/me",portalUser,async(req,res)=>{
  }catch(e){res.status(500).json({error:"Could not load account."})}
 });
 
+app.get("/api/portal/settings",portalUser,async(req,res)=>{
+ try{await ensureCreativeSettings(req.portalUser.id);const settings=await loadCreativeSettings(req.portalUser.id);res.json({settings:{...settings,logo_url:settings.logo_key?"/api/portal/settings/logo":""}})}
+ catch(e){console.error(e);res.status(500).json({error:"Could not load creative settings."})}
+});
+app.patch("/api/portal/settings",portalUser,async(req,res)=>{
+ try{
+  await ensureCreativeSettings(req.portalUser.id);
+  const cur=await loadCreativeSettings(req.portalUser.id),b=req.body||{};
+  const types=["logo","text","both"],positions=["top-left","top-right","center","bottom-left","bottom-right"];
+  const prefs={...cur.preferences,...(b.preferences&&typeof b.preferences==="object"?b.preferences:{})};
+  const integ={...cur.integrations,...(b.integrations&&typeof b.integrations==="object"?b.integrations:{})};
+  const emails={...cur.email_templates,...(b.email_templates&&typeof b.email_templates==="object"?b.email_templates:{})};
+  const presets=Array.isArray(b.watermark_presets)?b.watermark_presets:cur.watermark_presets;
+  await pool.query("UPDATE creative_settings SET business_name=$2,portal_title=$3,accent_color=$4,watermark_enabled=$5,watermark_type=$6,watermark_text=$7,watermark_opacity=$8,watermark_position=$9,watermark_size=$10,watermark_on_download=$11,watermark_presets=$12::jsonb,email_templates=$13::jsonb,preferences=$14::jsonb,integrations=$15::jsonb,updated_at=now() WHERE user_id=$1",[req.portalUser.id,String(b.business_name??cur.business_name).trim().slice(0,160),String(b.portal_title??cur.portal_title).trim().slice(0,160)||"Private Client Gallery",String(b.accent_color??cur.accent_color).trim().slice(0,20)||"#d4af37",Boolean(b.watermark_enabled??cur.watermark_enabled),types.includes(String(b.watermark_type))?String(b.watermark_type):cur.watermark_type,String(b.watermark_text??cur.watermark_text).trim().slice(0,180),Math.max(.05,Math.min(1,Number(b.watermark_opacity??cur.watermark_opacity)||.32)),positions.includes(String(b.watermark_position))?String(b.watermark_position):cur.watermark_position,Math.max(8,Math.min(45,Math.round(Number(b.watermark_size??cur.watermark_size)||22))),Boolean(b.watermark_on_download??cur.watermark_on_download),JSON.stringify(presets),JSON.stringify(emails),JSON.stringify(prefs),JSON.stringify(integ)]);
+  const settings=await loadCreativeSettings(req.portalUser.id);res.json({ok:true,settings:{...settings,logo_url:settings.logo_key?"/api/portal/settings/logo":""}});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not save creative settings."})}
+});
+app.post("/api/portal/settings/logo",portalUser,async(req,res)=>{
+ try{
+  if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
+  await ensureCreativeSettings(req.portalUser.id);
+  const dataUrl=String(req.body?.dataUrl||""),m=/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+  if(!m)return res.status(400).json({error:"Please upload a PNG, JPG or WebP logo."});
+  const input=Buffer.from(m[2],"base64");if(input.length>4*1024*1024)return res.status(400).json({error:"Logo must be smaller than 4 MB."});
+  const out=await sharp(input).rotate().resize({width:1400,height:800,fit:"contain",background:{r:0,g:0,b:0,alpha:0}}).png().toBuffer();
+  const cur=await loadCreativeSettings(req.portalUser.id),key="creative-branding/"+req.portalUser.id+"/logo-"+Date.now()+".png";
+  await s3.send(new PutObjectCommand({Bucket:bucket(),Key:key,Body:out,ContentType:"image/png",CacheControl:"private, max-age=31536000"}));
+  if(cur.logo_key&&cur.logo_key!==key)await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:cur.logo_key})).catch(()=>{});
+  await pool.query("UPDATE creative_settings SET logo_key=$2,updated_at=now() WHERE user_id=$1",[req.portalUser.id,key]);res.json({ok:true,logo_url:"/api/portal/settings/logo"});
+ }catch(e){console.error("Creative logo upload failed:",e);res.status(500).json({error:"Could not save your logo."})}
+});
+app.delete("/api/portal/settings/logo",portalUser,async(req,res)=>{try{const cur=await loadCreativeSettings(req.portalUser.id);if(cur.logo_key&&s3Ready())await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:cur.logo_key})).catch(()=>{});await pool.query("UPDATE creative_settings SET logo_key='',updated_at=now() WHERE user_id=$1",[req.portalUser.id]);res.json({ok:true})}catch(e){res.status(500).json({error:"Could not remove your logo."})}});
+app.get("/api/portal/settings/logo",portalUser,async(req,res)=>{try{const cur=await loadCreativeSettings(req.portalUser.id);if(!cur.logo_key||!s3Ready())return res.status(404).end();const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:cur.logo_key}));res.type("png").set("Cache-Control","private, max-age=300");if(got.Body?.pipe)return got.Body.pipe(res);res.end(Buffer.from(await got.Body.transformToByteArray()))}catch(e){res.status(404).end()}});
 app.get("/api/portal/projects",portalUser,async(req,res)=>{
  try{
   const q=String(req.query.q||"").trim();
