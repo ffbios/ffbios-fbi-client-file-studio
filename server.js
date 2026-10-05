@@ -1542,7 +1542,7 @@ app.post("/api/stream/auth",async(req,res)=>{
       );
       if(!stream.enabled)return res.status(403).end();
       if(!directLive&&!programPublish)return res.status(403).end();
-      if(isProgram&&!programActive)return res.status(403).end();
+      if(isProgram&&!programActive&&!programRoutePending(stream.id))return res.status(403).end();
       await pool.query("UPDATE streams SET updated_at=now() WHERE id=$1",[stream.id]);
       return res.status(200).end();
     }
