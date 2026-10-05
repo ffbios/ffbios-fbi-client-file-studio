@@ -50,10 +50,15 @@
   }
 
   function openDrawer(){
-    const d=S.drawer;if(!d){return}
+    if(!S.drawer)createDrawer();
+    const d=S.drawer;
+    if(!d){toast("Local Studio is not ready yet.");return}
     const id=currentChannelId();
     if(!id){toast("Select a live channel first.");return}
-    S.channelId=id;d.classList.add("open");renderSources();refreshDrawer();
+    S.channelId=id;
+    d.classList.add("open");
+    renderSources();
+    refreshDrawer();
   }
   function closeDrawer(){S.drawer?.classList.remove("open")}
 
@@ -261,7 +266,8 @@
   }
 
   function createDrawer(){
-    if(document.getElementById("localStudioDrawer"))return;
+    const existing=document.getElementById("localStudioDrawer");
+    if(existing){S.drawer=existing;return}
     injectStyles();
     const d=document.createElement("div");d.id="localStudioDrawer";d.className="local-drawer";
     d.innerHTML='<div class="local-drawer-head"><div class="local-drawer-title"><b>LOCAL STUDIO INPUTS</b><span>Camera • USB Capture Card • Screen • Window • Browser Tab</span></div><div class="local-drawer-actions"><button class="gold" id="addLocalCamera">＋ CAMERA / CAPTURE</button><button id="addLocalScreen">＋ SCREEN / WINDOW</button><button class="danger" id="localStop" disabled>STOP LOCAL OUTPUT</button><button id="localClose">CLOSE</button></div></div><div id="localSourceGrid" class="local-source-grid"></div><div class="local-tbar-wrap"><div class="local-output-state"><b id="localOutputState">LOCAL OUTPUT STANDBY</b><span id="localOutputText">Select a local source for Preview, then press TAKE or move the T-bar to 100%.</span></div><div><input id="localTbar" class="local-tbar" type="range" min="0" max="100" value="0" step="1" disabled><div class="local-tbar-label"><span>PREVIEW</span><b id="localTbarValue">0%</b><span>PROGRAM</span></div></div><div><button class="btn primary" id="localTakeSelected" style="font-size:8px">TAKE PREVIEW TO PROGRAM</button></div></div><div class="local-program-note">The existing streaming engine is not replaced. Local Studio encodes the selected source in the browser and publishes it into the same channel input path already used by OBS/vMix.</div>';
@@ -272,9 +278,10 @@
     d.querySelector("#localTbar").oninput=handleTbar;d.querySelector("#localTakeSelected").onclick=()=>{const s=S.inputs.get(S.previewId);if(s)take(s.id)};
   }
 
-  function addOpenButton(){
-    const actions=document.querySelector(".top-actions");if(!actions||document.getElementById("localStudioOpen"))return;
-    const btn=document.createElement("button");btn.className="btn";btn.id="localStudioOpen";btn.textContent="LOCAL STUDIO";btn.onclick=openDrawer;actions.insertBefore(btn,actions.firstChild);
+  function bindOpenButton(){
+    const btn=document.getElementById("localStudioOpen");
+    if(btn)btn.onclick=openDrawer;
+    window.openLocalStudio=openDrawer;
   }
 
   function keepPreviewMounted(){
@@ -285,13 +292,17 @@
   }
 
   function boot(){
-    createDrawer();addOpenButton();keepPreviewMounted();renderSources();refreshDrawer();
+    createDrawer();
+    bindOpenButton();
+    keepPreviewMounted();
+    renderSources();
+    refreshDrawer();
     const root=document.getElementById("studio");
     if(root){
-      S.observer=new MutationObserver(()=>{addOpenButton();keepPreviewMounted();refreshDrawer()});
+      S.observer=new MutationObserver(()=>{bindOpenButton();keepPreviewMounted();refreshDrawer()});
       S.observer.observe(root,{childList:true,subtree:true});
     }
-    setInterval(()=>{addOpenButton();keepPreviewMounted();refreshDrawer()},1500);
+    setInterval(()=>{bindOpenButton();keepPreviewMounted();refreshDrawer()},1500);
   }
 
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);else boot();
