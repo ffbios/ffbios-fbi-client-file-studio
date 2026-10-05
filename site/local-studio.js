@@ -212,8 +212,11 @@
         const v=document.createElement("video");v.autoplay=true;v.muted=true;v.playsInline=true;v.srcObject=src.stream;visual.appendChild(v);
       }else if(src.kind==="AUDIO"){
         visual.innerHTML='<div class="local-mv-icon">AUDIO</div><div class="local-mv-caption">Audio input</div>';
+      }else if(src.kind==="NDI"){
+        const img=document.createElement("img");img.alt=src.name;img.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(src.ndiName||src.name)+"&ts="+Date.now();img.style.cssText="width:100%;height:100%;object-fit:cover;display:block;background:#000";visual.appendChild(img);
+        const cap=document.createElement("div");cap.className="local-mv-caption";cap.textContent="NDI • "+src.name;visual.appendChild(cap);
       }else{
-        visual.innerHTML='<div class="local-mv-icon">NDI</div><div class="local-mv-caption">'+esc(src.name)+'</div>';
+        visual.innerHTML='<div class="local-mv-icon">AUDIO</div><div class="local-mv-caption">Audio input</div>';
       }
       const body=document.createElement("div");body.className="local-mv-body";
       body.innerHTML='<b>'+esc(src.name)+'</b><span>'+esc(src.kind)+' • '+esc(src.detail)+'</span>';
@@ -404,9 +407,13 @@
       let visual;
       if(src.kind==="DEVICE"||src.kind==="SCREEN"){
         const v=document.createElement("video");v.className="local-source-video";v.autoplay=true;v.muted=true;v.playsInline=true;v.srcObject=src.stream;src.videoEl=v;visual=v;
+      }else if(src.kind==="NDI"){
+        visual=document.createElement("div");visual.className="local-source-video local-source-special ndi-preview-wrap";
+        const img=document.createElement("img");img.alt=src.name;img.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(src.ndiName||src.name)+"&ts="+Date.now();img.style.cssText="width:100%;height:100%;object-fit:cover;display:block;background:#000";visual.appendChild(img);
+        const tag=document.createElement("span");tag.textContent="NDI GATEWAY";tag.style.cssText="position:absolute;left:5px;top:5px;padding:3px 5px;border-radius:4px;background:rgba(0,0,0,.68);font-size:6px;color:#e7c44f";visual.appendChild(tag);
       }else{
         visual=document.createElement("div");visual.className="local-source-video local-source-special";
-        visual.innerHTML=src.kind==="AUDIO"?'<b>MIC / AUDIO</b><span>Audio source</span>':'<b>NDI</b><span>'+esc(src.name)+'</span>';
+        visual.innerHTML='<b>MIC / AUDIO</b><span>Audio source</span>';
       }
       const body=document.createElement("div");body.className="local-source-body";
       body.innerHTML='<div class="local-source-name">'+esc(src.name)+'</div><div class="local-source-meta">'+esc(src.kind)+" • "+esc(src.detail)+"</div>";
