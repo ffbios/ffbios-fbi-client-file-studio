@@ -3660,6 +3660,20 @@ app.get("/manifest.webmanifest",(req,res)=>{
   const file=isLiveStandalone?"live-manifest.webmanifest":"manifest.webmanifest";
   res.type("application/manifest+json").set("Cache-Control","no-cache, no-store, must-revalidate").sendFile(path.join(ROOT,file));
 });
+app.get("/live-pwa-icon-:size.png",async(req,res)=>{
+  const size=Number(req.params.size);
+  if(size!==192&&size!==512)return res.sendStatus(404);
+  try{
+    const buffer=await sharp(path.join(ROOT,"official-logo.png"))
+      .resize({width:size,height:size,fit:"contain",background:{r:9,g:9,b:10,alpha:1}})
+      .png()
+      .toBuffer();
+    res.type("image/png").set("Cache-Control","public, max-age=31536000, immutable").send(buffer);
+  }catch(err){
+    console.error("Live PWA icon generation failed:",err);
+    res.sendStatus(500);
+  }
+});
 app.get("/official-logo.png",(req,res)=>{
   res.type("image/png").set("Cache-Control","public, max-age=31536000, immutable").sendFile(path.join(ROOT,"official-logo.png"));
 });
