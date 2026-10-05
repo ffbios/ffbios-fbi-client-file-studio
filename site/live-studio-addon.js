@@ -271,26 +271,25 @@ async function localTake(src){
   await refreshChannelSource();
   A.selectedSource=src.id;
   if(src.kind==="CHANNEL"){await putChannelInProgram(false);return}
-
   try{
     const previous=A.localProgram||"channel";
-    const bridge=await gatewayStart();
+    const bridge=A.bridge||await gatewayStart();
+    await bridge.out.audio.resume().catch(()=>{});
+    const node=ensureAudio(bridge.out,src);
     if(src.kind!=="AUDIO"&&previous!==src.id&&bridge.out){
-      bridge.out.transition={fromId:previous,toId:src.id,started:performance.now(),duration:650};
+      bridge.out.transition={fromId:previous,toId:src.id,started:performance.now(),duration:450};
       A.localProgram=src.id;
     }else if(src.kind!=="AUDIO"){
       A.localProgram=src.id;
     }
-    if(src.kind==="AUDIO"){
-      A.audioProgram=src.id;
-      selectAudio(bridge.out,src.id);
-    }else{
-      selectAudio(bridge.out,src.stream?.getAudioTracks?.().length?src.id:"channel");
-    }
+    if(src.kind==="AUDIO"){A.audioProgram=src.id;selectAudio(bridge.out,src.id);}
+    else{selectAudio(bridge.out,node?src.id:"channel");}
     setProgramMonitor(bridge.out);
-    refresh();toast(src.name+(src.kind==="AUDIO"?" added to PROGRAM AUDIO":" is now PROGRAM / ON AIR"));
+    renderLocalGridOnly();
+    toast(src.name+(src.kind==="AUDIO"?" added to PROGRAM AUDIO":" is now PROGRAM / ON AIR"));
   }catch(e){toast(e.message||"Could not put local source on air.")}
 }
+
 
 async function stopGateway(){
   const b=A.bridge;
@@ -348,38 +347,81 @@ async function addNdi(){
   names.forEach(name=>{const row=document.createElement("div");row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px;border:1px solid #29292f;border-radius:7px;margin-bottom:6px";row.innerHTML='<b style="font-size:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(name)+'</b><button class="btn primary" style="font-size:7px">ADD</button>';row.querySelector("button").onclick=()=>{const id="ndi-"+crypto.randomUUID();const image=new Image();image.crossOrigin="anonymous";image.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(name)+"&t="+Date.now();A.sources.set(id,{id,name,kind:"NDI",detail:"NDI Gateway / LAN",ndiName:name,image});modal.remove();refresh();toast(name+" added")};list.appendChild(row)});
   modal.querySelector("#fbiNdiClose").onclick=()=>modal.remove();modal.onclick=e=>{if(e.target===modal)modal.remove()};
 }
-function removeSource(id){const s=A.sources.get(id);if(!s)return;try{s.stream?.getTracks?.().forEach(t=>t.stop())}catch{}if(A.bridge?.out?.nodes?.has(id)){const n=A.bridge.out.nodes.get(id);try{n.input.disconnect();n.gain.disconnect()}catch{}A.bridge.out.nodes.delete(id)}if(A.selectedSource===id)A.selectedSource="";if(A.localProgram===id){A.localProgram="";restoreProgram()}A.sources.delete(id);refresh()}
-function selectPreview(id){const s=A.sources.get(id);if(!s)return;A.selectedSource=id;if(s.kind==="DEVICE"||s.kind==="SCREEN"){const v=selectedPreviewVideo();if(v){destroyHls(v);v.srcObject=s.stream;v.removeAttribute("src");v.load();v.play().catch(()=>{})}}refresh();toast(s.name+" selected in PREVIEW")}
-function renderLocalGridOnly(){
-  const grid=document.getElementById("fbiLocalGrid");if(!grid)return;grid.innerHTML="";
-  for(const s of A.sources.values()){
-    const card=document.createElement("div");card.className="fbi-addon-source "+(s.id===A.selectedSource?"preview ":"")+(s.id===A.localProgram?"program":"");
-    const visual=document.createElement("div");visual.className="fbi-addon-visual";
-    if(s.kind==="CHANNEL"||s.kind==="DEVICE"||s.kind==="SCREEN"){
-      const v=document.createElement("video");v.autoplay=true;v.muted=true;v.playsInline=true;
-      if(s.kind==="CHANNEL")setHls(v,inputHlsUrl(A.channelData||{}));else{v.srcObject=s.stream;v.play().catch(()=>{})}
-      visual.appendChild(v);
-    }else if(s.kind==="NDI"){
-      const img=document.createElement("img");img.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(s.ndiName||s.name)+"&t="+Date.now();visual.appendChild(img);
-      const b=document.createElement("div");b.className="fbi-addon-badge";b.textContent="NDI";visual.appendChild(b);
-    }else{
-      visual.innerHTML='<div class="fbi-addon-special">AUDIO<span>Microphone / line input</span></div>';
-    }
-    const body=document.createElement("div");body.className="fbi-addon-source-body";body.innerHTML='<div class="fbi-addon-source-name">'+esc(s.name)+'</div><div class="fbi-addon-source-meta">'+esc(s.kind)+' • '+esc(s.detail)+'</div>';
-    const acts=document.createElement("div");acts.className="fbi-addon-source-actions";
-    const p=document.createElement("button");p.textContent="PREVIEW";p.className=s.id===A.selectedSource?"fbi-addon-take":"";
-    const t=document.createElement("button");t.textContent="TAKE";t.className="primary";t.onclick=()=>localTake(s);
-    const rm=document.createElement("button");rm.textContent="×";rm.onclick=()=>removeSource(s.id);
-    if(s.id==="channel"){rm.disabled=true;rm.style.opacity=".35"}
-    p.onclick=()=>selectPreview(s.id);acts.append(p,t,rm);body.appendChild(acts);card.append(visual,body);grid.appendChild(card);
+function removeSource(id){
+  const s=A.sources.get(id);if(!s)return;
+  try{s.stream?.getTracks?.().forEach(t=>t.stop())}catch{}
+  try{if(s.mvVideo)destroyHls(s.mvVideo)}catch{}
+  try{s.card?.remove();s.mvCard?.remove()}catch{}
+  if(A.bridge?.out?.nodes?.has(id)){const n=A.bridge.out.nodes.get(id);try{n.input.disconnect();n.gain.disconnect()}catch{}A.bridge.out.nodes.delete(id)}
+  if(A.selectedSource===id)A.selectedSource="";
+  if(A.localProgram===id){A.localProgram="";restoreProgram()}
+  A.sources.delete(id);updateLocalUi();
+}
+
+
+function selectPreview(id){
+  const s=A.sources.get(id);if(!s)return;
+  A.selectedSource=id;
+  const v=selectedPreviewVideo();
+  if(v&&s.kind==="CHANNEL"){destroyHls(v);v.srcObject=null;v.removeAttribute("src");v.load();setHls(v,hlsUrl(A.channelData||{}));}
+  else if(v&&(s.kind==="DEVICE"||s.kind==="SCREEN")){destroyHls(v);v.srcObject=s.stream;v.removeAttribute("src");v.load();v.play().catch(()=>{});}
+  updateLocalUi();toast(s.name+" selected in PREVIEW");
+}
+
+
+function updateLocalUi(){
+  const grid=document.getElementById("fbiLocalGrid");
+  if(grid)for(const card of grid.children){
+    const id=card.dataset.sourceId||"";
+    card.className="fbi-addon-source "+(id===A.selectedSource?"preview ":"")+(id===A.localProgram?"program":"");
+    const p=card.querySelector("[data-act=preview]");if(p)p.classList.toggle("fbi-addon-take",id===A.selectedSource);
   }
   const stop=document.getElementById("fbiLocalStop");if(stop)stop.disabled=!A.bridge;
+  const range=document.getElementById("fbiLocalTbar");if(range)range.disabled=!A.selectedSource;
   const st=document.getElementById("fbiLocalState");if(st)st.textContent=A.bridge?"PROGRAM / LOCAL MIX LIVE":"PROGRAM / NORMAL CHANNEL";
   const tx=document.getElementById("fbiLocalText");if(tx)tx.textContent=A.bridge?"Local source is on Program. OBS/vMix continues feeding the same channel in the background.":"Select a source for Preview, then TAKE it to Program on the same live channel.";
 }
-function refresh(){
-  refreshChannelSource().finally(()=>renderLocalGridOnly());
+function renderLocalGridOnly(){
+  const grid=document.getElementById("fbiLocalGrid");if(!grid)return;
+  const keep=new Set();
+  for(const s of A.sources.values()){
+    keep.add(s.id);
+    let card=s.card;
+    if(!card){
+      card=document.createElement("div");card.dataset.sourceId=s.id;
+      const visual=document.createElement("div");visual.className="fbi-addon-visual";
+      if(s.kind==="CHANNEL"||s.kind==="DEVICE"||s.kind==="SCREEN"){
+        const v=s.video||document.createElement("video");
+        v.autoplay=true;v.muted=true;v.playsInline=true;v.style.cssText="width:100%;height:100%;display:block;object-fit:cover;background:#000";
+        if(s.kind==="CHANNEL")setHls(v,inputHlsUrl(A.channelData||{}));else if(v.srcObject!==s.stream){v.srcObject=s.stream;v.play().catch(()=>{})}
+        s.video=v;visual.appendChild(v);
+      }else if(s.kind==="NDI"){
+        const img=s.cardImage||new Image();img.crossOrigin="anonymous";img.style.cssText="width:100%;height:100%;object-fit:cover;display:block";
+        if(!img.src)img.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(s.ndiName||s.name)+"&t="+Date.now();
+        s.cardImage=img;visual.appendChild(img);
+        const b=document.createElement("div");b.className="fbi-addon-badge";b.textContent="NDI";visual.appendChild(b);
+      }else visual.innerHTML='<div class="fbi-addon-special">AUDIO<span>Microphone / line input</span></div>';
+      const body=document.createElement("div");body.className="fbi-addon-source-body";
+      const name=document.createElement("div");name.className="fbi-addon-source-name";name.textContent=s.name;
+      const meta=document.createElement("div");meta.className="fbi-addon-source-meta";meta.textContent=s.kind+" • "+s.detail;
+      const acts=document.createElement("div");acts.className="fbi-addon-source-actions";
+      const p=document.createElement("button");p.textContent="PREVIEW";p.dataset.act="preview";
+      const t=document.createElement("button");t.textContent="TAKE";t.className="primary";t.onclick=()=>localTake(s);
+      const rm=document.createElement("button");rm.textContent="×";rm.onclick=()=>removeSource(s.id);
+      if(s.id==="channel"){rm.disabled=true;rm.style.opacity=".35"}
+      p.onclick=()=>selectPreview(s.id);acts.append(p,t,rm);body.append(name,meta,acts);card.append(visual,body);s.card=card;
+    }else{
+      const meta=card.querySelector(".fbi-addon-source-meta");if(meta)meta.textContent=s.kind+" • "+s.detail;
+      if((s.kind==="DEVICE"||s.kind==="SCREEN")&&s.video&&s.video.srcObject!==s.stream){s.video.srcObject=s.stream;s.video.play().catch(()=>{})}
+      if(s.kind==="CHANNEL"&&s.video)setHls(s.video,inputHlsUrl(A.channelData||{}));
+    }
+    card.className="fbi-addon-source "+(s.id===A.selectedSource?"preview ":"")+(s.id===A.localProgram?"program":"");
+    grid.appendChild(card);
+  }
+  for(const card of [...grid.children])if(!keep.has(card.dataset.sourceId))card.remove();
+  updateLocalUi();
 }
+
 
 async function takeNdi(s){return localTake(s)}
 
@@ -417,19 +459,48 @@ function openMultiView(){
   A.mv.classList.add("open");renderMultiView();
 }
 function renderMultiView(){
-  const g=document.getElementById("fbiMvGrid");if(!g)return;g.innerHTML="";
+  const g=document.getElementById("fbiMvGrid");if(!g)return;
+  const keep=new Set();
   for(const s of A.sources.values()){
-    const c=document.createElement("div");c.className="fbi-addon-mv-card-item";const v=document.createElement("div");v.className="fbi-addon-mv-visual";
-    if(s.kind==="DEVICE"||s.kind==="SCREEN"){const x=document.createElement("video");x.autoplay=true;x.muted=true;x.playsInline=true;x.srcObject=s.stream;x.play().catch(()=>{});v.appendChild(x)}
-    else if(s.kind==="NDI"){const x=document.createElement("img");x.crossOrigin="anonymous";x.src=s.image?.src||("http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(s.ndiName||s.name)+"&t="+Date.now());v.appendChild(x)}
-    else{v.innerHTML='<div class="fbi-addon-special">AUDIO<span>Audio source</span></div>'}
-    const body=document.createElement("div");body.className="fbi-addon-mv-body";body.innerHTML='<b>'+esc(s.name)+'</b><span>'+esc(s.kind)+' • '+esc(s.detail)+'</span>';const acts=document.createElement("div");acts.className="fbi-addon-mv-actions";const p=document.createElement("button");p.textContent="PREVIEW";p.onclick=()=>{selectPreview(s.id);A.mv.classList.remove("open")};const t=document.createElement("button");t.textContent=s.kind==="NDI"?"TAKE NDI":"TAKE";t.className="primary";t.onclick=()=>{A.mv.classList.remove("open");localTake(s)};acts.append(p,t);body.appendChild(acts);c.append(v,body);g.appendChild(c);
+    keep.add(s.id);
+    let card=s.mvCard;
+    if(!card){
+      card=document.createElement("div");card.className="fbi-addon-mv-card-item";card.dataset.sourceId=s.id;
+      const vwrap=document.createElement("div");vwrap.className="fbi-addon-mv-visual";
+      if(s.kind==="CHANNEL"||s.kind==="DEVICE"||s.kind==="SCREEN"){
+        const v=document.createElement("video");v.autoplay=true;v.muted=true;v.playsInline=true;v.style.cssText="width:100%;height:100%;object-fit:cover;display:block;background:#000";
+        if(s.kind==="CHANNEL")setHls(v,inputHlsUrl(A.channelData||{}));else{v.srcObject=s.stream;v.play().catch(()=>{})}
+        s.mvVideo=v;vwrap.appendChild(v);
+      }else if(s.kind==="NDI"){
+        const img=s.mvImage||new Image();img.crossOrigin="anonymous";if(!img.src)img.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(s.ndiName||s.name)+"&t="+Date.now();img.style.cssText="width:100%;height:100%;object-fit:cover;display:block";s.mvImage=img;vwrap.appendChild(img);
+      }else vwrap.innerHTML='<div class="fbi-addon-special">AUDIO<span>Audio source</span></div>';
+      const body=document.createElement("div");body.className="fbi-addon-mv-body";
+      const name=document.createElement("b");name.textContent=s.name;
+      const meta=document.createElement("span");meta.textContent=s.kind+" • "+s.detail;
+      const acts=document.createElement("div");acts.className="fbi-addon-mv-actions";
+      const p=document.createElement("button");p.textContent="PREVIEW";p.onclick=()=>{selectPreview(s.id);A.mv.classList.remove("open")};
+      const t=document.createElement("button");t.textContent=s.kind==="NDI"?"TAKE NDI":"TAKE";t.className="primary";t.onclick=()=>{A.mv.classList.remove("open");localTake(s)};
+      acts.append(p,t);body.append(name,meta,acts);card.append(vwrap,body);s.mvCard=card;
+    }else{
+      const meta=card.querySelector(".fbi-addon-mv-body span");if(meta)meta.textContent=s.kind+" • "+s.detail;
+      if(s.kind==="CHANNEL"&&s.mvVideo)setHls(s.mvVideo,inputHlsUrl(A.channelData||{}));
+      if((s.kind==="DEVICE"||s.kind==="SCREEN")&&s.mvVideo&&s.mvVideo.srcObject!==s.stream){s.mvVideo.srcObject=s.stream;s.mvVideo.play().catch(()=>{})}
+    }
+    g.appendChild(card);
   }
+  for(const card of [...g.children])if(!keep.has(card.dataset.sourceId)){const s=A.sources.get(card.dataset.sourceId);if(s?.mvVideo)destroyHls(s.mvVideo);card.remove()}
 }
+
+
 function watch(){
   if(A.timer)clearInterval(A.timer);
-  A.timer=setInterval(()=>{addControls();protectProgram();if(document.getElementById("fbiLocalDrawer")?.classList.contains("open"))refresh()},1000);
+  A.timer=setInterval(()=>{
+    addControls();protectProgram();
+    if(document.getElementById("fbiLocalDrawer")?.classList.contains("open"))refreshChannelSource().then(updateLocalUi).catch(()=>{});
+  },2500);
 }
+
+
 function boot(){addControls();watch()}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);else boot();
 })();
