@@ -1852,9 +1852,9 @@ const publicHlsSegmentPending=new Map();
 const PUBLIC_HLS_CACHE_TTL=6500;
 const PUBLIC_HLS_CACHE_MAX_BYTES=48*1024*1024;
 let publicHlsCacheBytes=0;
-function publicHlsCacheKey(token,pathname,query){
+function publicHlsCacheKey(token,upstreamPath,pathname,query){
   const q=new URLSearchParams(query||""); q.delete("session"); q.delete("cookieCheck");
-  return String(token)+"|"+String(pathname||"")+"|"+q.toString();
+  return String(token)+"|"+String(upstreamPath||"")+"|"+String(pathname||"")+"|"+q.toString();
 }
 function publicHlsCacheGet(key){
   const hit=publicHlsSegmentCache.get(key); if(!hit)return null;
@@ -1875,15 +1875,16 @@ function publicHlsCacheSet(key,body,type){
   }
 }
 const publicHlsSessionByToken=new Map();
-function publicHlsSessionGet(token){
+function publicHlsSessionGet(token,upstreamPath){
   const v=publicHlsSessionByToken.get(String(token||""));
   if(!v)return "";
   if(v.expiresAt<Date.now()){publicHlsSessionByToken.delete(String(token||""));return "";}
+  if(String(v.upstreamPath||"")!==String(upstreamPath||""))return "";
   return v.session;
 }
-function publicHlsSessionSet(token,session){
-  if(!token||!session)return;
-  publicHlsSessionByToken.set(String(token),{session:String(session),expiresAt:Date.now()+25*60*1000});
+function publicHlsSessionSet(token,session,upstreamPath){
+  if(!token||!session||!upstreamPath)return;
+  publicHlsSessionByToken.set(String(token),{session:String(session),upstreamPath:String(upstreamPath),expiresAt:Date.now()+25*60*1000});
 }
 async function fetchPublicHlsBody(url,headers){
   const response=await fetch(url,{redirect:"follow",cache:"no-store",headers:headers||{}});
@@ -1922,22 +1923,23 @@ async function proxyPublicHlsStream(req,res){
     if(forceOriginalInput)upstream.searchParams.delete("source");
     const incomingCookies=String(req.headers.cookie||"");
     const proxySession=(incomingCookies.match(/(?:^|;\s*)fbi_public_hls_session=([^;]+)/)||[])[1]||"";
-    const sharedSession=publicHlsSessionGet(token);
-    if(!upstream.searchParams.has("session")&&(proxySession||sharedSession)){
-      upstream.searchParams.set("session",decodeURIComponent(proxySession||sharedSession));
+    const sharedSession=publicHlsSessionGet(token,upstreamPath);
+    // A TAKE changes the upstream MediaMTX path while keeping the same public
+    // viewer URL. Never carry an old encoded/program HLS session into a new
+    // upstream path or MediaMTX will keep serving the previous path.
+    if(sharedSession){
+      upstream.searchParams.set("session",sharedSession);
+    }else{
+      upstream.searchParams.delete("session");
     }
     const upstreamHeaders={};
-    // MediaMTX v1.19.x establishes the HLS session through a cookieCheck
-    // redirect. Send the cookie on the first playlist request so the proxy can
-    // complete that handshake without depending on the browser or CDN to carry
-    // Set-Cookie between requests.
-    if(sub==="index.m3u8"&&!upstream.searchParams.has("session")&&!proxySession&&!sharedSession){
+    if(sub==="index.m3u8"&&!sharedSession){
       upstreamHeaders.cookie="cookieCheck=1";
     }
 
     const isPlaylist=/\.m3u8$/i.test(sub);
     if(!isPlaylist){
-      const cacheKey=publicHlsCacheKey(token,sub,upstream.search);
+      const cacheKey=publicHlsCacheKey(token,upstreamPath,sub,upstream.search);
       const cached=publicHlsCacheGet(cacheKey);
       if(cached)return res.status(200).set("Cache-Control","public, max-age=2, s-maxage=6, stale-while-revalidate=4").set("CDN-Cache-Control","public, max-age=6, stale-while-revalidate=4").set("X-FBI-HLS-Cache","HIT").type(cached.contentType).send(cached.body);
       let pending=publicHlsSegmentPending.get(cacheKey);
@@ -1969,7 +1971,7 @@ async function proxyPublicHlsStream(req,res){
       const setCookies=typeof response.headers.getSetCookie==="function"?response.headers.getSetCookie():String(response.headers.get("set-cookie")||"").split(/,(?=\s*\w+=)/);
       for(const sc of setCookies){const m=String(sc).match(/(?:^|;\s*)hlsSession=([^;]+)/i);if(m){session=m[1];break;}}
       session=session||upstream.searchParams.get("session")||"";
-      if(session)publicHlsSessionSet(token,session);
+      if(session)publicHlsSessionSet(token,session,upstreamPath);
       function publicUri(raw){
         const value=String(raw||"").trim(); if(!value)return value;
         try{

@@ -56,32 +56,6 @@ function programVideo(){
   return document.getElementById("programVideo")||null
 }
 
-async function putChannelInProgram(openWatch=true){
-  const id=activeChannelId();if(!id){toast("Select a channel first.");return}
-  let s;try{s=await channel(id)}catch(e){toast(e.message||"Could not load channel.");return}
-  A.programChannel=id;A.localProgram="";
-  const pv=programVideo();if(pv){pv.dataset.fbiProgram="channel";setHls(pv,inputHlsUrl(s))}
-  const btn=document.getElementById("fbiTakeChannel");if(btn)btn.classList.add("fbi-addon-take");
-  toast(s.name+" is now PROGRAM");
-  if(openWatch&&s.viewer_url)window.open(s.viewer_url,"_blank","noopener");
-}
-
-function setLocalProgramVisual(src){
-  const v=programVideo();if(!v||!src)return;
-  destroyHls(v);v.removeAttribute("src");v.load();v.autoplay=true;v.muted=true;v.playsInline=true;v.srcObject=src.stream||null;v.dataset.fbiProgram="local";v.play().catch(()=>{});
-}
-
-function ensureAudio(out,src){
-  if(!src?.stream?.getAudioTracks?.().length||out.nodes.has(src.id))return;
-  try{
-    const ms=new MediaStream(src.stream.getAudioTracks()),input=out.audio.createMediaStreamSource(ms),gain=out.audio.createGain();
-    gain.gain.value=0;input.connect(gain);gain.connect(out.dest);out.nodes.set(src.id,{input,gain});
-  }catch{}
-}
-function selectAudio(out,id){
-  out.nodes.forEach((n,sid)=>{const v=sid===id?1:0;try{n.gain.gain.setTargetAtTime(v,out.audio.currentTime,.05)}catch{n.gain.gain.value=v}});
-}
-
 function makeProgramStream(){
   const canvas=document.createElement("canvas");canvas.width=1920;canvas.height=1080;
   const ctx=canvas.getContext("2d",{alpha:false});const videoStream=canvas.captureStream(30);
@@ -318,26 +292,77 @@ function restoreProgram(){
 
 async function addCamera(){
   if(!navigator.mediaDevices?.getUserMedia)throw new Error("Camera capture is not supported in this browser.");
-  const p=await navigator.mediaDevices.getUserMedia({video:true,audio:false});p.getTracks().forEach(t=>t.stop());
-  const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput");if(!ds.length)throw new Error("No camera or USB capture card found.");
+  let ds=[];
+  try{ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput");}catch{}
+  if(ds.some(d=>!d.label)){
+    try{
+      const probe=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+      probe.getTracks().forEach(t=>t.stop());
+      ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput");
+    }catch(e){throw new Error("Camera access was blocked. Allow camera access and try again.");}
+  }
+  if(!ds.length)throw new Error("No camera or USB capture device was found.");
   const modal=document.createElement("div");modal.className="channel-modal";modal.style.zIndex="9000";
-  modal.innerHTML='<div class="channel-box"><div class="channel-head"><b>CAMERA / USB CAPTURE CARD</b><button class="channel-close" id="fbiCamClose">×</button></div><div class="channel-body"><p class="channel-help">Choose the video device to add to Local Studio.</p><div id="fbiCamList"></div></div></div>';
-  document.body.appendChild(modal);const list=modal.querySelector("#fbiCamList");
-  ds.forEach((d,i)=>{const row=document.createElement("div");row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px;border:1px solid #29292f;border-radius:7px;margin-bottom:6px";row.innerHTML='<b style="font-size:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(d.label||("Video Device "+(i+1)))+'</b><button class="btn primary" style="font-size:7px">ADD</button>';row.querySelector("button").onclick=async()=>{modal.remove();const st=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:d.deviceId},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},audio:true});const src={id:"device-"+crypto.randomUUID(),name:d.label||("Camera / Capture "+(i+1)),kind:"DEVICE",detail:"Camera / USB capture",stream:st,video:document.createElement('video')};src.video.autoplay=true;src.video.muted=true;src.video.playsInline=true;src.video.srcObject=st;await src.video.play().catch(()=>{});st.getVideoTracks()[0].onended=()=>removeSource(src.id);A.sources.set(src.id,src);refresh();toast(src.name+" added")};list.appendChild(row)});
-  modal.querySelector("#fbiCamClose").onclick=()=>modal.remove();modal.onclick=e=>{if(e.target===modal)modal.remove()};
+  modal.innerHTML='<div class="channel-box"><div class="channel-head"><b>CAMERA / USB CAPTURE CARD</b><button class="channel-close" id="fbiCamClose">×</button></div><div class="channel-body"><p class="channel-help">Choose the capture device to add to Local Studio.</p><div id="fbiCamList"></div></div></div>';
+  document.body.appendChild(modal);
+  const list=modal.querySelector("#fbiCamList");
+  ds.forEach((d,i)=>{
+    const row=document.createElement("div");
+    row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px;border:1px solid #29292f;border-radius:7px;margin-bottom:6px";
+    row.innerHTML='<b style="font-size:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(d.label||("Video Device "+(i+1)))+'</b><button class="btn primary" style="font-size:7px">ADD</button>';
+    const btn=row.querySelector("button");
+    btn.onclick=async()=>{
+      btn.disabled=true;btn.textContent="OPENING…";
+      try{
+        let st;
+        try{
+          st=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:d.deviceId},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+        }catch{
+          st=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:d.deviceId},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},audio:false});
+        }
+        const vid=document.createElement("video");
+        vid.autoplay=true;vid.muted=true;vid.playsInline=true;vid.srcObject=st;await vid.play().catch(()=>{});
+        const src={id:"device-"+crypto.randomUUID(),name:d.label||("Camera / Capture "+(i+1)),kind:"DEVICE",detail:"Camera / USB capture",stream:st,video:vid};
+        st.getVideoTracks()[0].onended=()=>removeSource(src.id);
+        A.sources.set(src.id,src);A.selectedSource=src.id;
+        modal.remove();renderLocalGridOnly();selectPreview(src.id);toast(src.name+" added and ready in PREVIEW");
+      }catch(e){
+        btn.disabled=false;btn.textContent="ADD";
+        toast(e?.name==="NotAllowedError"?"Camera access was blocked.":(e?.message||"Could not open the capture device."));
+      }
+    };
+    list.appendChild(row);
+  });
+  modal.querySelector("#fbiCamClose").onclick=()=>modal.remove();
+  modal.onclick=e=>{if(e.target===modal)modal.remove()};
 }
+
 async function addScreen(){
   if(!navigator.mediaDevices?.getDisplayMedia)throw new Error("Screen capture is not supported in this browser.");
-  const st=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:30}},audio:true});
-  const id="screen-"+crypto.randomUUID(),src={id,name:"Screen / Window "+([...A.sources.values()].filter(x=>x.kind==="SCREEN").length+1),kind:"SCREEN",detail:"Desktop / Window / Browser Tab",stream:st,video:document.createElement('video')};
-  src.video.autoplay=true;src.video.muted=true;src.video.playsInline=true;src.video.srcObject=st;await src.video.play().catch(()=>{});st.getVideoTracks()[0].onended=()=>removeSource(id);A.sources.set(id,src);refresh();toast(src.name+" added");
+  let st;
+  try{st=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:30}},audio:true});}
+  catch(e){
+    if(e?.name==="NotAllowedError")throw new Error("Screen sharing was cancelled or blocked.");
+    try{st=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:30}},audio:false});}
+    catch(err){throw new Error(err?.message||"Could not capture the selected screen or window.");}
+  }
+  const id="screen-"+crypto.randomUUID(),src={id,name:"Screen / Window "+([...A.sources.values()].filter(x=>x.kind==="SCREEN").length+1),kind:"SCREEN",detail:"Desktop / Window / Browser Tab",stream:st,video:document.createElement("video")};
+  src.video.autoplay=true;src.video.muted=true;src.video.playsInline=true;src.video.srcObject=st;await src.video.play().catch(()=>{});
+  st.getVideoTracks()[0].onended=()=>removeSource(id);
+  A.sources.set(id,src);A.selectedSource=id;renderLocalGridOnly();selectPreview(id);toast(src.name+" added and ready in PREVIEW");
 }
+
 async function addAudio(){
   if(!navigator.mediaDevices?.getUserMedia)throw new Error("Audio capture is not supported in this browser.");
-  const st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
-  const id="audio-"+crypto.randomUUID(),src={id,name:"Audio Input "+([...A.sources.values()].filter(x=>x.kind==="AUDIO").length+1),kind:"AUDIO",detail:"Microphone / Line input",stream:st};
-  st.getAudioTracks()[0].onended=()=>removeSource(id);A.sources.set(id,src);if(A.bridge)ensureAudio(A.bridge.out,src);refresh();toast(src.name+" added");
+  try{
+    const st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    const id="audio-"+crypto.randomUUID(),src={id,name:"Audio Input "+([...A.sources.values()].filter(x=>x.kind==="AUDIO").length+1),kind:"AUDIO",detail:"Microphone / Line input",stream:st};
+    st.getAudioTracks()[0].onended=()=>removeSource(id);
+    A.sources.set(id,src);A.selectedSource=id;if(A.bridge)ensureAudio(A.bridge.out,src);
+    renderLocalGridOnly();toast(src.name+" added and ready in PREVIEW");
+  }catch(e){throw new Error(e?.name==="NotAllowedError"?"Microphone/audio access was blocked.":(e?.message||"Could not open the audio input."));}
 }
+
 async function loadNdi(){
   try{const d=await fetch("http://127.0.0.1:8765/sources",{cache:"no-store"}).then(r=>r.json());const list=(d.sources||[]).map(String).filter(Boolean);if(!list.length)throw new Error("No NDI sources were discovered.");return list}catch{throw new Error("NDI Gateway is not available on this production computer.")}
 }
@@ -363,11 +388,10 @@ function selectPreview(id){
   const s=A.sources.get(id);if(!s)return;
   A.selectedSource=id;
   const v=selectedPreviewVideo();
-  if(v&&s.kind==="CHANNEL"){destroyHls(v);v.srcObject=null;v.removeAttribute("src");v.load();setHls(v,hlsUrl(A.channelData||{}));}
+  if(v&&s.kind==="CHANNEL"){destroyHls(v);v.srcObject=null;v.removeAttribute("src");v.load();setHls(v,inputHlsUrl(A.channelData||{}));}
   else if(v&&(s.kind==="DEVICE"||s.kind==="SCREEN")){destroyHls(v);v.srcObject=s.stream;v.removeAttribute("src");v.load();v.play().catch(()=>{});}
   updateLocalUi();toast(s.name+" selected in PREVIEW");
 }
-
 
 function updateLocalUi(){
   const grid=document.getElementById("fbiLocalGrid");
@@ -497,9 +521,8 @@ function watch(){
   A.timer=setInterval(()=>{
     addControls();protectProgram();
     if(document.getElementById("fbiLocalDrawer")?.classList.contains("open"))refreshChannelSource().then(updateLocalUi).catch(()=>{});
-  },2500);
+  },5000);
 }
-
 
 function boot(){addControls();watch()}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);else boot();
