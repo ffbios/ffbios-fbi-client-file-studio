@@ -181,7 +181,7 @@ linear-gradient(140deg,#273025,#10161a 48%,#40311b);border:1px solid rgba(255,25
 <section class="cs-pane" data-cspane="billing">
   <div class="cs-eyebrow">Monthly storage subscription</div>
   <h3>Storage & Billing</h3>
-  <p>Choose the amount of cloud storage that fits your creative workload. Plans renew monthly. Your original files are never compressed or altered.</p>
+  <p>Choose the amount of cloud storage that fits your creative workload. Plans are billed monthly and renewed through a new Moolre checkout. Your original files are never compressed or altered.</p>
   <div id="billingContent"><div class="empty">Loading subscription details…</div></div>
 </section>
 <section class="cs-pane" data-cspane="integrations"><div class="cs-eyebrow">Services</div><h3>Integrations</h3><div class="integration-row"><div><b>Cloud Storage</b><p>FBI Client File Studio cloud storage</p></div><strong class="status-ok">Connected</strong></div><div class="integration-row"><div><b>Download Tracking</b><p>Record client download activity.</p></div><label class="toggle compact"><input id="csTracking" type="checkbox"><span>Enabled</span></label></div><div class="integration-row"><div><b>Email Notifications</b><p>Keep email notification preference ready for future delivery workflows.</p></div><label class="toggle compact"><input id="csEmailNotify" type="checkbox"><span>Enabled</span></label></div></section>
@@ -412,7 +412,7 @@ function renderBilling(){
     : '<div class="billing-notice"><strong>Secure Moolre checkout is ready.</strong>Payments are processed on Moolre. After successful confirmation, your storage quota changes automatically.</div>';
   const currentCard='<div class="billing-current"><div class="billing-current-top"><div><div class="billing-muted">Current plan</div><strong>'+esc(plan.name)+'</strong></div><div class="billing-status">'+(active?esc(c.status||"active"):"expired")+'</div></div>'+
     '<div class="billing-price">'+(trial?"Free":"GH₵"+Number(plan.monthly_price_ghs||0).toFixed(2))+' <small>'+((trial?"trial":"per month"))+'</small></div>'+
-    '<div class="billing-storage">'+fmt(plan.storage_bytes||0)+' storage allowance'+(trial?" • "+billingDaysLeft(c.current_period_end)+" days left":" • renews "+billingDate(c.current_period_end))+'</div>'+
+    '<div class="billing-storage">'+fmt(plan.storage_bytes||0)+' storage allowance'+(trial?" • "+billingDaysLeft(c.current_period_end)+" days left":" • billing period ends "+billingDate(c.current_period_end))+'</div>'+
     '<div class="billing-usage"><div class="billing-usage-bar"><i style="width:'+pct.toFixed(2)+'%"></i></div><div class="billing-usage-meta"><span>'+fmt(u.used_bytes||0)+' used</span><span>'+fmt(u.available_bytes||0)+' available</span></div></div></div>';
   const plans=Array.isArray(d.plans)?d.plans:[];
   const planCards=plans.map(function(p){
