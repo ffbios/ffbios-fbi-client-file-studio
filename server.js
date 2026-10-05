@@ -3557,6 +3557,7 @@ app.get("/share/:token/manifest.webmanifest",async(req,res)=>{
   }
 });
 
+app.get("/live-studio-addon.js",(req,res)=>{res.type("application/javascript").set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.set("Pragma","no-cache");res.set("Expires","0");res.sendFile(path.join(ROOT,"live-studio-addon.js"));});
 app.get("/manifest.webmanifest",(req,res)=>{
   const file=process.env.FBI_LIVE_STANDALONE==="1"?"live-manifest.webmanifest":"manifest.webmanifest";
   res.type("application/manifest+json").sendFile(path.join(ROOT,file));
