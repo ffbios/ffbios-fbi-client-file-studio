@@ -15,7 +15,7 @@ echo.
 set "INSTALL_DIR=%~dp0FBI-NDI-Gateway"
 set "GATEWAY=%INSTALL_DIR%\gateway.py"
 set "REQUIREMENTS=%INSTALL_DIR%\requirements.txt"
-set "GATEWAY_URL=https://raw.githubusercontent.com/ffbios/ffbios-fbi-client-file-studio/main/ndi-gateway/gateway.py?cachebust=20260924"
+set "GATEWAY_URL=https://raw.githubusercontent.com/ffbios/ffbios-fbi-client-file-studio/main/ndi-gateway/gateway.py?cachebust=20261005"
 set "REQUIREMENTS_URL=https://raw.githubusercontent.com/ffbios/ffbios-fbi-client-file-studio/main/ndi-gateway/requirements.txt?cachebust=20260924"
 
 where python >nul 2>nul
