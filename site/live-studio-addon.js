@@ -350,15 +350,14 @@ async function addNdi(){
 }
 function removeSource(id){const s=A.sources.get(id);if(!s)return;try{s.stream?.getTracks?.().forEach(t=>t.stop())}catch{}if(A.bridge?.out?.nodes?.has(id)){const n=A.bridge.out.nodes.get(id);try{n.input.disconnect();n.gain.disconnect()}catch{}A.bridge.out.nodes.delete(id)}if(A.selectedSource===id)A.selectedSource="";if(A.localProgram===id){A.localProgram="";restoreProgram()}A.sources.delete(id);refresh()}
 function selectPreview(id){const s=A.sources.get(id);if(!s)return;A.selectedSource=id;if(s.kind==="DEVICE"||s.kind==="SCREEN"){const v=selectedPreviewVideo();if(v){destroyHls(v);v.srcObject=s.stream;v.removeAttribute("src");v.load();v.play().catch(()=>{})}}refresh();toast(s.name+" selected in PREVIEW")}
-function refresh(){
-  refreshChannelSource().catch(()=>{});
+function renderLocalGridOnly(){
   const grid=document.getElementById("fbiLocalGrid");if(!grid)return;grid.innerHTML="";
   for(const s of A.sources.values()){
     const card=document.createElement("div");card.className="fbi-addon-source "+(s.id===A.selectedSource?"preview ":"")+(s.id===A.localProgram?"program":"");
     const visual=document.createElement("div");visual.className="fbi-addon-visual";
     if(s.kind==="CHANNEL"||s.kind==="DEVICE"||s.kind==="SCREEN"){
-      const v=document.createElement("video");v.autoplay=true;v.muted=true;v.playsInline=true;v.srcObject=null;
-      if(s.kind==="CHANNEL")attachPreviewChannelTo(v,s);else{v.srcObject=s.stream;v.play().catch(()=>{})}
+      const v=document.createElement("video");v.autoplay=true;v.muted=true;v.playsInline=true;
+      if(s.kind==="CHANNEL")setHls(v,inputHlsUrl(A.channelData||{}));else{v.srcObject=s.stream;v.play().catch(()=>{})}
       visual.appendChild(v);
     }else if(s.kind==="NDI"){
       const img=document.createElement("img");img.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(s.ndiName||s.name)+"&t="+Date.now();visual.appendChild(img);
@@ -378,9 +377,8 @@ function refresh(){
   const st=document.getElementById("fbiLocalState");if(st)st.textContent=A.bridge?"PROGRAM / LOCAL MIX LIVE":"PROGRAM / NORMAL CHANNEL";
   const tx=document.getElementById("fbiLocalText");if(tx)tx.textContent=A.bridge?"Local source is on Program. OBS/vMix continues feeding the same channel in the background.":"Select a source for Preview, then TAKE it to Program on the same live channel.";
 }
-function attachPreviewChannelTo(v,s){
-  if(!v||!s||!s.video)return;
-  setHls(v,hlsUrl(A.channelData||{}));
+function refresh(){
+  refreshChannelSource().finally(()=>renderLocalGridOnly());
 }
 
 async function takeNdi(s){return localTake(s)}
