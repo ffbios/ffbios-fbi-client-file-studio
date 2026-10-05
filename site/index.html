@@ -2234,10 +2234,10 @@ async function clientView(token){
     currentLightIndex=(index+list.length)%list.length;
     const f=list[currentLightIndex];
     const box=document.querySelector('#clientLightbox'),stage=document.querySelector('#lightStage');
-    const t=typeOf(f),src=t==='image'?('/api/public/preview/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w=1800&h=1800'):'/api/public/media/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token);
+    const t=typeOf(f),src=t==='image'?('/api/public/preview/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w=1600&h=1600'):'/api/public/media/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token);
     document.querySelector('#lightTitle').textContent=f.original_name;
     document.querySelector('#lightFav').textContent=favorites.has(f.id)?'♥ Favorite':'♡ Favorite';
-    stage.innerHTML=t==='image'?'<img src="'+src+'&w=1600&h=1600" alt="">':t==='video'?'<video controls autoplay playsinline preload="metadata" src="'+src+'"></video>':'<audio controls autoplay src="'+src+'"></audio>';
+    stage.innerHTML=t==='image'?'<img src="'+src+'" alt="">':t==='video'?'<video controls autoplay playsinline preload="metadata" src="'+src+'"></video>':'<audio controls autoplay src="'+src+'"></audio>';
     document.querySelector('#lightFav').onclick=function(){toggleFavorite(f.id);document.querySelector('#lightFav').textContent=favorites.has(f.id)?'♥ Favorite':'♡ Favorite'};
     document.querySelector('#lightDownload').onclick=function(){startDownload([f])};
     box.classList.add('show');
