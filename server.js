@@ -1,4 +1,6 @@
 const express=require("express");
+const http=require("http");
+const {WebSocketServer}=require("ws");
 const Busboy=require("busboy");
 const {Pool}=require("pg");
 const crypto=require("crypto");
@@ -969,6 +971,36 @@ function randomStreamKey(){return crypto.randomBytes(24).toString("base64url");}
 function randomViewerToken(){return crypto.randomBytes(24).toString("base64url");}
 function randomNdiPairToken(){return crypto.randomBytes(20).toString("base64url");}
 function streamRtmpServer(){const h=String(process.env.STREAM_RTMP_HOST||"").trim(),p=String(process.env.STREAM_RTMP_PORT||"").trim();return h&&p?"rtmp://"+h+":"+p+"/live":"";}
+function signLocalStudioToken(streamId){
+  const body=Buffer.from(JSON.stringify({sid:String(streamId),exp:Date.now()+2*60*60*1000,purpose:"local-studio"})).toString("base64url");
+  const sig=crypto.createHmac("sha256",String(process.env.SESSION_SECRET||"")).update(body).digest("base64url");
+  return body+"."+sig;
+}
+function readLocalStudioToken(value){
+  const [body,sig]=String(value||"").split(".");
+  if(!body||!sig)return null;
+  try{
+    const expected=crypto.createHmac("sha256",String(process.env.SESSION_SECRET||"")).update(body).digest("base64url");
+    if(sig.length!==expected.length||!crypto.timingSafeEqual(Buffer.from(sig),Buffer.from(expected)))return null;
+    const d=JSON.parse(Buffer.from(body,"base64url").toString("utf8"));
+    if(d.purpose!=="local-studio"||!d.sid||Number(d.exp)<=Date.now())return null;
+    return d;
+  }catch{return null}
+}
+
+const activeLocalStudioBridges=new Map();
+function stopLocalStudioBridge(streamId){
+  const key=String(streamId||"");
+  const entry=activeLocalStudioBridges.get(key);
+  if(!entry)return false;
+  activeLocalStudioBridges.delete(key);
+  try{entry.ws?.close()}catch{}
+  try{entry.proc?.stdin?.end()}catch{}
+  try{entry.proc?.kill("SIGTERM")}catch{}
+  setTimeout(()=>{try{if(entry.proc&&!entry.proc.killed)entry.proc.kill("SIGKILL")}catch{}},1500);
+  return true;
+}
+
 function parseQueryString(q){
   const raw=String(q||"");
   const out={};
@@ -1581,6 +1613,24 @@ app.get("/api/live/streams/:id",async(req,res)=>{
     }});
   }catch(e){console.error(e);res.status(500).json({error:"Could not load live stream"});}
 })
+
+app.post("/api/live/streams/:id/local-studio/session",async(req,res)=>{
+  try{
+    const q=await pool.query("SELECT id,name,title,stream_key,enabled,viewer_token FROM streams WHERE id=$1 LIMIT 1",[req.params.id]);
+    if(!q.rowCount||!q.rows[0].enabled)return res.status(404).json({error:"Stream not found or disabled."});
+    const target=streamRtmpServer();
+    if(!target)return res.status(503).json({error:"RTMP output is not configured for this studio."});
+    const token=signLocalStudioToken(q.rows[0].id);
+    const wsProtocol=(req.secure||String(req.headers["x-forwarded-proto"]||"").split(",")[0].trim()==="https")?"wss":"ws";
+    const wsUrl=wsProtocol+"://"+req.get("host")+"/ws/local-studio?token="+encodeURIComponent(token);
+    res.set("Cache-Control","no-store");
+    res.json({ok:true,stream_id:q.rows[0].id,stream_name:q.rows[0].name,ws_url:wsUrl,rtmp_target:target+"/"+q.rows[0].stream_key});
+  }catch(e){
+    console.error("Local studio session failed:",e);
+    res.status(500).json({error:"Could not create the local studio session."});
+  }
+});
+
 app.get("/api/live/streams/:id/audio-level",async(req,res)=>{
   try{
     const q=await pool.query("SELECT * FROM streams WHERE id=$1 AND enabled=true",[req.params.id]);
@@ -3625,5 +3675,95 @@ app.get("/editor.html",(req,res)=>{
 
 app.use((req,res)=>res.sendFile(path.join(ROOT,"index.html")));
 
+
+const httpServer=http.createServer(app);
+const localStudioWss=new WebSocketServer({noServer:true,maxPayload:8*1024*1024,perMessageDeflate:false});
+
+httpServer.on("upgrade",(req,socket,head)=>{
+  let url;
+  try{url=new URL(req.url,"http://localhost")}catch{socket.destroy();return}
+  if(url.pathname!=="/ws/local-studio"){socket.destroy();return}
+  const token=readLocalStudioToken(url.searchParams.get("token")||"");
+  if(!token){
+    try{socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n")}catch{}
+    socket.destroy();
+    return;
+  }
+  localStudioWss.handleUpgrade(req,socket,head,ws=>localStudioWss.emit("connection",ws,req,token));
+});
+
+localStudioWss.on("connection",async(ws,req,token)=>{
+  const sid=String(token.sid||"");
+  try{
+    const q=await pool.query("SELECT id,stream_key,enabled FROM streams WHERE id=$1 LIMIT 1",[sid]);
+    if(!q.rowCount||!q.rows[0].enabled){ws.close(1008,"Stream unavailable");return}
+    const stream=q.rows[0];
+    const target=streamRtmpServer();
+    if(!target){ws.close(1011,"RTMP output unavailable");return}
+    stopLocalStudioBridge(sid);
+
+    if(!ffmpegPath){ws.close(1011,"FFmpeg unavailable");return}
+
+    const proc=spawn(ffmpegPath,[
+      "-hide_banner","-loglevel","warning",
+      "-fflags","+genpts",
+      "-f","webm","-i","pipe:0",
+      "-map","0:v:0","-map","0:a:0?",
+      "-c:v","libx264","-preset","ultrafast","-tune","zerolatency",
+      "-pix_fmt","yuv420p","-profile:v","main","-level","4.1",
+      "-r","30","-g","60","-keyint_min","60","-sc_threshold","0",
+      "-b:v","5M","-maxrate","6M","-bufsize","10M",
+      "-c:a","aac","-b:a","128k","-ar","48000","-ac","2",
+      "-f","flv",target+"/"+stream.stream_key
+    ],{stdio:["pipe","ignore","pipe"]});
+
+    const entry={ws,proc,sid,started:false};
+    activeLocalStudioBridges.set(sid,entry);
+
+    proc.stderr.on("data",chunk=>{
+      const msg=String(chunk||"").trim();
+      if(msg&&/error|failed|invalid|unable|refused|broken/i.test(msg))console.warn("Local Studio FFmpeg:",msg.slice(-1000));
+    });
+    proc.on("error",err=>{
+      console.error("Local Studio FFmpeg process error:",err?.message||err);
+      try{ws.close(1011,"Local studio encoder failed")}catch{}
+    });
+    proc.on("close",()=>{
+      if(activeLocalStudioBridges.get(sid)===entry)activeLocalStudioBridges.delete(sid);
+      pool.query("UPDATE streams SET status='offline',ended_at=now(),updated_at=now() WHERE id=$1",[sid]).catch(()=>{});
+    });
+
+    ws.binaryType="nodebuffer";
+    ws.on("message",(data,isBinary)=>{
+      if(!isBinary||!data||proc.stdin.destroyed)return;
+      try{
+        const b=Buffer.isBuffer(data)?data:Buffer.from(data);
+        if(!b.length)return;
+        proc.stdin.write(b);
+        if(!entry.started){
+          entry.started=true;
+          pool.query("UPDATE streams SET status='live',started_at=COALESCE(started_at,now()),updated_at=now() WHERE id=$1",[sid]).catch(()=>{});
+        }
+      }catch(e){
+        console.error("Local Studio pipe write failed:",e?.message||e);
+        try{ws.close(1011,"Local studio input failed")}catch{}
+      }
+    });
+    ws.on("close",()=>{
+      try{proc.stdin.end()}catch{}
+      try{proc.kill("SIGTERM")}catch{}
+      if(activeLocalStudioBridges.get(sid)===entry)activeLocalStudioBridges.delete(sid);
+    });
+    ws.on("error",()=>{
+      try{proc.stdin.end()}catch{}
+    });
+  }catch(e){
+    console.error("Local Studio bridge failed:",e);
+    try{ws.close(1011,"Local studio bridge unavailable")}catch{}
+  }
+});
+
 initDb().then(async()=>{
-  await finalizeStaleOfflineRecordings();await ensureBucketCors();app.listen(PORT,"0.0.0.0",()=>console.log("FBI Client File Studio listening on port "+PORT))}).catch(e=>{console.error(e);process.exit(1)});
+  await finalizeStaleOfflineRecordings();await ensureBucketCors();
+  httpServer.listen(PORT,"0.0.0.0",()=>console.log("FBI Client File Studio listening on port "+PORT));
+}).catch(e=>{console.error(e);process.exit(1)});
