@@ -365,6 +365,21 @@ async function portalProjectOwned(userId,projectId){
   const r=await pool.query("SELECT * FROM projects WHERE id=$1 AND owner_id=$2",[projectId,userId]);
   return r.rows[0]||null;
 }
+async function portalProjectAccessible(userId,projectId){
+  const r=await pool.query(
+    "SELECT p.* FROM projects p LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE p.id=$1 AND (p.owner_id=$2 OR pc.user_id=$2)",
+    [projectId,userId]
+  );
+  return r.rows[0]||null;
+}
+async function portalFileAccessible(userId,fileId){
+  const r=await pool.query(
+    "SELECT f.*,p.name project_name,p.client_name,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND (p.owner_id=$2 OR pc.user_id=$2)",
+    [fileId,userId]
+  );
+  return r.rows[0]||null;
+}
+
 function clientIp(req){return String(req.headers["x-forwarded-for"]||req.socket.remoteAddress||"").split(",")[0].trim().slice(0,120)}
 function s3Ready(){return Boolean(process.env.S3_BUCKET&&process.env.S3_ENDPOINT&&process.env.S3_ACCESS_KEY_ID&&process.env.S3_SECRET_ACCESS_KEY&&process.env.S3_REGION)}
 const s3=s3Ready()?new S3Client({
@@ -719,7 +734,21 @@ async function initDb(){
     ALTER TABLE files ADD COLUMN IF NOT EXISTS content_fingerprint text;
     ALTER TABLE files ADD COLUMN IF NOT EXISTS sha256 text;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false;
+    ALTER TABLE files ADD COLUMN IF NOT EXISTS favorite boolean NOT NULL DEFAULT false;
+    ALTER TABLE files ADD COLUMN IF NOT EXISTS trashed_at timestamptz;
     CREATE INDEX IF NOT EXISTS idx_files_fingerprint ON files(project_id,content_fingerprint,size_bytes);
+    CREATE INDEX IF NOT EXISTS idx_files_owner_recent ON files(project_id,created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_files_trash ON files(trashed_at);
+    CREATE TABLE IF NOT EXISTS project_collaborators(
+      id uuid PRIMARY KEY,
+      project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      invited_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE(project_id,user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_collaborators_user ON project_collaborators(user_id,created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_project_collaborators_project ON project_collaborators(project_id,created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_upload_sessions_project ON upload_sessions(project_id);
     ALTER TABLE upload_sessions ADD COLUMN IF NOT EXISTS content_fingerprint text;
     ALTER TABLE upload_sessions ADD COLUMN IF NOT EXISTS upload_protocol_version integer;
@@ -1607,7 +1636,7 @@ app.post("/api/portal/projects",portalUser,async(req,res)=>{
  }catch(e){console.error(e);res.status(500).json({error:"Could not create project."})}
 });
 app.get("/api/portal/projects/:id",portalUser,async(req,res)=>{
- try{const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const f=await pool.query("SELECT * FROM files WHERE project_id=$1 ORDER BY created_at DESC",[p.id]);res.json({project:p,files:f.rows});}
+ try{const p=await portalProjectAccessible(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const f=await pool.query("SELECT * FROM files WHERE project_id=$1 AND trashed_at IS NULL ORDER BY created_at DESC",[p.id]);res.json({project:p,files:f.rows,read_only:p.owner_id!==req.portalUser.id});}
  catch(e){console.error(e);res.status(500).json({error:"Could not load project."})}
 });
 app.patch("/api/portal/projects/:id",portalUser,async(req,res)=>{
@@ -1618,9 +1647,85 @@ app.post("/api/portal/projects/:id/share",portalUser,async(req,res)=>{
  try{const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const r=await pool.query("UPDATE projects SET share_token=$1,shared=true,updated_at=now() WHERE id=$2 AND owner_id=$3 RETURNING *",[token(),p.id,req.portalUser.id]);res.json({project:r.rows[0],share_url:(req.protocol+"://"+req.get("host"))+"/share/"+r.rows[0].share_token});}
  catch(e){console.error(e);res.status(500).json({error:"Could not create client share link."})}
 });
+app.get("/api/portal/projects/:id/collaborators",portalUser,async(req,res)=>{
+ try{
+  const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});
+  const r=await pool.query("SELECT pc.id,pc.user_id,u.full_name,u.email,pc.created_at FROM project_collaborators pc JOIN users u ON u.id=pc.user_id WHERE pc.project_id=$1 ORDER BY pc.created_at ASC",[p.id]);
+  res.json({collaborators:r.rows});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load project collaborators."})}
+});
+app.post("/api/portal/projects/:id/collaborators",portalUser,async(req,res)=>{
+ try{
+  const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});
+  const email=String(req.body.email||"").trim().toLowerCase();if(!email)return res.status(400).json({error:"Enter the collaborator's account email."});
+  if(email===String(req.portalUser.email||"").trim().toLowerCase())return res.status(400).json({error:"You already own this project."});
+  const u=await pool.query("SELECT id,full_name,email FROM users WHERE lower(email)=lower($1) LIMIT 1",[email]);
+  if(!u.rowCount)return res.status(404).json({error:"That email does not have an FBI Client File Studio account yet. Ask them to create an account first."});
+  const id=uid();
+  await pool.query("INSERT INTO project_collaborators(id,project_id,user_id,invited_by) VALUES($1,$2,$3,$4) ON CONFLICT(project_id,user_id) DO NOTHING",[id,p.id,u.rows[0].id,req.portalUser.id]);
+  res.json({ok:true,collaborator:u.rows[0]});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not share the project with that user."})}
+});
+app.delete("/api/portal/projects/:id/collaborators/:userId",portalUser,async(req,res)=>{
+ try{
+  const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});
+  await pool.query("DELETE FROM project_collaborators WHERE project_id=$1 AND user_id=$2",[p.id,req.params.userId]);
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not remove collaborator."})}
+});
+app.get("/api/portal/files",portalUser,async(req,res)=>{
+ try{
+  const view=String(req.query.view||"all").toLowerCase();
+  const q=String(req.query.q||"").trim();
+  const conditions=["p.owner_id=$1","f.trashed_at IS NULL"],vals=[req.portalUser.id];
+  if(view==="favorites")conditions.push("f.favorite=true");
+  if(view==="recent"){}
+  if(q){vals.push("%"+q+"%");conditions.push("(f.original_name ILIKE $"+vals.length+" OR p.name ILIKE $"+vals.length+")");}
+  const order=view==="recent"?"f.created_at DESC":"f.created_at DESC";
+  const r=await pool.query("SELECT f.*,p.name project_name,p.client_name FROM files f JOIN projects p ON p.id=f.project_id WHERE "+conditions.join(" AND ")+" ORDER BY "+order+" LIMIT 500",vals);
+  res.json({files:r.rows,view});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load files."})}
+});
+app.get("/api/portal/trash",portalUser,async(req,res)=>{
+ try{
+  const r=await pool.query("SELECT f.*,p.name project_name,p.client_name FROM files f JOIN projects p ON p.id=f.project_id WHERE p.owner_id=$1 AND f.trashed_at IS NOT NULL ORDER BY f.trashed_at DESC LIMIT 500",[req.portalUser.id]);
+  res.json({files:r.rows});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load trash."})}
+});
+app.patch("/api/portal/files/:id/favorite",portalUser,async(req,res)=>{
+ try{
+  const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f)return res.status(404).json({error:"File not found."});
+  const favorite=Boolean(req.body&&req.body.favorite);
+  const r=await pool.query("UPDATE files SET favorite=$1 WHERE id=$2 RETURNING *",[favorite,f.id]);
+  res.json({file:r.rows[0]});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not update favorite."})}
+});
+app.delete("/api/portal/files/:id",portalUser,async(req,res)=>{
+ try{
+  const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f||f.owner_id!==req.portalUser.id)return res.status(404).json({error:"File not found."});
+  await pool.query("UPDATE files SET trashed_at=now(),updated_at=now() WHERE id=$1",[f.id]).catch(async()=>{
+    await pool.query("UPDATE files SET trashed_at=now() WHERE id=$1",[f.id]);
+  });
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not move file to trash."})}
+});
+app.post("/api/portal/files/:id/restore",portalUser,async(req,res)=>{
+ try{
+  const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f||f.owner_id!==req.portalUser.id)return res.status(404).json({error:"File not found."});
+  await pool.query("UPDATE files SET trashed_at=NULL WHERE id=$1",[f.id]);res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not restore file."})}
+});
+app.delete("/api/portal/files/:id/permanent",portalUser,async(req,res)=>{
+ try{
+  const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f||f.owner_id!==req.portalUser.id)return res.status(404).json({error:"File not found."});
+  if(!f.trashed_at)return res.status(400).json({error:"Move the file to Trash before permanent deletion."});
+  if(s3Ready()&&f.storage_path)await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:f.storage_path})).catch(()=>{});
+  await pool.query("DELETE FROM files WHERE id=$1",[f.id]);res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not permanently delete the file."})}
+});
 app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT * FROM files WHERE id=$1 AND project_id IN (SELECT id FROM projects WHERE owner_id=$2)",[req.params.id,req.portalUser.id]);
+  const q=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
   if(!q.rowCount)return res.status(404).send("File not found.");
   const f=q.rows[0];
   const width=Math.max(160,Math.min(640,Number(req.query.w||360))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
@@ -1664,20 +1769,20 @@ app.delete("/api/portal/projects/:id",portalUser,async(req,res)=>{
 });
 app.get("/api/portal/media/:id",portalUser,async(req,res)=>{
   try{
-    const r=await pool.query("SELECT * FROM files WHERE id=$1 AND project_id IN (SELECT id FROM projects WHERE owner_id=$2)",[req.params.id,req.portalUser.id]);
+    const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
     if(!r.rowCount)return res.status(404).send("File not found.");
     await streamStoredObject(req,res,r.rows[0]);
   }catch(e){console.error("Portal media stream failed:",e?.stack||e);res.status(500).send("Unable to stream file.")}
 });
 app.head("/api/portal/media/:id",portalUser,async(req,res)=>{
   try{
-    const r=await pool.query("SELECT * FROM files WHERE id=$1 AND project_id IN (SELECT id FROM projects WHERE owner_id=$2)",[req.params.id,req.portalUser.id]);
+    const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
     if(!r.rowCount)return res.status(404).end();
     await streamStoredObject(req,res,r.rows[0]);
   }catch(e){console.error("Portal media HEAD failed:",e?.stack||e);res.status(500).end()}
 });
 app.get("/api/portal/file/:id",portalUser,async(req,res)=>{
- try{const r=await pool.query("SELECT * FROM files WHERE id=$1 AND project_id IN (SELECT id FROM projects WHERE owner_id=$2)",[req.params.id,req.portalUser.id]);if(!r.rowCount)return res.status(404).send("File not found.");const f=r.rows[0];const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:900});res.redirect(url);}
+ try{const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);if(!r.rowCount)return res.status(404).send("File not found.");const f=r.rows[0];const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:900});res.redirect(url);}
  catch(e){console.error(e);res.status(500).send("Unable to serve file.")}
 });
 app.get("/api/projects",admin,async(req,res)=>{
