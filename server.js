@@ -4166,6 +4166,28 @@ app.get("/share/:token/manifest.webmanifest",async(req,res)=>{
 });
 
 app.get("/live-studio-addon.js",(req,res)=>{res.type("application/javascript").set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.set("Pragma","no-cache");res.set("Expires","0");res.sendFile(path.join(ROOT,"live-studio-addon.js"));});
+app.get("/portal-manifest.webmanifest",(req,res)=>{
+  res.type("application/manifest+json").set("Cache-Control","no-cache, no-store, must-revalidate").sendFile(path.join(ROOT,"portal-manifest.webmanifest"));
+});
+app.get("/portal-pwa-icon-:size.png",async(req,res)=>{
+  const size=Number(req.params.size);
+  if(size!==192&&size!==512)return res.sendStatus(404);
+  try{
+    // Use the official FBI logo artwork unchanged; only fit it inside the
+    // square install-icon canvas required by major PWA platforms.
+    const buffer=await sharp(path.join(ROOT,"official-logo.png"))
+      .resize({width:size,height:size,fit:"contain",background:{r:9,g:9,b:10,alpha:1}})
+      .png()
+      .toBuffer();
+    res.type("image/png").set("Cache-Control","public, max-age=31536000, immutable").send(buffer);
+  }catch(err){
+    console.error("Portal PWA icon generation failed:",err);
+    res.sendStatus(500);
+  }
+});
+app.get("/portal-sw.js",(req,res)=>{
+  res.type("application/javascript").set("Cache-Control","no-cache, no-store, must-revalidate").sendFile(path.join(ROOT,"portal-sw.js"));
+});
 app.get("/manifest.webmanifest",(req,res)=>{
   const isLiveStandalone=process.env.FBI_LIVE_STANDALONE==="1"||/^live\.fbigh\.com$/i.test(String(req.hostname||""));
   const file=isLiveStandalone?"live-manifest.webmanifest":"manifest.webmanifest";
