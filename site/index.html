@@ -2247,9 +2247,10 @@ async function clientView(token){
     document.querySelector('#lightFav').textContent=favorites.has(f.id)?'♥ Favorite':'♡ Favorite';
 
     if(t==='image'){
-      stage.innerHTML='<div class="fbi-lightbox-image-wrap"><img class="fbi-lightbox-image" src="'+quickSrc+'" alt="" decoding="async" fetchpriority="high"><span class="fbi-lightbox-loading" id="lightImageLoading">Loading full resolution…</span></div>';
+      // Show the fast thumbnail immediately, then upgrade it silently in the
+      // background when the higher-resolution preview is ready.
+      stage.innerHTML='<div class="fbi-lightbox-image-wrap"><img class="fbi-lightbox-image" src="'+quickSrc+'" alt="" decoding="async" fetchpriority="high"></div>';
       const img=stage.querySelector('.fbi-lightbox-image');
-      const loading=stage.querySelector('#lightImageLoading');
 
       const high=new Image();
       high.decoding='async';
@@ -2257,7 +2258,6 @@ async function clientView(token){
         if(!stage.contains(img))return;
         img.src=high.src;
         img.classList.add('is-hires');
-        if(loading)loading.remove();
         // Warm the next image while the client is viewing this one.
         const next=((currentLightIndex+1)%list.length);
         const nf=list[next];
@@ -2267,11 +2267,8 @@ async function clientView(token){
           n.src='/api/public/thumb/'+encodeURIComponent(nf.id)+'?token='+encodeURIComponent(token)+'&w=720&h=900';
         }
       };
-      high.onerror=function(){
-        if(loading)loading.textContent='';
-      };
-      // Start the expensive high-resolution request only after the fast image
-      // has been placed in the viewer.
+      high.onerror=function(){};
+      // The full-resolution preview loads silently in the background.
       setTimeout(function(){high.src=highSrc},0);
     }else if(t==='video'){
       stage.innerHTML='<video controls autoplay playsinline preload="metadata" src="'+highSrc+'"></video>';
