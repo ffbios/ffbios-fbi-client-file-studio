@@ -279,6 +279,8 @@ function toastPortal(message){
 
 function mediaType(f){
   const m=String(f&&f.mime_type||"").toLowerCase();
+  const name=String(f&&f.original_name||"").toLowerCase();
+  if(/\.(cr2|cr3|crw|nef|nrw|arw|srf|sr2|raf|rw2|orf|pef|rwl|dng|dcr|kdc|mrw|3fr|x3f|erf|mef|mos)$/i.test(name))return"image";
   if(/^image\//.test(m))return"image";
   if(/^video\//.test(m))return"video";
   if(/^audio\//.test(m))return"audio";
