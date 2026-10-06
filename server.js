@@ -920,6 +920,30 @@ const CREATOR_PLAN_IDS=["starter","creator","professional","studio"];
 
 function moolreBaseUrl(){return String(process.env.MOOLRE_API_BASE||"https://api.moolre.com").replace(/\/+$/,"");}
 function moolreConfigured(){return Boolean(String(process.env.MOOLRE_API_USER||"").trim()&&String(process.env.MOOLRE_API_PUBKEY||"").trim()&&String(process.env.MOOLRE_ACCOUNT_NUMBER||"").trim());}
+async function getMoolreWebhookSecret(){
+  const envSecret=String(process.env.MOOLRE_WEBHOOK_SECRET||"").trim();
+  if(envSecret)return envSecret;
+  try{
+    const r=await pool.query("SELECT value FROM app_settings WHERE key='moolre_webhook_secret' LIMIT 1");
+    return String(r.rows[0]?.value||"").trim();
+  }catch(e){
+    console.warn("Could not load stored Moolre webhook secret:",e?.message||e);
+    return "";
+  }
+}
+async function rememberMoolreWebhookSecret(secret){
+  const value=String(secret||"").trim();
+  if(!value)return;
+  try{
+    await pool.query(
+      "INSERT INTO app_settings(key,value) VALUES('moolre_webhook_secret',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",
+      [value]
+    );
+    console.log("Moolre webhook secret stored securely in the app database.");
+  }catch(e){
+    console.warn("Could not persist Moolre webhook secret:",e?.message||e);
+  }
+}
 function moolreBusinessEmail(){return String(process.env.MOOLRE_BUSINESS_EMAIL||ADMIN_EMAIL||"").trim().toLowerCase();}
 function appPublicBaseUrl(req){return String(PUBLIC_BASE_URL||(`${req.protocol}://${req.get("host")}`)).replace(/\\+$/,"");}
 function addOneMonth(value){
@@ -1507,7 +1531,7 @@ app.get("/api/portal/billing/check",portalUser,async(req,res)=>{
 app.post("/api/payments/moolre/webhook",async(req,res)=>{
  try{
   const body=req.body&&typeof req.body==="object"?req.body:{};
-  const configuredSecret=String(process.env.MOOLRE_WEBHOOK_SECRET||"").trim();
+  const configuredSecret=await getMoolreWebhookSecret();
   const data=body.data&&typeof body.data==="object"?body.data:body;
   const providedSecret=String(data.secret||body.secret||"").trim();
   if(configuredSecret&&(providedSecret!==configuredSecret))return res.status(401).json({error:"Invalid webhook secret."});
@@ -1516,6 +1540,13 @@ app.post("/api/payments/moolre/webhook",async(req,res)=>{
   await pool.query("INSERT INTO payment_webhook_events(id,event_key,external_ref,payload) VALUES($1,$2,$3,$4) ON CONFLICT(event_key) DO NOTHING",[uid(),eventKey,externalRef,JSON.stringify(body)]);
   const result=await processMoolreWebhookPayload(body);
   if(result.externalRef){
+    // When the merchant secret has not yet been configured in Railway, a genuine
+    // successful Moolre callback can bootstrap the secret into our database.
+    // The callback is only trusted for this bootstrap after the payment status
+    // endpoint has independently confirmed the transaction as successful.
+    if(!configuredSecret&&providedSecret&&result.ok&&result.success&&!result.alreadyProcessed){
+      await rememberMoolreWebhookSecret(providedSecret);
+    }
     await pool.query("UPDATE payment_webhook_events SET processed_at=now() WHERE event_key=$1",[eventKey]).catch(()=>{});
   }
   return res.status(result.ok?200:202).json(result);
