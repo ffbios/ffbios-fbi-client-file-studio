@@ -425,9 +425,12 @@ function renderPortalCurrent(){
     document.querySelector("#shareBtn").style.display="inline-flex";
     document.querySelector("#shareBtn").textContent="Create Share Link";
   }
-  document.querySelector("#deleteBtn").style.display="inline-flex";
+  document.querySelector("#deleteBtn").style.display=current.read_only?"none":"inline-flex";
   document.querySelector("#deleteBtn").textContent="Delete Project";
-  document.querySelector("#portalPick").onchange=function(){queueFiles(this.files)};
+  document.querySelector("#portalPick").disabled=!!current.read_only;
+  document.querySelector("#uploadDrop").style.display=current.read_only?"none":"block";
+  document.querySelector("#portalPick").onchange=function(){if(!current.read_only)queueFiles(this.files)};
+  if(current.read_only){const up=document.querySelector("#uploadDrop");if(up)up.insertAdjacentHTML("afterend",'<div class="project-readonly-note">You have read-only access to this shared project.</div>')}
   const drop=document.querySelector("#uploadDrop");
   ["dragenter","dragover"].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.style.borderColor="var(--gold)"})});
   ["dragleave","drop"].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.style.borderColor=""})});
@@ -436,7 +439,7 @@ function renderPortalCurrent(){
 
 async function openProject(id){
   const d=await api("/api/portal/projects/"+encodeURIComponent(id));
-  current={...d.project,files:Array.isArray(d.files)?d.files:[]};
+  current={...d.project,files:Array.isArray(d.files)?d.files:[],read_only:!!d.read_only};
   renderPortalProjectList();
   renderPortalCurrent();
   showPortalView("project");
