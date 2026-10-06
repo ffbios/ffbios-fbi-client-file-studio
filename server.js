@@ -1686,6 +1686,12 @@ app.get("/api/portal/files",portalUser,async(req,res)=>{
   res.json({files:r.rows,view});
  }catch(e){console.error(e);res.status(500).json({error:"Could not load files."})}
 });
+app.get("/api/portal/shared",portalUser,async(req,res)=>{
+ try{
+  const r=await pool.query("SELECT p.*,u.full_name owner_name,u.email owner_email,pc.created_at shared_at,COALESCE((SELECT count(*) FROM files f WHERE f.project_id=p.id AND f.trashed_at IS NULL),0)::int file_count,COALESCE((SELECT sum(size_bytes) FROM files f WHERE f.project_id=p.id AND f.trashed_at IS NULL),0) total_bytes FROM project_collaborators pc JOIN projects p ON p.id=pc.project_id JOIN users u ON u.id=p.owner_id WHERE pc.user_id=$1 ORDER BY pc.created_at DESC",[req.portalUser.id]);
+  res.json({projects:r.rows});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load shared projects."})}
+});
 app.get("/api/portal/trash",portalUser,async(req,res)=>{
  try{
   const r=await pool.query("SELECT f.*,p.name project_name,p.client_name FROM files f JOIN projects p ON p.id=f.project_id WHERE p.owner_id=$1 AND f.trashed_at IS NOT NULL ORDER BY f.trashed_at DESC LIMIT 500",[req.portalUser.id]);
