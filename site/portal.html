@@ -4,11 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#09090a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FBI Studio">
+<link rel="manifest" href="/portal-manifest.webmanifest">
+<link rel="apple-touch-icon" href="/portal-pwa-icon-192.png">
 <title>FBI Client File Studio • User Portal</title>
 <style>
 :root{--bg:#09090a;--panel:#121214;--panel2:#171719;--border:#29292e;--text:#f6f6f7;--muted:#9b9ba4;--gold:#d4af37;--gold2:#f4d56d;--red:#fb7185;--green:#4ade80;--shadow:0 18px 50px rgba(0,0,0,.28);--r:18px}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 0,rgba(212,175,55,.08),transparent 38%),linear-gradient(180deg,#080809,#111114);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh}button,input,textarea{font:inherit}button{cursor:pointer}
-.shell{min-height:100vh}.topbar{height:66px;border-bottom:1px solid var(--border);background:rgba(13,13,15,.88);backdrop-filter:blur(14px);display:flex;align-items:center;gap:14px;padding:0 20px;position:sticky;top:0;z-index:10}.brand{display:flex;align-items:center;gap:10px}.brand-logo{width:48px;height:42px;object-fit:contain;border-radius:8px}.brandmark{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--gold2),var(--gold));display:grid;place-items:center;color:#111;font-weight:900}.brand b{font-size:13px}.brand small{display:block;color:var(--muted);font-size:8px;margin-top:2px}.spacer{flex:1}.userbox{display:flex;align-items:center;gap:9px;color:#ddd;font-size:9px}.avatar{width:31px;height:31px;border-radius:50%;background:#26262a;display:grid;place-items:center;font-size:10px}.btn{border:1px solid var(--border);background:#18181b;color:#eee;padding:9px 12px;border-radius:10px;font-size:9px}.btn:hover{background:#222226}.btn.primary{background:linear-gradient(135deg,var(--gold2),var(--gold));color:#111;border-color:#d1ac3a;font-weight:800}.btn.danger{border-color:rgba(251,113,133,.35);color:#fecaca;background:#211317}.top-settings-btn{height:34px;display:inline-flex;align-items:center;gap:7px;padding:0 11px;border:1px solid rgba(212,175,55,.28);border-radius:11px;background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.02));color:#e9e8e4;font-size:8px;cursor:pointer;transition:all .2s ease;box-shadow:inset 0 1px rgba(255,255,255,.04)}.top-settings-btn:hover{border-color:rgba(212,175,55,.65);background:rgba(212,175,55,.08);transform:translateY(-1px)}.settings-orb{width:19px;height:19px;border-radius:7px;display:grid;place-items:center;color:#111;background:linear-gradient(135deg,#f5df98,#c9a33b);font-size:9px;font-weight:900;box-shadow:0 4px 12px rgba(212,175,55,.18)}.settings-label{font-weight:800;letter-spacing:.03em}
+.shell{min-height:100vh}.topbar{height:66px;border-bottom:1px solid var(--border);background:rgba(13,13,15,.88);backdrop-filter:blur(14px);display:flex;align-items:center;gap:14px;padding:0 20px;position:sticky;top:0;z-index:10}.brand{display:flex;align-items:center;gap:10px}.brand-logo{width:48px;height:42px;object-fit:contain;border-radius:8px}.brandmark{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--gold2),var(--gold));display:grid;place-items:center;color:#111;font-weight:900}.brand b{font-size:13px}.brand small{display:block;color:var(--muted);font-size:8px;margin-top:2px}.spacer{flex:1}.userbox{display:flex;align-items:center;gap:9px;color:#ddd;font-size:9px}.avatar{width:31px;height:31px;border-radius:50%;background:#26262a;display:grid;place-items:center;font-size:10px}.btn{border:1px solid var(--border);background:#18181b;color:#eee;padding:9px 12px;border-radius:10px;font-size:9px}.btn:hover{background:#222226}.btn.primary{background:linear-gradient(135deg,var(--gold2),var(--gold));color:#111;border-color:#d1ac3a;font-weight:800}.btn.danger{border-color:rgba(251,113,133,.35);color:#fecaca;background:#211317}.top-settings-btn{height:34px;display:inline-flex;align-items:center;gap:7px;padding:0 11px;border:1px solid rgba(212,175,55,.28);border-radius:11px;background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.02));color:#e9e8e4;font-size:8px;cursor:pointer;transition:all .2s ease;box-shadow:inset 0 1px rgba(255,255,255,.04)}.top-settings-btn:hover{border-color:rgba(212,175,55,.65);background:rgba(212,175,55,.08);transform:translateY(-1px)}.settings-orb{width:19px;height:19px;border-radius:7px;display:grid;place-items:center;color:#111;background:linear-gradient(135deg,#f5df98,#c9a33b);font-size:9px;font-weight:900;box-shadow:0 4px 12px rgba(212,175,55,.18)}.settings-label{font-weight:800;letter-spacing:.03em}.install-app-btn{display:none;align-items:center;gap:7px;height:34px;padding:0 11px;border:1px solid rgba(212,175,55,.5);border-radius:11px;background:linear-gradient(180deg,rgba(244,213,109,.12),rgba(212,175,55,.04));color:#f5df98;font-size:8px;font-weight:800;cursor:pointer}.install-app-btn:hover{border-color:rgba(244,213,109,.9);background:rgba(212,175,55,.1)}.install-app-btn.show{display:inline-flex}.install-app-icon{width:18px;height:18px;border-radius:6px;display:grid;place-items:center;background:linear-gradient(135deg,#f5df98,#c9a33b);color:#111;font-size:9px}
 .auth{min-height:100vh;display:grid;place-items:center;padding:28px;background:
 radial-gradient(circle at 18% 18%,rgba(212,175,55,.16),transparent 25%),
 radial-gradient(circle at 82% 85%,rgba(255,255,255,.05),transparent 28%),
@@ -93,6 +99,7 @@ linear-gradient(140deg,#273025,#10161a 48%,#40311b);border:1px solid rgba(255,25
     <div class="brand"><img class="brand-logo" src="/official-logo.png?v=2" alt="FBI logo"><div><b>FBI Client File Studio</b><small>User Portal</small></div></div>
     <div class="spacer"></div>
     <div id="userBox" class="userbox"></div>
+    <button id="installAppBtn" class="install-app-btn" type="button" aria-label="Install FBI Client File Studio" title="Install FBI Client File Studio"><span class="install-app-icon">↓</span><span>Install App</span></button>
     <button id="creativeSettingsBtn" class="top-settings-btn" type="button" aria-label="Open Creative Settings" title="Creative Settings"><span class="settings-orb">✦</span><span class="settings-label">Settings</span></button>
     <button id="logoutBtn" class="btn" style="display:none">Sign Out</button>
   </header>
@@ -546,6 +553,45 @@ async function saveCreativeSettings(){
   }
 }
 $("#saveCreativeSettings").addEventListener("click",saveCreativeSettings);
+
+// Progressive Web App install. Supported browsers expose the install
+// prompt through beforeinstallprompt; the button stays hidden when the app
+// is already installed or the browser does not expose an install prompt.
+let deferredInstallPrompt=null;
+const installAppBtn=document.querySelector("#installAppBtn");
+function isPortalStandalone(){
+  return window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone===true;
+}
+function updateInstallButton(){
+  if(!installAppBtn)return;
+  installAppBtn.classList.toggle("show",!!deferredInstallPrompt&&!isPortalStandalone());
+}
+window.addEventListener("beforeinstallprompt",function(e){
+  e.preventDefault();
+  deferredInstallPrompt=e;
+  updateInstallButton();
+});
+window.addEventListener("appinstalled",function(){
+  deferredInstallPrompt=null;
+  updateInstallButton();
+  toastPortal("FBI Client File Studio installed.");
+});
+if(installAppBtn)installAppBtn.addEventListener("click",async function(){
+  if(!deferredInstallPrompt)return;
+  deferredInstallPrompt.prompt();
+  const choice=await deferredInstallPrompt.userChoice;
+  if(choice?.outcome==="accepted")deferredInstallPrompt=null;
+  updateInstallButton();
+});
+if(!isPortalStandalone() && "serviceWorker" in navigator){
+  window.addEventListener("load",function(){
+    navigator.serviceWorker.register("/portal-sw.js",{scope:"/portal"})
+      .then(function(){console.log("FBI Client File Studio PWA ready.")})
+      .catch(function(err){console.warn("Portal PWA registration failed:",err)});
+  });
+}
+updateInstallButton();
+
 $("#creativeSettingsBtn").addEventListener("click",openCreativeSettings);$("#closeCreativeSettings").addEventListener("click",closeCreativeSettings);$("#cancelCreativeSettings").addEventListener("click",closeCreativeSettings);$("#creativeSettingsModal").addEventListener("click",e=>{if(e.target===e.currentTarget)closeCreativeSettings()});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&$("#creativeSettingsModal").classList.contains("show"))closeCreativeSettings()});function selectCreativeTab(name){document.querySelectorAll("[data-cstab]").forEach(function(x){x.classList.toggle("active",x.dataset.cstab===name)});document.querySelectorAll("[data-cspane]").forEach(function(x){x.classList.toggle("active",x.dataset.cspane===name)});if(name==="billing")loadBilling()}
 document.querySelectorAll("[data-cstab]").forEach(function(b){b.onclick=function(){selectCreativeTab(b.dataset.cstab)}});["csWmOpacity","csWmSize","csWmText","csWmPosition","csWmType","csWmEnabled"].forEach(id=>{const e=$("#"+id);if(e)e.addEventListener("input",updateWmUi)});$("#creativeLogoInput").addEventListener("change",function(){const f=this.files&&this.files[0];if(!f)return;const r=new FileReader();r.onload=async()=>{try{const d=await api("/api/portal/settings/logo",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({dataUrl:r.result})});creativeSettings.logo_url=d.logo_url;$("#creativeLogoPreview").src=d.logo_url+"#"+Date.now();toastPortal("Logo uploaded")}catch(e){toastPortal(e.message||"Logo upload failed")}};r.readAsDataURL(f)});$("#removeCreativeLogo").addEventListener("click",async()=>{try{await api("/api/portal/settings/logo",{method:"DELETE"});creativeSettings.logo_url="";$("#creativeLogoPreview").src="/official-logo.png?v=2#"+Date.now();toastPortal("Logo removed")}catch(e){toastPortal(e.message||"Could not remove logo")}});$("#csSavePreset").addEventListener("click",function(){const name=$("#csPresetName").value.trim();if(!name)return toastPortal("Enter a preset name.");const list=Array.isArray(creativeSettings?.watermark_presets)?creativeSettings.watermark_presets.slice():[];list.push({name,watermark_type:$("#csWmType").value,watermark_position:$("#csWmPosition").value,watermark_text:$("#csWmText").value,watermark_opacity:Number($("#csWmOpacity").value||.32),watermark_size:Number($("#csWmSize").value||22),watermark_on_download:$("#csWmDownload").checked});creativeSettings.watermark_presets=list;$("#csPresetName").value="";renderCreativePresets();toastPortal("Preset saved")});
