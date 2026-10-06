@@ -11,6 +11,13 @@ const {S3Client,PutObjectCommand,GetObjectCommand,DeleteObjectCommand,DeleteObje
 const {Upload}=require("@aws-sdk/lib-storage");
 const {getSignedUrl}=require("@aws-sdk/s3-request-presigner");
 const sharp=require("sharp");
+let LibRaw=null;
+try{
+  LibRaw=require("lightdrift-libraw").LibRaw;
+  console.log("LibRaw RAW photo support enabled.");
+}catch(e){
+  console.warn("LibRaw RAW photo support is unavailable:",e?.message||e);
+}
 const thumbnailCache=new Map();
 const THUMB_CACHE_MAX=300;
 const THUMB_CACHE_TTL=30*60*1000;
@@ -30,7 +37,57 @@ function setThumbCache(key,buffer){
 }
 
 
+const RAW_EXTENSIONS=new Set(["CR2","CR3","CRW","NEF","NRW","ARW","SRF","SR2","RAF","RW2","ORF","PEF","RWL","DNG","DCR","KDC","MRW","3FR","X3F","ERF","MEF","MOS"]);
+function isRawPhoto(file){
+  const mime=String(file?.mime_type||"").toLowerCase();
+  const ext=thumbExt(file?.original_name);
+  return RAW_EXTENSIONS.has(ext) ||
+    /raw|canon|nikon|sony|adobe-dng|fujifilm|olympus|panasonic/i.test(mime);
+}
+async function rawBufferFromObject(file){
+  if(!LibRaw)throw new Error("RAW photo decoder is not available on this server.");
+  const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:file.storage_path}));
+  return obj.Body?.transformToByteArray
+    ?Buffer.from(await obj.Body.transformToByteArray())
+    :Buffer.from(await new Promise((resolve,reject)=>{
+      const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject);
+    }));
+}
+async function generateRawThumbnail(file,width,height){
+  const input=await rawBufferFromObject(file);
+  const raw=new LibRaw();
+  try{
+    await raw.loadBuffer(input);
+    try{
+      const embedded=await raw.createThumbnailJPEGBuffer({width:Math.min(1200,Math.max(480,Number(width)||720)),height:Math.min(1200,Math.max(480,Number(height)||900)),quality:88});
+      if(embedded?.data&&embedded.data.length){
+        return sharp(embedded.data).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:82,method:4}).toBuffer();
+      }
+    }catch(e){
+      console.warn("Embedded RAW thumbnail unavailable; rendering RAW:",file?.original_name,e?.message||e);
+    }
+    const rendered=await raw.createJPEGBuffer({width:Math.min(1800,Math.max(600,Number(width)||1400)),quality:88,fastMode:true});
+    if(!rendered?.data||!rendered.data.length)throw new Error("LibRaw returned no rendered image data.");
+    return sharp(rendered.data).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:82,method:4}).toBuffer();
+  }finally{
+    await raw.close().catch(()=>{});
+  }
+}
+async function generateRawPreview(file,width,height){
+  const input=await rawBufferFromObject(file);
+  const raw=new LibRaw();
+  try{
+    await raw.loadBuffer(input);
+    const rendered=await raw.createJPEGBuffer({width:Math.min(2400,Math.max(900,Number(width)||1600)),quality:92,fastMode:false});
+    if(!rendered?.data||!rendered.data.length)throw new Error("LibRaw returned no rendered preview.");
+    return sharp(rendered.data).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:90,method:4}).toBuffer();
+  }finally{
+    await raw.close().catch(()=>{});
+  }
+}
+
 function thumbKind(file){
+  if(isRawPhoto(file))return"raw";
   const mime=String(file?.mime_type||"").toLowerCase();
   if(/^image\//.test(mime))return"image";
   if(/^video\//.test(mime))return"video";
@@ -183,6 +240,7 @@ async function makeVideoContactSheet(url,width,height){
 
 async function generateThumbnail(file,width,height){
   const kind=thumbKind(file);
+  if(kind==="raw")return generateRawThumbnail(file,width,height);
   if(kind==="document")return sharp(documentThumbSvg(file,width)).webp({quality:86,method:4}).toBuffer();
   if(kind==="audio")return sharp(audioThumbSvg(file,width)).webp({quality:84,method:4}).toBuffer();
   if(kind==="video"){
@@ -3964,7 +4022,7 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));
   if(!out)return res.status(404).send("Invalid or expired delivery link.");
   const width=Math.max(240,Math.min(720,Number(req.query.w||420))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
-  const kind=thumbKind(out.f),cacheKind=kind==="video"?"video-v3":kind;
+  const kind=thumbKind(out.f),cacheKind=kind==="video"?"video-v3":kind==="raw"?"raw-v1":kind;
   const wmCreative=await creativeBrandingForProject(out.f.project_id);
   const wmSig=wmCreative.watermark_enabled?crypto.createHash("sha1").update(JSON.stringify({e:wmCreative.watermark_enabled,t:wmCreative.watermark_type,x:wmCreative.watermark_text,o:wmCreative.watermark_opacity,p:wmCreative.watermark_position,z:wmCreative.watermark_size,l:wmCreative.logo_key})).digest("hex").slice(0,12):"none";
   const cacheKey=out.f.id+":"+cacheKind+":"+width+"x"+height+":natural:"+wmSig;
@@ -3993,7 +4051,7 @@ app.get("/api/public/preview/:id",async(req,res)=>{
  try{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));
   if(!out)return res.status(404).send("Invalid or expired delivery link.");
-  if(!/^image\//i.test(out.f.mime_type||""))return res.status(415).send("Image preview only.");
+  if(!/^image\//i.test(out.f.mime_type||"")&&!isRawPhoto(out.f))return res.status(415).send("Image preview only.");
   const widthValue=Array.isArray(req.query.w)?req.query.w[0]:req.query.w;
   const widthNumber=Number(widthValue||1400);
   const width=Number.isFinite(widthNumber)?Math.max(600,Math.min(1800,widthNumber)):1400;
@@ -4002,7 +4060,8 @@ app.get("/api/public/preview/:id",async(req,res)=>{
   const heightNumber=Number(heightValue||1000);
   const height=Number.isFinite(heightNumber)?Math.max(400,Math.min(1200,heightNumber)):1000;
   const wmSig=creative.watermark_enabled?crypto.createHash("sha1").update(JSON.stringify({e:creative.watermark_enabled,t:creative.watermark_type,x:creative.watermark_text,o:creative.watermark_opacity,p:creative.watermark_position,z:creative.watermark_size,l:creative.logo_key})).digest("hex").slice(0,12):"none";
-  const cacheKey=out.f.id+":preview:"+width+"x"+height+":"+wmSig;
+  const cacheKind=isRawPhoto(out.f)?"raw":thumbKind(out.f);
+  const cacheKey=out.f.id+":preview:"+cacheKind+":"+width+"x"+height+":"+wmSig;
   const cached=getThumbCache(cacheKey);
   if(cached){
     return res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(cached.buffer);
@@ -4019,12 +4078,17 @@ app.get("/api/public/preview/:id",async(req,res)=>{
       return res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(bytes);
     }
   }catch(_e){}
-  const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}));
-  const input=obj.Body?.transformToByteArray ? Buffer.from(await obj.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
-    const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject);
-  }));
-  let webp=await sharp(input).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:82,method:4}).toBuffer();
-  if(/^image\/(jpeg|png|webp)$/i.test(out.f.mime_type||"")&&creative.watermark_enabled){const wm=await applyCreativeWatermark(webp,creative);webp=wm.buffer;}
+  let webp;
+  if(isRawPhoto(out.f)){
+    webp=await generateRawPreview(out.f,width,height);
+  }else{
+    const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}));
+    const input=obj.Body?.transformToByteArray ? Buffer.from(await obj.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
+      const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject);
+    }));
+    webp=await sharp(input).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:82,method:4}).toBuffer();
+  }
+  if(!isRawPhoto(out.f)&&/^image\/(jpeg|png|webp)$/i.test(out.f.mime_type||"")&&creative.watermark_enabled){const wm=await applyCreativeWatermark(webp,creative);webp=wm.buffer;}
   setThumbCache(cacheKey,webp);
   try{await s3.send(new PutObjectCommand({Bucket:bucket(),Key:previewKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(out.f.id),generated_by:"fbi-client-file-studio"}}))}catch(err){console.warn("Could not persist preview",err?.message||err)}
   res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(webp);
