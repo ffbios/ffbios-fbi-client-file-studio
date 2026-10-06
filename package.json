@@ -19,6 +19,7 @@
     "multer": "^2.0.2",
     "sharp": "^0.34.3",
     "ffmpeg-static": "^5.2.0",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "lightdrift-libraw": "1.0.0"
   }
 }
