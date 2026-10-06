@@ -457,7 +457,7 @@
 .fbi-lightbox-btn.primary{background:#fff;color:#171717;border-color:#fff}
 .fbi-lightbox-arrow{position:absolute;top:50%;transform:translateY(-50%);width:52px;height:52px;border-radius:50%;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#fff;font-size:27px;display:grid;place-items:center;cursor:pointer}
 .fbi-lightbox-arrow.prev{left:20px}.fbi-lightbox-arrow.next{right:20px}
-.fbi-lightbox-stage{width:min(1240px,94vw);height:88vh;display:grid;place-items:center}
+.fbi-lightbox-stage{width:min(1240px,94vw);height:88vh;display:grid;place-items:center}.fbi-zoom-tools{position:absolute;right:22px;bottom:22px;z-index:8;display:flex;gap:6px;padding:5px;border:1px solid rgba(255,255,255,.14);border-radius:999px;background:rgba(18,18,20,.86);backdrop-filter:blur(10px);box-shadow:0 10px 30px rgba(0,0,0,.35)}.fbi-zoom-tools button{min-width:34px;height:31px;border:1px solid rgba(255,255,255,.14);border-radius:8px;background:#202024;color:#fff;cursor:pointer;font-size:15px}.fbi-zoom-tools button:hover{background:#2a2a2f}.fbi-zoom-stage{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none;cursor:grab}.fbi-zoom-stage.dragging{cursor:grabbing}.fbi-zoomable{max-width:92vw;max-height:86vh;object-fit:contain;transform-origin:center center;transition:transform .16s ease;user-select:none;-webkit-user-drag:none}.fbi-zoomable.zoom-dragging{transition:none}.admin-zoom-stage{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none;cursor:grab}.admin-zoom-stage img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:center center;transition:transform .16s ease;user-select:none;-webkit-user-drag:none}.admin-zoom-stage.dragging img{transition:none}
 @media(max-width:1250px){.fbi-gallery-grid{column-count:3}}
 @media(max-width:850px){.fbi-gallery-grid{column-count:2}.fbi-gallery-topbar{padding:9px 14px}.fbi-gallery-brand span{display:none}.fbi-gallery-toplink{display:none}.fbi-gallery-hero-content{width:calc(100% - 28px);padding-bottom:40px}.fbi-gallery-shell{padding:24px 14px 65px}.fbi-gallery-intro{align-items:start;flex-direction:column}}
 @media(max-width:560px){.fbi-gallery-grid{column-count:2;column-gap:8px}.fbi-gallery-card{margin-bottom:8px}.fbi-gallery-title{font-size:41px}.fbi-gallery-subtitle{font-size:12px}.fbi-gallery-statline{gap:11px}.fbi-gallery-topbar{min-height:62px}.fbi-gallery-topbtn{padding:9px 11px;font-size:9px}.fbi-gallery-hero{min-height:74vh}.fbi-gallery-controls{overflow:auto;flex-wrap:nowrap;padding-bottom:2px}.fbi-gallery-chip{white-space:nowrap}.fbi-lightbox-arrow{width:42px;height:42px;font-size:21px}.fbi-lightbox-arrow.prev{left:8px}.fbi-lightbox-arrow.next{right:8px}}
@@ -1961,10 +1961,35 @@ function studioView(initialView,initialStream){
   showView(initialView||'dashboard');
 }
 
+function setupAdminImageZoom(stage,img){
+ if(!stage||!img)return;
+ let scale=1,tx=0,ty=0,drag=false,sx=0,sy=0,ox=0,oy=0;
+ const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+ const apply=()=>{
+   scale=clamp(scale,1,4);
+   const maxX=Math.max(0,(img.clientWidth*scale-stage.clientWidth)/2),maxY=Math.max(0,(img.clientHeight*scale-stage.clientHeight)/2);
+   tx=clamp(tx,-maxX,maxX);ty=clamp(ty,-maxY,maxY);
+   img.style.transform=`translate3d(${tx}px,${ty}px,0) scale(${scale})`;
+   const label=stage.querySelector('[data-zoom-label]');if(label)label.textContent=Math.round(scale*100)+'%';
+ };
+ const step=d=>{scale=clamp(scale+d,1,4);if(scale===1){tx=0;ty=0}apply()};
+ const reset=()=>{scale=1;tx=0;ty=0;apply()};
+ stage.addEventListener('wheel',e=>{e.preventDefault();step(e.deltaY<0?.2:-.2)},{passive:false});
+ img.addEventListener('dblclick',()=>scale>1?reset():step(1));
+ stage.addEventListener('pointerdown',e=>{if(scale<=1)return;drag=true;stage.classList.add('dragging');sx=e.clientX;sy=e.clientY;ox=tx;oy=ty;stage.setPointerCapture?.(e.pointerId)});
+ stage.addEventListener('pointermove',e=>{if(!drag)return;tx=ox+(e.clientX-sx);ty=oy+(e.clientY-sy);apply()});
+ const end=()=>{drag=false;stage.classList.remove('dragging')};
+ stage.addEventListener('pointerup',end);stage.addEventListener('pointercancel',end);
+ const tools=document.createElement('div');tools.className='fbi-zoom-tools';tools.innerHTML='<button type="button">−</button><button type="button" data-zoom-label>100%</button><button type="button">+</button>';
+ tools.children[0].onclick=()=>step(-.25);tools.children[1].onclick=reset;tools.children[2].onclick=()=>step(.25);stage.appendChild(tools);
+ img.addEventListener('load',apply);window.addEventListener('resize',apply);apply();
+}
 function previewAdmin(f){
  const url='/api/admin/media/'+f.id;
- const modal=document.createElement('div');modal.className='viewer show';modal.innerHTML=`<div class="viewerbox"><div class="vh"><b>${esc(f.original_name)}</b><button class="close">×</button></div><div class="vc">${isImage(f)?`<img src="${url}">`:isVideo(f)?`<video controls src="${url}"></video>`:isPdf(f)?`<iframe src="${url}"></iframe>`:`<div class="empty">No inline preview. <a href="${url}&download=1" style="color:var(--gold2)">Download file</a></div>`}</div></div>`;
- document.body.appendChild(modal);modal.querySelector('.close').onclick=()=>modal.remove();modal.onclick=e=>{if(e.target===modal)modal.remove()};
+ const modal=document.createElement('div');modal.className='viewer show';modal.innerHTML=`<div class="viewerbox"><div class="vh"><b>${esc(f.original_name)}</b><button class="close">×</button></div><div class="vc">${isImage(f)?`<div class="admin-zoom-stage"><img src="${url}" draggable="false"></div>`:isVideo(f)?`<video controls src="${url}"></video>`:isPdf(f)?`<iframe src="${url}"></iframe>`:`<div class="empty">No inline preview. <a href="${url}&download=1" style="color:var(--gold2)">Download file</a></div>`}</div></div>`;
+ document.body.appendChild(modal);
+ const stage=modal.querySelector('.admin-zoom-stage'),img=stage?.querySelector('img');if(stage&&img)setupAdminImageZoom(stage,img);
+ modal.querySelector('.close').onclick=()=>modal.remove();modal.onclick=e=>{if(e.target===modal)modal.remove()};
 }
 async function clientEmailGate(token,initialMessage){
   document.title='Client Gallery Access • FBI Client File Studio';
@@ -2230,6 +2255,30 @@ async function clientView(token){
     }
   }
 
+  function setupDeliveryImageZoom(stage,img){
+    if(!stage||!img)return;
+    let scale=1,tx=0,ty=0,drag=false,sx=0,sy=0,ox=0,oy=0;
+    const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+    const apply=()=>{
+      scale=clamp(scale,1,4);
+      const maxX=Math.max(0,(img.clientWidth*scale-stage.clientWidth)/2),maxY=Math.max(0,(img.clientHeight*scale-stage.clientHeight)/2);
+      tx=clamp(tx,-maxX,maxX);ty=clamp(ty,-maxY,maxY);
+      img.style.transform="translate3d("+tx+"px,"+ty+"px,0) scale("+scale+")";
+      const label=stage.querySelector("[data-zoom-label]");if(label)label.textContent=Math.round(scale*100)+"%";
+    };
+    const step=function(d){scale=clamp(scale+d,1,4);if(scale===1){tx=0;ty=0}apply()};
+    const reset=function(){scale=1;tx=0;ty=0;apply()};
+    stage.addEventListener("wheel",function(e){e.preventDefault();step(e.deltaY<0?.2:-.2)},{passive:false});
+    img.addEventListener("dblclick",function(){scale>1?reset():step(1)});
+    stage.addEventListener("pointerdown",function(e){if(scale<=1)return;drag=true;stage.classList.add("dragging");img.classList.add("zoom-dragging");sx=e.clientX;sy=e.clientY;ox=tx;oy=ty;stage.setPointerCapture?.(e.pointerId)});
+    stage.addEventListener("pointermove",function(e){if(!drag)return;tx=ox+(e.clientX-sx);ty=oy+(e.clientY-sy);apply()});
+    const end=function(){drag=false;stage.classList.remove("dragging");img.classList.remove("zoom-dragging")};
+    stage.addEventListener("pointerup",end);stage.addEventListener("pointercancel",end);
+    const tools=document.createElement("div");tools.className="fbi-zoom-tools";tools.innerHTML='<button type="button" aria-label="Zoom out">−</button><button type="button" data-zoom-label>100%</button><button type="button" aria-label="Zoom in">+</button>';
+    tools.children[0].onclick=function(){step(-.25)};tools.children[1].onclick=reset;tools.children[2].onclick=function(){step(.25)};stage.appendChild(tools);
+    img.addEventListener("load",apply);window.addEventListener("resize",apply);apply();
+  }
+
   function openLocalLightbox(index){
     const list=window.__fbiPreviewFiles||[];
     if(!list.length)return;
@@ -2251,8 +2300,9 @@ async function clientView(token){
     if(t==='image'){
       // Show the fast thumbnail immediately, then upgrade it silently in the
       // background when the higher-resolution preview is ready.
-      stage.innerHTML='<div class="fbi-lightbox-image-wrap"><img class="fbi-lightbox-image" src="'+quickSrc+'" alt="" decoding="async" fetchpriority="high"></div>';
+      stage.innerHTML='<div class="fbi-lightbox-image-wrap fbi-zoom-stage"><img class="fbi-lightbox-image fbi-zoomable" src="'+quickSrc+'" alt="" decoding="async" fetchpriority="high"></div>';
       const img=stage.querySelector('.fbi-lightbox-image');
+      setupDeliveryImageZoom(stage.querySelector('.fbi-zoom-stage'),img);
 
       const high=new Image();
       high.decoding='async';
