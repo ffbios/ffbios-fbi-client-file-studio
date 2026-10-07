@@ -46,7 +46,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(70,82,120,.30),transpare
  .card{border-radius:20px}
 }
 @media(max-width:900px) and (orientation:landscape) and (pointer:coarse){.lv-topbar{display:none}}
-@media(max-width:600px){.lv-topbar{padding:9px 12px}.lv-chip{padding:7px 12px;font-size:12px}}
+@media(max-width:600px){.lv-topbar{padding:9px 12px}.lv-chip{padding:7px 12px;font-size:12px}.head-actions{gap:6px;margin-top:10px}.head-actions .lv-chip{flex:1;justify-content:center;min-width:0}.mobile-floating-comments{bottom:calc(142px + env(safe-area-inset-bottom));max-height:42%;right:72px}.mobile-reaction-floaters{bottom:118px}.mobile-reaction-rail{bottom:118px}}\n@media(max-width:900px) and (orientation:landscape) and (pointer:coarse){.lv-topbar{display:none}.wrap{padding:8px 12px}.head{padding:6px 4px 10px}.head h1{font-size:20px}.head-actions{margin-top:7px}.layout{gap:10px}}\n@media(max-width:380px){.mobile-floating-comments{bottom:calc(138px + env(safe-area-inset-bottom));right:66px;max-height:40%}.mobile-reaction-floaters{bottom:112px}.mobile-reaction-rail{bottom:112px}}
 `;
 
 const WATCH_TOPBAR =
@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS viewer_saved_videos(
   recording_id uuid REFERENCES stream_recordings(id) ON DELETE CASCADE,
   saved_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS uq_viewer_saved_videos ON viewer_saved_videos(viewer_id,stream_id,COALESCE(recording_id,'00000000-0000-0000-0000-000000000000'::uuid));
+CREATE UNIQUE INDEX IF NOT EXISTS uq_viewer_saved_videos ON viewer_saved_videos(viewer_id,stream_id,(COALESCE(recording_id,'00000000-0000-0000-0000-000000000000'::uuid)));
 CREATE INDEX IF NOT EXISTS idx_viewer_saved_videos_viewer ON viewer_saved_videos(viewer_id,saved_at DESC);
 `;
 
