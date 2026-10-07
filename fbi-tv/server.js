@@ -4,6 +4,9 @@ const {attachBrowserIngest}=require("./browser-ingest");
 const crypto=require("crypto");
 const path=require("path");
 const {Pool}=require("pg");
+const {watchPage}=require("./views/watch");
+const {programPage}=require("./views/program");
+const {libraryPage}=require("./views/library");
 
 const app=express();
 app.use(express.json({limit:"1mb"}));
@@ -129,6 +132,13 @@ async function init(){
       updated_at timestamptz NOT NULL DEFAULT now()
     );
     INSERT INTO tv_mcr_config(id,program_stream_id,preview_stream_id) VALUES(1,NULL,NULL) ON CONFLICT (id) DO NOTHING;
+    CREATE TABLE IF NOT EXISTS tv_viewer_saved(
+      viewer_id text NOT NULL,
+      stream_id uuid NOT NULL REFERENCES tv_streams(id) ON DELETE CASCADE,
+      saved_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY(viewer_id,stream_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tv_viewer_saved_viewer ON tv_viewer_saved(viewer_id,saved_at DESC);
   `);
 }
 function rtmpServer(){
@@ -761,9 +771,55 @@ app.use("/api/public/program/hls",async(req,res)=>{
   await proxyProgramHlsStream(req,res);
 });
 
-app.get("/watch/program",async(req,res)=>{
-  res.type("html").send("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>FBI TV Program</title><script src=\"https://cdn.jsdelivr.net/npm/hls.js@latest\"></script><style>body{margin:0;background:#08090b;color:#f5f5f7;font-family:Inter,system-ui,sans-serif}.wrap{max-width:1400px;margin:auto;padding:24px}.brand{color:#e8c448;font-size:12px;letter-spacing:.16em;text-transform:uppercase}.title{font-size:28px;font-weight:900;margin-top:8px}.meta{color:#9b9ba4;font-size:12px;margin:6px 0 18px}.player{background:#000;border:1px solid #2a2a2d;border-radius:18px;overflow:hidden}.player video{width:100%;display:block;aspect-ratio:16/9;background:#000}.offline{min-height:460px;display:grid;place-items:center;color:#aaa;font-size:14px;text-align:center}.foot{color:#666;font-size:10px;text-align:center;padding:18px}</style></head><body><div class=\"wrap\"><div class=\"brand\">FILM BEYOND IMAGINATION • FBI TV</div><div class=\"title\">PROGRAM</div><div class=\"meta\" id=\"meta\">Connecting…</div><div class=\"player\"><video id=\"video\" controls autoplay muted playsinline></video><div id=\"offline\" class=\"offline\" style=\"display:none\">No program source is currently selected.</div></div><div class=\"foot\">FBI TV • Official Program Output</div></div><script>const video=document.getElementById('video'),offline=document.getElementById('offline'),meta=document.getElementById('meta');let hls=null,current='';function stop(){if(hls){try{hls.destroy()}catch{}hls=null}video.pause();video.removeAttribute('src');video.load()}function start(url){stop();video.style.display='block';offline.style.display='none';if(window.Hls&&Hls.isSupported()){hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:6,maxBufferLength:30,maxMaxBufferLength:60,backBufferLength:90});hls.loadSource(url);hls.attachMedia(video);hls.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));hls.on(Hls.Events.ERROR,(_,d)=>{if(d&&d.fatal){setTimeout(()=>{if(current)start(url)},1500)}})}else{video.src=url;video.play().catch(()=>{})}}async function refresh(){try{const r=await fetch('/api/public/program/status',{cache:'no-store'}),d=await r.json();meta.textContent=d.program?(d.live?'● LIVE • '+d.program.title:'OFFLINE • '+d.program.title):'NO PROGRAM SOURCE';if(d.live){if(current!==d.program.id){current=d.program.id;start(d.hls_url)}}else{if(current){current='';stop()}video.style.display='none';offline.style.display='grid'}}catch(e){meta.textContent='PROGRAM UNAVAILABLE'}}refresh();setInterval(refresh,5000)</script></body></html>");
-});app.get("/live/:id",admin,async(req,res)=>{
+app.get("/watch/program",(req,res)=>{
+  res.type("html").send(programPage());
+});
+
+// ---- Viewer "Save for later" (additive; does not touch playback) ----
+const VIEWER_COOKIE="fbi_tv_viewer";
+function viewerId(req,res){
+  let id=cookies(req)[VIEWER_COOKIE];
+  if(!/^[A-Za-z0-9_-]{20,64}$/.test(String(id||""))){
+    id=token(24);
+    res.append("Set-Cookie",VIEWER_COOKIE+"="+id+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=31536000");
+  }
+  return id;
+}
+app.get("/api/public/watch/:token/saved",async(req,res)=>{
+  try{
+    const s=await publicStream(req.params.token);if(!s)return res.status(404).json({error:"Watch link is invalid or disabled."});
+    const q=await pool.query("SELECT 1 FROM tv_viewer_saved WHERE viewer_id=$1 AND stream_id=$2",[viewerId(req,res),s.id]);
+    res.set("Cache-Control","no-store").json({saved:q.rowCount>0});
+  }catch(e){console.error("Saved check failed:",e?.message||e);res.status(500).json({error:"Could not check saved status."})}
+});
+app.post("/api/public/watch/:token/save",async(req,res)=>{
+  try{
+    const s=await publicStream(req.params.token);if(!s)return res.status(404).json({error:"Watch link is invalid or disabled."});
+    const vid=viewerId(req,res);
+    const count=await pool.query("SELECT count(*)::int AS c FROM tv_viewer_saved WHERE viewer_id=$1",[vid]);
+    if(Number(count.rows[0]?.c||0)>=200)return res.status(400).json({error:"Your saved list is full."});
+    await pool.query("INSERT INTO tv_viewer_saved(viewer_id,stream_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[vid,s.id]);
+    res.json({ok:true,saved:true});
+  }catch(e){console.error("Save failed:",e?.message||e);res.status(500).json({error:"Could not save."})}
+});
+app.delete("/api/public/watch/:token/save",async(req,res)=>{
+  try{
+    const s=await publicStream(req.params.token);if(!s)return res.status(404).json({error:"Watch link is invalid or disabled."});
+    await pool.query("DELETE FROM tv_viewer_saved WHERE viewer_id=$1 AND stream_id=$2",[viewerId(req,res),s.id]);
+    res.json({ok:true,saved:false});
+  }catch(e){console.error("Unsave failed:",e?.message||e);res.status(500).json({error:"Could not remove."})}
+});
+app.get("/api/public/saved",async(req,res)=>{
+  try{
+    const q=await pool.query(
+      "SELECT s.name,s.title,s.viewer_token AS token,s.status,v.saved_at FROM tv_viewer_saved v JOIN tv_streams s ON s.id=v.stream_id WHERE v.viewer_id=$1 AND s.enabled=true AND s.shared=true ORDER BY v.saved_at DESC LIMIT 200",
+      [viewerId(req,res)]);
+    res.set("Cache-Control","no-store").json({items:q.rows.map(r=>({name:r.name,title:r.title,token:r.token,live:r.status==="live",saved_at:r.saved_at}))});
+  }catch(e){console.error("Saved list failed:",e?.message||e);res.status(500).json({error:"Could not load saved list."})}
+});
+app.get("/library",(req,res)=>{res.type("html").send(libraryPage())});
+
+app.get("/live/:id",admin,async(req,res)=>{
   try{
     const q=await pool.query("SELECT id FROM tv_streams WHERE id=$1 AND enabled=true",[req.params.id]);
     if(!q.rowCount)return res.status(404).send("Live stream not found.");
@@ -776,15 +832,7 @@ app.get("/watch/program",async(req,res)=>{
 
 app.get("/watch/:token",async(req,res)=>{
   const s=await publicStream(req.params.token);if(!s)return res.status(404).send("Watch link is invalid or disabled.");
-  const title=esc(s.title||s.name), tvBase=process.env.PUBLIC_BASE_URL||req.protocol+"://"+req.get("host");
-  res.type("html").send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} • FBI TV</title><script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script><style>
-body{margin:0;background:#09090a;color:#f6f6f7;font-family:Inter,system-ui,sans-serif}.wrap{max-width:1200px;margin:auto;padding:24px}.brand{color:#e8c448;font-size:12px;letter-spacing:.16em;text-transform:uppercase}.title{font-size:28px;font-weight:800;margin:8px 0}.meta{color:#9b9ba4;font-size:12px;margin-bottom:16px}.player{background:#000;border:1px solid #26262a;border-radius:18px;overflow:hidden}.player video{width:100%;display:block;aspect-ratio:16/9;background:#000}.offline{min-height:420px;display:grid;place-items:center;color:#aaa;text-align:center;padding:20px}.foot{color:#666;font-size:10px;text-align:center;padding:18px}</style></head><body><div class="wrap"><div class="brand">FILM BEYOND IMAGINATION • FBI TV</div><div class="title">${title}</div><div class="meta" id="meta">Checking live status…</div><div class="player"><video id="video" controls playsinline autoplay muted></video><div id="offline" class="offline" style="display:none">Waiting for the broadcast to start…</div></div><div class="foot">FBI TV • Live broadcast</div></div><script>
-const token=${JSON.stringify(req.params.token)},video=document.getElementById("video"),offline=document.getElementById("offline"),meta=document.getElementById("meta");let player=null,live=false;
-function stop(){if(player){try{player.destroy()}catch{}player=null}video.pause();video.removeAttribute("src");video.load()}
-function start(url){stop();video.style.display="block";offline.style.display="none";if(window.Hls&&Hls.isSupported()){player=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:6,maxBufferLength:30,maxMaxBufferLength:60,backBufferLength:90});player.on(Hls.Events.ERROR,(_,d)=>{if(d&&d.fatal){setTimeout(()=>{if(live)start(url)},1800)}});player.loadSource(url);player.attachMedia(video);player.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));return}video.src=url;video.play().catch(()=>{})}
-async function refresh(){try{const r=await fetch("/api/public/watch/"+encodeURIComponent(token)+"/status",{cache:"no-store"}),d=await r.json();if(!r.ok)throw new Error(d.error);meta.textContent=d.live?"● LIVE":"OFFLINE";if(d.live){if(!live){live=true;start(d.hls_url+"index.m3u8")} }else{if(live){live=false;stop()}video.style.display="none";offline.style.display="grid"}}catch(e){meta.textContent="STREAM UNAVAILABLE"}}
-refresh();setInterval(refresh,8000);
-</script></body></html>`);
+  res.type("html").send(watchPage({token:req.params.token,title:esc(s.title||s.name),description:esc(s.description||"")}));
 });
 
 const index=path.join(__dirname,"public/index.html");
