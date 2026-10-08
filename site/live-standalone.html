@@ -26,6 +26,7 @@
 @media(max-width:520px){.status-strip{align-items:flex-start}.topbar{align-items:flex-start;flex-direction:column}.top-actions{width:100%}.top-actions .btn{flex:1}.sources-row{grid-template-columns:1fr 1fr}.right-rail{grid-template-columns:1fr}.local-grid{grid-template-columns:1fr}.take-btn{width:100%;min-width:0}.audio-console{grid-template-columns:95px repeat(6,minmax(72px,1fr))}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 <body>
 <div class="app">
@@ -398,13 +399,13 @@
   function toggleMute(){state.muted=!state.muted;if(state.programAudio&&state.programAudio.gain)state.programAudio.gain.gain.value=state.muted?0:1;$("muteBtn").textContent=state.muted?"UNMUTE":"MUTE";setMessage(state.muted?"Program audio muted. Meters continue reading the HLS analyser.":"Program audio unmuted.","ok")}
   function openWatch(){var s=state.selected;if(!s||!s.viewer_url){toast("No viewer page is available for this channel.");return}window.open(s.viewer_url,"_blank","noopener")}
   function copySetup(){var s=state.selected;if(!s){toast("Select a channel first.");return}var t="Server: "+(s.rtmp_server||"")+"\nStream Key: "+(s.stream_key||"")+"\nHLS: "+(s.hls_url||"")+"\nViewer: "+(s.viewer_url||"");if(!navigator.clipboard){toast("Clipboard is unavailable.");return}navigator.clipboard.writeText(t).then(function(){toast("Setup copied.")}).catch(function(){toast("Could not copy the setup details.")})}
-  function openConnection(){var s=state.selected;if(!s){toast("Select a channel first.");return}$("connChannel").textContent=s.name||s.title||"—";$("connRtmp").textContent=s.rtmp_server||"RTMP server unavailable";$("connKey").textContent=s.stream_key||"—";$("connHls").textContent=s.hls_url||"—";$("connViewer").textContent=s.viewer_url||"—";$("connState").textContent=s.status==="live"?"Signal is live. OBS/vMix can publish to the existing RTMP server.":"Waiting for OBS/vMix. The channel configuration is ready.";openModal($("connectionModal"))}
+  function openConnection(){var s=state.selected;if(!s){toast("Select a channel first.");return}loadProgramHls(true);$("connChannel").textContent=s.name||s.title||"—";$("connRtmp").textContent=s.rtmp_server||"RTMP server unavailable";$("connKey").textContent=s.stream_key||"—";$("connHls").textContent=s.hls_url||"—";$("connViewer").textContent=s.viewer_url||"—";$("connState").textContent=s.status==="live"?"Program HLS connection refreshed. OBS/vMix can publish to the existing RTMP server.":"Program is waiting for the channel signal. The existing channel configuration is ready.";setMessage(s.status==="live"?"Program HLS connection refreshed.":"Channel selected. Waiting for live signal.","ok");openModal($("connectionModal"))}
 
   function toggleRecord(enabled){
     var s=state.selected;if(!s){toast("Select a channel first.");return}
     api("/api/streams/"+encodeURIComponent(s.id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({record_enabled:!!enabled})}).then(function(d){
       var updated=normalizeStream(d.stream);state.streams=state.streams.map(function(x){return x.id===s.id?updated:x});state.selected=updated;renderChannels();renderStatus();
-      setMessage(enabled?"Recording armed using the existing engine.":"Automatic recording has been disabled.","ok");toast(enabled?"Recording armed.":"Recording stopped/disarmed.")
+      setMessage(enabled?"Recording armed using the existing engine.":"Automatic recording is disabled. The existing engine will finalize any active recording when the channel goes offline.","ok");toast(enabled?"Recording armed.":"Recording disabled.")
     }).catch(function(e){setMessage(e.message||"Could not update recording state.","error");toast(e.message||"Could not update recording state.")})
   }
 
