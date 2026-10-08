@@ -1305,24 +1305,31 @@ async function startStreamRecording(row){
     leavePartsOnError:false
   }).done();
 
-  let finalized=false;
-  const finalize=async(status,errorText)=>{
-    if(finalized)return;
-    finalized=true;
-    try{await uploadDone}catch(uploadErr){
-      status="failed";
-      errorText=String(uploadErr?.message||uploadErr);
-    }
-    try{
-      await pool.query(
-        "UPDATE stream_recordings SET status=$2,ended_at=COALESCE(ended_at,now()),size_bytes=$3,error=$4 WHERE id=$1",
-        [id,status,bytes,String(errorText||"")]
-      );
-    }catch(dbErr){
-      console.error("Recording database finalization failed:",dbErr?.message||dbErr);
-    }
-    activeStreamRecordings.delete(row.id);
+  let finalizePromise=null;
+  const finalize=(status,errorText)=>{
+    if(finalizePromise)return finalizePromise;
+    finalizePromise=(async()=>{
+      try{await uploadDone}catch(uploadErr){
+        status="failed";
+        errorText=String(uploadErr?.message||uploadErr);
+      }
+      try{
+        await pool.query(
+          "UPDATE stream_recordings SET status=$2,ended_at=COALESCE(ended_at,now()),size_bytes=$3,error=$4 WHERE id=$1",
+          [id,status,bytes,String(errorText||"")]
+        );
+      }catch(dbErr){
+        console.error("Recording database finalization failed:",dbErr?.message||dbErr);
+      }finally{
+        // Keep one active recorder until its object upload and DB finalization finish.
+        if(activeStreamRecordings.get(row.id)?.id===id)activeStreamRecordings.delete(row.id);
+      }
+    })();
+    return finalizePromise;
   };
+
+  const active={id,proc,stopRequested:false,finish:()=>finalize("completed","")};
+  activeStreamRecordings.set(row.id,active);
 
   proc.on("error",async err=>{
     try{pass.destroy(err)}catch{}
@@ -1331,17 +1338,19 @@ async function startStreamRecording(row){
 
   proc.on("close",async code=>{
     try{if(!proc.stdout.readableEnded)pass.end()}catch{}
-    const status=code===0&&bytes>0?"completed":"failed";
+    // FFmpeg commonly exits non-zero when it is deliberately interrupted to
+    // close a live MP4. Preserve valid bytes from an intentional stop.
+    const normalStop=active.stopRequested;
+    const status=bytes>0&&(code===0||normalStop)?"completed":"failed";
     await finalize(status,status==="failed"?(stderr||("FFmpeg exited with code "+String(code))):"");
   });
-
-  activeStreamRecordings.set(row.id,{id,proc,finish:()=>finalize("completed","")});
 }
 
 async function stopStreamRecording(streamId){
   const active=activeStreamRecordings.get(streamId);
   if(!active)return;
 
+  active.stopRequested=true;
   try{active.proc.kill("SIGINT")}catch{}
   await new Promise(r=>setTimeout(r,5000));
 
@@ -1355,12 +1364,13 @@ async function stopStreamRecording(streamId){
     await new Promise(r=>setTimeout(r,1000));
   }
 
+  // finalize() owns removal from the map after the upload and DB update finish.
+  // Do not clear it here: a slow object-storage upload must not look like a new,
+  // unrecorded stream on the next monitor tick.
   await Promise.race([
     active.finish(),
     new Promise(r=>setTimeout(r,8000))
   ]);
-
-  activeStreamRecordings.delete(streamId);
 }
 function randomStreamKey(){return crypto.randomBytes(24).toString("base64url");}
 function randomViewerToken(){return crypto.randomBytes(24).toString("base64url");}
@@ -2611,7 +2621,20 @@ app.get("/api/public/stream/:token/replay",async(req,res)=>{
     const stream=r.rows[0];
     const q=await pool.query("SELECT id,filename,status,size_bytes,started_at,ended_at,created_at,storage_key FROM stream_recordings WHERE stream_id=$1 AND status='completed' AND size_bytes>0 ORDER BY ended_at DESC NULLS LAST,created_at DESC LIMIT 1",[stream.id]);
     const recording=q.rows[0];
-    if(!recording||!s3Ready())return res.json({available:false,status:recording?"completed":"none"});
+
+    if(!s3Ready())return res.json({available:false,status:"storage_unavailable"});
+    if(!recording){
+      const latestQuery=await pool.query("SELECT id,filename,status,size_bytes,started_at,ended_at,created_at,error FROM stream_recordings WHERE stream_id=$1 ORDER BY created_at DESC LIMIT 1",[stream.id]);
+      const latest=latestQuery.rows[0];
+      if(latest&&latest.status==="recording"){
+        return res.json({available:false,status:"recording",recording:{id:latest.id,filename:latest.filename,started_at:latest.started_at}});
+      }
+      if(latest&&latest.status==="failed"){
+        return res.json({available:false,status:"failed",message:"Replay could not be saved for this broadcast."});
+      }
+      return res.json({available:false,status:"none"});
+    }
+
     const meta=await headObjectWithRetry({Bucket:bucket(),Key:recording.storage_key});
     const total=Number(meta.ContentLength||recording.size_bytes||0);
     if(!Number.isFinite(total)||total<=0)return res.json({available:false,status:"empty"});
@@ -2923,7 +2946,7 @@ body{margin:0;background:#09090a;color:#f6f6f7;font-family:Inter,system-ui,sans-
   .mobile-live-status.live{color:#69ef8d}
   .foot{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
 }${LV.WATCH_CSS}</style></head><body>${LV.WATCH_TOPBAR}<div class="wrap"><div class="head"><div class="brand">FILM BEYOND IMAGINATION • FBI Live</div><div style="margin-top:8px"><span class="badge" id="status">Checking live status…</span></div><h1>${title}</h1><p id="viewers">FBI Live Stream</p>${LV.WATCH_ACTIONS}</div><div class="layout"><section><div class="card player"><video id="video" controls playsinline autoplay muted></video><div id="offline" class="offline" style="display:none"></div><div class="mobile-live-ui"><span class="mobile-live-status" id="mobileLiveStatus">CONNECTING…</span><span class="mobile-viewer-badge"><b id="mobileViewerCount">0</b> watching</span><div id="mobileFloatingComments" class="mobile-floating-comments"></div><div id="mobileReactionFloaters" class="mobile-reaction-floaters"></div><div class="mobile-reaction-rail"><button type="button" class="mobile-reaction-btn" data-mobile-reaction="👏" aria-label="Clap">👏</button><button type="button" class="mobile-reaction-btn" data-mobile-reaction="❤️" aria-label="Love">❤️</button><button type="button" class="mobile-reaction-btn heart" data-mobile-reaction="❤️" aria-label="Send heart">♥</button></div></div><div class="playerbar"><span class="nowq" id="streamState">Connecting…</span></div></div></section><aside class="card comments"><div class="comments-head"><h2>Live Comments</h2><span class="badge" id="commentCount">0</span></div><div id="commentList" class="comment-list"><div style="color:#777;font-size:9px;padding:10px 0">No comments yet.</div></div><form id="commentForm" class="comment-form"><input id="commentName" maxlength="60" placeholder="Your name"><textarea id="commentText" maxlength="500" placeholder="Write a comment…"></textarea><div class="comment-tools"><div class="emoji-popover" id="emojiPopover"><button type="button" class="emoji-open" id="emojiOpen" title="Add emoji">😊</button><emoji-picker id="emojiPicker" locale="en"></emoji-picker></div><button type="submit">Post Comment</button></div><div class="statusline" id="commentStatus"></div></form></aside></div><div class="foot">FBI Live • Live broadcast and viewer comments • viewer-badge-sync-1</div></div><script>
-const token=${tokenJs},hlsUrl=${JSON.stringify(hls)};const video=document.getElementById("video"),emojiOpen=document.getElementById("emojiOpen"),emojiPopover=document.getElementById("emojiPopover"),emojiPicker=document.getElementById("emojiPicker"),offline=document.getElementById("offline"),statusEl=document.getElementById("status"),viewers=document.getElementById("viewers"),streamState=document.getElementById("streamState"),commentList=document.getElementById("commentList"),commentCount=document.getElementById("commentCount"),commentForm=document.getElementById("commentForm"),commentName=document.getElementById("commentName"),commentText=document.getElementById("commentText"),commentStatus=document.getElementById("commentStatus");const sessionKey=crypto.randomUUID();let player=null,live=false,replayMode=false,replayTimer=0;const mobileFloatingComments=document.getElementById("mobileFloatingComments"),mobileReactionFloaters=document.getElementById("mobileReactionFloaters"),mobileViewerCount=document.getElementById("mobileViewerCount"),mobileLiveStatus=document.getElementById("mobileLiveStatus");let mobileReactionIndex=0;const mobileLiveUi=document.querySelector(".mobile-live-ui");let mobileReactionHideTimer=0;function revealMobileReactions(){if(!mobileLiveUi)return;mobileLiveUi.classList.add("show-reactions");clearTimeout(mobileReactionHideTimer);mobileReactionHideTimer=setTimeout(function(){mobileLiveUi.classList.remove("show-reactions")},3200)}video.addEventListener("pointerup",revealMobileReactions);
+const token=${tokenJs},hlsUrl=${JSON.stringify(hls)};const video=document.getElementById("video"),emojiOpen=document.getElementById("emojiOpen"),emojiPopover=document.getElementById("emojiPopover"),emojiPicker=document.getElementById("emojiPicker"),offline=document.getElementById("offline"),statusEl=document.getElementById("status"),viewers=document.getElementById("viewers"),streamState=document.getElementById("streamState"),commentList=document.getElementById("commentList"),commentCount=document.getElementById("commentCount"),commentForm=document.getElementById("commentForm"),commentName=document.getElementById("commentName"),commentText=document.getElementById("commentText"),commentStatus=document.getElementById("commentStatus");const sessionKey=crypto.randomUUID();let player=null,live=false,replayMode=false,replayPending=false,replayTimer=0;const mobileFloatingComments=document.getElementById("mobileFloatingComments"),mobileReactionFloaters=document.getElementById("mobileReactionFloaters"),mobileViewerCount=document.getElementById("mobileViewerCount"),mobileLiveStatus=document.getElementById("mobileLiveStatus");let mobileReactionIndex=0;const mobileLiveUi=document.querySelector(".mobile-live-ui");let mobileReactionHideTimer=0;function revealMobileReactions(){if(!mobileLiveUi)return;mobileLiveUi.classList.add("show-reactions");clearTimeout(mobileReactionHideTimer);mobileReactionHideTimer=setTimeout(function(){mobileLiveUi.classList.remove("show-reactions")},3200)}video.addEventListener("pointerup",revealMobileReactions);
 video.addEventListener("loadedmetadata",function(){if(replayMode)streamState.textContent="Replay ready"});
 video.addEventListener("error",function(){if(!replayMode)return;const err=video.error;streamState.textContent=err?"Replay playback error ("+String(err.code)+")":"Replay playback error"});
 ${LV.PINNED_JS}
@@ -2980,7 +3003,27 @@ async function loadReplay(){
     const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/replay",{cache:"no-store"});
     const d=await r.json();
     if(!r.ok)throw new Error(d.error);
-    if(!d.available)return false;
+    if(!d.available){
+      replayPending=d.status==="recording";
+      if(d.status==="recording"){
+        offline.textContent="The live stream has ended. Preparing the replay…";
+        streamState.textContent="Replay is being saved…";
+      }else if(d.status==="storage_unavailable"){
+        offline.textContent="Replay storage is temporarily unavailable.";
+        streamState.textContent="Replay storage unavailable";
+      }else if(d.status==="failed"){
+        offline.textContent="This broadcast's replay could not be saved.";
+        streamState.textContent="Replay saving failed";
+      }else if(d.status==="empty"){
+        offline.textContent="The replay file is empty and cannot be played.";
+        streamState.textContent="Replay file is empty";
+      }else{
+        offline.textContent="The live stream has ended. No replay was saved for this broadcast.";
+        streamState.textContent="No replay available";
+      }
+      return false;
+    }
+    replayPending=false;
     clearTimeout(replayTimer);
     replayMode=true;
     clearPlayer();
@@ -2997,6 +3040,8 @@ async function loadReplay(){
     video.play().catch(()=>{});
     return true;
   }catch(e){
+    replayPending=false;
+    offline.textContent="Replay could not be loaded. Please try again shortly.";
     streamState.textContent=e.message||"Replay unavailable";
     return false;
   }
@@ -3004,11 +3049,9 @@ async function loadReplay(){
 async function showOfflineOrReplay(){
   if(await loadReplay())return;
   offline.style.display="grid";
-  offline.textContent="The live stream has ended. Preparing the replay…";
   video.style.display="none";
-  streamState.textContent="Replay is being saved…";
   clearTimeout(replayTimer);
-  replayTimer=setTimeout(()=>{if(!live)refresh()},5000);
+  if(replayPending)replayTimer=setTimeout(()=>{if(!live)refresh()},5000);
 }
 async function refresh(){if(pinnedPlay())return;try{const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/status",{cache:"no-store"}),d=await r.json();if(!r.ok)throw new Error(d.error);if(d.live){clearTimeout(replayTimer);statusEl.textContent="● LIVE";statusEl.className="badge live";const viewerCount=Number(d.current_viewers||0);viewers.textContent=viewerCount+" watching now";updateMobileViewerUi(viewerCount);if(!live||replayMode){live=true;startPlayer()}await fetch("/api/public/stream/"+encodeURIComponent(token)+"/heartbeat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionKey})});}else{if(live){live=false;clearPlayer()}statusEl.textContent="OFFLINE";statusEl.className="badge";await showOfflineOrReplay()}}catch(e){statusEl.textContent="STREAM UNAVAILABLE";statusEl.className="badge error";streamState.textContent=e.message||"Unavailable"}}
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
