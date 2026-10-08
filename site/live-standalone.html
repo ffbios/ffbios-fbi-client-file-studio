@@ -3,383 +3,465 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>FBI Live Broadcast Studio</title>
+<title>FBI Live Control Room</title>
 <meta name="application-name" content="FBI Live">
-<meta name="theme-color" content="#0a0a0b">
-<meta name="background-color" content="#09090a">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="FBI Live">
-<link rel="manifest" href="/manifest.webmanifest?live=v7">
+<meta name="theme-color" content="#070708">
+<link rel="manifest" href="/manifest.webmanifest?live=v8">
 <link rel="icon" href="/live-pwa-icon-192.png" type="image/png">
-<link rel="apple-touch-icon" href="/official-logo.png">
 <style>
-:root{color-scheme:dark}
-*{box-sizing:border-box}
-html,body{margin:0;min-height:100%;background:#070708;color:#f5f5f7;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-body{overflow:hidden;background:radial-gradient(900px 420px at 18% -8%,rgba(215,175,65,.10),transparent 55%),radial-gradient(760px 380px at 98% 4%,rgba(93,103,255,.08),transparent 58%),#070708}
-button,input{font:inherit}
-.app{height:100vh;display:grid;grid-template-columns:250px minmax(0,1fr)}
-.sidebar{background:#0d0d0f;border-right:1px solid #25252b;padding:14px;display:flex;flex-direction:column;min-height:0}
-.brand{padding:7px 8px 14px;border-bottom:1px solid #25252b;text-align:center}.brand img{width:92px;height:38px;object-fit:contain}.brand strong{display:block;font-size:11px;margin-top:3px}.brand span{display:block;color:#7d7d85;font-size:8px;margin-top:2px}
-.sidebar-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 4px 8px}.sidebar-head h2{margin:0;font-size:12px}.sidebar-head span{font-size:8px;color:#85858d}.sidebar-head-left{display:flex;flex-direction:column;gap:2px}.add-channel-btn{border:1px solid #3a393f;background:#18181b;color:#f0e6bd;border-radius:7px;padding:5px 7px;font-size:6px;font-weight:850;cursor:pointer;white-space:nowrap}.add-channel-btn:hover{background:#242428;border-color:#d3b13e}.channel-modal{position:fixed;inset:0;z-index:100;display:grid;place-items:center;background:rgba(0,0,0,.74);padding:18px}.channel-modal.hidden{display:none}.channel-box{width:min(520px,100%);border:1px solid #34343b;border-radius:14px;background:linear-gradient(180deg,#17171a,#101012);box-shadow:0 30px 90px rgba(0,0,0,.62);overflow:hidden}.channel-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #29292f}.channel-head b{font-size:11px}.channel-close{border:0;background:none;color:#aaaab2;font-size:18px;cursor:pointer}.channel-body{padding:14px}.channel-body .field{margin-bottom:11px}.channel-body textarea{width:100%;min-height:80px;background:#0a0a0d;border:1px solid #303037;color:#eee;border-radius:9px;padding:9px;font-size:9px;outline:none;resize:vertical}.channel-foot{display:flex;justify-content:flex-end;gap:6px;padding:10px 14px;border-top:1px solid #29292f}.channel-help{margin:0 0 12px;color:#888891;font-size:8px;line-height:1.5}.channel-result{margin-top:12px;padding:10px;border:1px solid rgba(236,204,91,.25);background:rgba(236,204,91,.04);border-radius:9px;font-size:8px;color:#d9d9df}.channel-result b{display:block;color:#f0e4ad;margin-bottom:5px}.channel-result code{font:700 8px ui-monospace,SFMono-Regular,Menlo,monospace;color:#ddd;word-break:break-all}.mcr-video-status{position:absolute;left:6px;bottom:6px;padding:4px 6px;border-radius:5px;background:rgba(0,0,0,.62);border:1px solid rgba(255,255,255,.1);font-size:6px;color:#d0d0d5;z-index:3}
-.channels{min-height:0;overflow:auto;display:grid;gap:8px;padding:0 1px}
-.channel{border:1px solid #2a2a30;background:#111113;border-radius:11px;padding:10px;cursor:pointer}.channel:hover{background:#161619}.channel.active{border-color:rgba(236,204,91,.75);box-shadow:inset 0 0 0 1px rgba(236,204,91,.12)}
-.channel-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.channel-name{font-size:10px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.channel-meta{margin-top:4px;color:#8b8b93;font-size:7px;line-height:1.45}
-.badge{display:inline-flex;align-items:center;gap:5px;padding:4px 6px;border:1px solid #303036;border-radius:999px;font-size:6px;font-weight:850;letter-spacing:.06em}.badge.live{color:#71ee93;border-color:rgba(112,238,146,.3);background:rgba(112,238,146,.06)}.badge.live:before{content:"";width:5px;height:5px;border-radius:50%;background:#70ee92;box-shadow:0 0 8px rgba(112,238,146,.55)}
-.main{min-width:0;min-height:0;display:flex;flex-direction:column;padding:12px}
-.topbar{height:44px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.top-title h1{margin:0;font-size:18px}.top-title p{margin:2px 0 0;color:#85858e;font-size:8px}.top-actions{display:flex;gap:6px}.btn{border:1px solid #303037;background:#17171a;color:#ececf0;border-radius:8px;padding:7px 10px;font-size:8px;font-weight:800;cursor:pointer}.btn.primary{background:linear-gradient(180deg,#edd66f,#d6b542);border-color:#d3b13e;color:#16160f}
-.studio{min-height:0;flex:1;display:grid;grid-template-rows:auto minmax(0,1fr) 36px;gap:7px}
-.statusbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;border:1px solid #28282e;border-radius:10px;background:#111113}.chips{display:flex;gap:5px;align-items:center;min-width:0}.chip{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border-radius:999px;border:1px solid #303036;background:#0e0e10;color:#9e9ea6;font-size:6px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}.chip.live{color:#70ee92;border-color:rgba(112,238,146,.28);background:rgba(112,238,146,.05)}.chip.gold{color:#efcf63;border-color:rgba(212,175,55,.28);background:rgba(212,175,55,.04)}
-.control{font:700 7px ui-monospace,SFMono-Regular,Menlo,monospace;color:#a9a9b1;white-space:nowrap}.viewers{font-size:7px;color:#f0f0f2}.viewers b{font-size:8px}
-.work{min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 160px;gap:7px}
-.primary-area{min-width:0;min-height:0;display:grid;grid-template-rows:minmax(0,1fr) 60px 102px 26px;gap:6px}
-.views{min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.view{position:relative;min-width:0;min-height:0;border:1px solid #25252a;border-radius:9px;overflow:hidden;background:#000}
-.view-head{position:absolute;top:0;left:0;right:0;z-index:5;padding:7px;background:linear-gradient(180deg,rgba(0,0,0,.85),transparent);display:flex;justify-content:space-between;align-items:center;pointer-events:none}.view-head b{font-size:7px;letter-spacing:.08em}.preview-label{color:#d7d7dc}.program-label{color:#ff8d8d}.view-head span{font-size:6px;color:#8e8e97}
-.frame{width:100%;height:100%;display:block;border:0;background:#000}
-.overlay-note{position:absolute;left:7px;bottom:6px;padding:4px 6px;border-radius:5px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.1);font-size:6px;color:#aaaab2}
-.placeholder{height:100%;display:grid;place-items:center;text-align:center;padding:20px;background:radial-gradient(350px 160px at 50% 46%,rgba(212,175,55,.07),transparent 65%),#070708;color:#86868f}.placeholder b{display:block;color:#ddd;font-size:8px}.placeholder span{display:block;margin-top:4px;font-size:7px;line-height:1.4}
-.sources{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}.source{border:1px solid #25252a;border-radius:8px;background:#111113;overflow:hidden;min-width:0}.source-head{display:flex;justify-content:space-between;padding:5px 6px;font-size:6px;color:#9c9ca4;border-bottom:1px solid #242428}.source-thumb{height:32px;display:grid;place-items:center;font-size:12px;background:radial-gradient(circle at 50% 50%,rgba(212,175,55,.14),transparent 60%),#0d0d0f}.source-foot{display:flex;justify-content:space-between;padding:4px 6px;font-size:6px;color:#707079}.dot{width:5px;height:5px;border-radius:50%;background:#55555c}.source.live .dot{background:#4ade80;box-shadow:0 0 8px rgba(74,222,128,.55)}
-.mixer{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;min-height:0}.strip{border:1px solid #25252a;border-radius:8px;background:#101012;padding:6px 5px;min-width:0;display:flex;flex-direction:column}.strip strong{font-size:6px;color:#d0d0d6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.strip small{font-size:5px;color:#6e6e76;margin-top:1px}.meter{height:61px;width:11px;margin:5px auto;display:flex;flex-direction:column-reverse;gap:2px}.meter i{flex:1;background:#29292f;border-radius:2px}.meter i.on{background:#4ade80}.meter i.hot{background:#e3c44d}.meter i.clip{background:#fb7185}.fader{height:18px;position:relative;margin:0 3px}.fader:before{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;transform:translateX(-50%);background:#303038}.knob{position:absolute;left:50%;top:45%;width:12px;height:12px;transform:translate(-50%,-50%);background:#ddd;border:2px solid #19191d;border-radius:50%;box-shadow:0 0 0 1px #4c4c52}.strip-foot{display:flex;justify-content:space-between;font-size:5px;color:#707079}.strip-foot b{font:700 6px ui-monospace,SFMono-Regular,Menlo,monospace;color:#d7d7dd}
-.audio-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:7px;padding:5px 7px;border:1px solid #25252a;border-radius:7px;background:#0f0f11}.audio-title{font-size:6px;font-weight:900;letter-spacing:.08em;color:#bfc0c7}.audio-meter{display:flex;gap:2px;height:8px}.audio-meter i{flex:1;background:#29292f;border-radius:2px}.audio-meter i.on{background:#4ade80}.audio-meter i.hot{background:#e3c44d}.audio-meter i.clip{background:#fb7185}.audio-db{font:700 6px ui-monospace,SFMono-Regular,Menlo,monospace;color:#d4d4da}
-.rack{display:grid;gap:6px;min-height:0}.panel{border:1px solid #25252a;border-radius:9px;background:#111113;overflow:hidden}.ph{padding:7px 8px;border-bottom:1px solid #242428;font-size:6px;font-weight:900;letter-spacing:.08em;color:#9c9ca5}.pb{padding:7px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:5px}.rack-btn{width:100%;border:1px solid #303038;background:#18181b;color:#e4e4e8;border-radius:7px;padding:8px 4px;font-size:6px;font-weight:850;cursor:pointer;margin-bottom:5px}.rack-btn.primary{background:linear-gradient(180deg,#edd66f,#d6b542);border-color:#d3b13e;color:#15150f}.rack-row{display:flex;justify-content:space-between;gap:6px;font-size:6px;color:#86868f;padding:2px 0}.rack-row b{color:#ececf0;text-align:right}.rack-meter{display:grid;gap:5px}.rack-meter-line{display:grid;grid-template-columns:auto 1fr auto;gap:5px;align-items:center;font-size:6px;color:#777780}.rack-meter-segs{display:flex;gap:2px;height:7px}.rack-meter-segs i{flex:1;background:#29292e;border-radius:2px}.rack-meter-segs i.on{background:#4ade80}.rack-meter-segs i.hot{background:#e3c44d}.rack-meter-segs i.clip{background:#fb7185}
-.controls{display:flex;justify-content:space-between;align-items:center;gap:7px;border:1px solid #28282e;border-radius:9px;background:#111113;padding:5px 7px}.control-group{display:flex;gap:5px;align-items:center;flex-wrap:wrap}.smallbtn{border:1px solid #303038;background:#18181b;color:#dddde2;border-radius:7px;padding:6px 8px;font-size:6px;font-weight:850;cursor:pointer}.smallbtn.primary{background:linear-gradient(180deg,#edd66f,#d6b542);color:#15150f;border-color:#d3b13e}
-.footer{margin-top:6px;color:#62626a;font-size:7px}
-.login-page{min-height:100vh;display:grid;place-items:center;padding:24px;position:relative;overflow:hidden;background:radial-gradient(650px 420px at 50% 40%,rgba(230,196,85,.10),transparent 68%),#070708}.login-glow{position:absolute;width:680px;height:680px;border-radius:50%;background:radial-gradient(circle,rgba(230,196,85,.08),transparent 66%);filter:blur(2px);pointer-events:none}.login-shell{width:min(960px,100%);display:grid;grid-template-columns:1fr 420px;gap:28px;align-items:center;position:relative;z-index:1}.login-brand{text-align:left;padding:28px}.brand-mark{width:82px;height:82px;border-radius:22px;border:1px solid rgba(236,204,91,.25);background:linear-gradient(145deg,#19191d,#0c0c0e);display:grid;place-items:center;box-shadow:0 18px 55px rgba(0,0,0,.32);margin-bottom:22px}.brand-mark img{width:56px;height:56px;object-fit:contain}.login-kicker{font-size:9px;letter-spacing:.18em;color:#8e8e96}.login-brand-title{font-size:44px;font-weight:850;letter-spacing:-.04em;margin-top:6px}.login-brand-sub{font-size:12px;color:#8c8c95;margin-top:7px;line-height:1.5}.login-foot{grid-column:1 / -1;text-align:center;color:#5f5f67;font-size:8px;margin-top:-4px}.login-card{border:1px solid #2b2b31;border-radius:22px;background:linear-gradient(180deg,rgba(21,21,24,.98),rgba(12,12,14,.98));box-shadow:0 35px 100px rgba(0,0,0,.5);overflow:hidden}.login-head{padding:23px 23px 16px;border-bottom:1px solid #242428}.login-eyebrow{font-size:7px;letter-spacing:.14em;color:#d8ba53;font-weight:850}.login-head h1{margin:7px 0 0;font-size:22px;letter-spacing:-.02em}.login-head p{margin:5px 0 0;color:#85858e;font-size:9px;line-height:1.5}.login-body{padding:18px 23px 21px}.login-body .field{display:grid;gap:6px;margin-bottom:12px}.login-body .field label{font-size:7px;text-transform:uppercase;letter-spacing:.08em;color:#8f8f98}.login-body .field input,.login-body .field select{width:100%;background:#09090c;border:1px solid #303038;color:#f3f3f5;border-radius:10px;padding:10px 11px;font-size:9px;outline:none}.login-body .field input:focus,.login-body .field select:focus{border-color:rgba(237,214,111,.58);box-shadow:0 0 0 3px rgba(237,214,111,.08)}.auth-primary,.auth-secondary,.auth-link{width:100%;border-radius:10px;padding:10px 12px;font-size:9px;font-weight:850;cursor:pointer}.auth-primary{border:1px solid #d3b13e;background:linear-gradient(180deg,#edd66f,#d6b542);color:#16160f}.auth-secondary{border:1px solid #36363d;background:#18181b;color:#e9e9ed}.auth-link{border:0;background:transparent;color:#c7c7ce;padding:9px 3px;font-weight:700}.auth-row{display:flex;justify-content:space-between;gap:10px;margin-top:5px}.auth-row .auth-link{width:auto}.auth-message{min-height:15px;color:#fb7185;font-size:8px;line-height:1.5;margin-top:10px}.question-box{padding:10px 11px;border:1px solid rgba(236,204,91,.22);border-radius:10px;background:rgba(236,204,91,.05);font-size:9px;color:#e8d37a;line-height:1.45;margin:10px 0}.login-body select{appearance:auto}.tools-modal{position:fixed;inset:0;z-index:120;display:grid;place-items:center;background:rgba(0,0,0,.76);padding:18px}.tools-modal.hidden{display:none}.tools-box{width:min(620px,100%);border:1px solid #3a393f;border-radius:14px;background:linear-gradient(180deg,#17171a,#0e0e10);box-shadow:0 30px 100px rgba(0,0,0,.68);overflow:hidden}.tools-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #2a2a30}.tools-head b{font-size:12px}.tools-head span{display:block;color:#85858d;font-size:7px;margin-top:3px}.tools-close{border:0;background:none;color:#aaaab2;font-size:20px;cursor:pointer}.tools-body{padding:15px}.encoder-grid{display:grid;grid-template-columns:1fr;gap:9px}.encoder-field{border:1px solid #2c2c33;border-radius:9px;background:#0b0b0d;padding:9px}.encoder-field label{display:block;color:#8f8f98;font-size:6px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}.encoder-value{display:flex;align-items:center;gap:7px}.encoder-value code{flex:1;min-width:0;font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace;color:#ececf0;word-break:break-all}.copy-value{border:1px solid #35353d;background:#19191d;color:#ececf0;border-radius:7px;padding:6px 8px;font-size:6px;font-weight:850;cursor:pointer}.copy-value:hover{border-color:#d3b13e}.tools-warning{margin-top:10px;padding:8px 9px;border:1px solid rgba(236,204,91,.2);background:rgba(236,204,91,.04);border-radius:8px;color:#9e9ea6;font-size:7px;line-height:1.5}.tools-foot{display:flex;justify-content:space-between;gap:7px;padding:10px 15px;border-top:1px solid #2a2a30}.tools-foot-left,.tools-foot-right{display:flex;gap:6px}.danger-btn{border:1px solid rgba(251,113,133,.35);background:rgba(251,113,133,.05);color:#ffb0bd;border-radius:7px;padding:7px 9px;font-size:7px;font-weight:850;cursor:pointer}
-
-@media(max-width:900px){body{overflow:auto}.app{height:auto;min-height:100vh;grid-template-columns:1fr}.sidebar{padding:9px;border-right:0;border-bottom:1px solid #25252b}.channels{display:flex;overflow:auto}.channel{min-width:190px}.main{padding:9px}.topbar{height:auto}.work{grid-template-columns:1fr}.rack{grid-template-columns:repeat(4,1fr)}.primary-area{grid-template-rows:auto 56px 100px 26px}.views{min-height:300px}.studio{display:block}.statusbar,.controls{margin-bottom:7px}.footer{padding-bottom:10px}}
-@media(max-width:640px){.views{grid-template-columns:1fr}.rack{grid-template-columns:1fr 1fr}.mixer{grid-template-columns:repeat(5,minmax(72px,1fr));overflow:auto}.sources{grid-template-columns:repeat(4,minmax(100px,1fr));overflow:auto}.top-actions .btn{padding:7px}.top-title h1{font-size:16px}}
+:root{color-scheme:dark;--bg:#070708;--panel:#101113;--panel2:#15161a;--line:#282a2f;--line2:#363941;--text:#f5f5f7;--muted:#858893;--gold:#e4c654;--gold2:#f0d86f;--green:#63e58b;--red:#f17f82;--blue:#72a9ff;--focus:rgba(228,198,84,.45)}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}body{overflow:auto;background:radial-gradient(900px 420px at 10% -10%,rgba(228,198,84,.11),transparent 60%),radial-gradient(760px 420px at 100% 0%,rgba(112,150,255,.08),transparent 60%),var(--bg)}button,input,textarea,select{font:inherit}button{cursor:pointer}a{color:inherit;text-decoration:none}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.app{min-height:100vh;display:grid;grid-template-columns:250px minmax(0,1fr)}.sidebar{min-height:100vh;padding:14px;background:#0c0d0f;border-right:1px solid var(--line);display:flex;flex-direction:column}.brand{display:flex;align-items:center;gap:10px;padding:5px 6px 14px;border-bottom:1px solid var(--line)}.brand img{width:72px;height:34px;object-fit:contain}.brand-copy strong{display:block;font-size:12px}.brand-copy span{display:block;margin-top:2px;color:var(--muted);font-size:8px;text-transform:uppercase;letter-spacing:.08em}.sidebar-head{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:14px 2px 9px}.sidebar-head strong{font-size:10px;letter-spacing:.09em;text-transform:uppercase}.sidebar-head span{color:var(--muted);font-size:8px}.channel-list{min-height:0;overflow:auto;display:grid;gap:7px}.channel{display:block;width:100%;padding:10px;text-align:left;border:1px solid var(--line);border-radius:11px;background:#111214;color:var(--text);transition:.14s}.channel:hover{background:#16171a;border-color:#41434a}.channel.active{border-color:rgba(228,198,84,.7);box-shadow:inset 0 0 0 1px rgba(228,198,84,.08)}.channel-top{display:flex;justify-content:space-between;align-items:center;gap:7px}.channel-name{min-width:0;font-size:11px;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.channel-status{padding:4px 6px;border:1px solid #303238;border-radius:999px;background:#0d0e10;color:#8f9199;font-size:6px;font-weight:900;letter-spacing:.07em}.channel-status.live{color:var(--green);border-color:rgba(99,229,139,.32);background:rgba(99,229,139,.05)}.channel-status.live:before{content:"";display:inline-block;width:5px;height:5px;margin-right:5px;border-radius:50%;background:var(--green);box-shadow:0 0 8px rgba(99,229,139,.5)}.channel-meta{margin-top:5px;color:#81838b;font-size:7px;line-height:1.45}.side-foot{margin-top:auto;padding:10px 3px 0;color:#5f626a;font-size:7px;line-height:1.5}
+.main{min-width:0;padding:13px}.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px}.top-title h1{margin:0;font-size:20px;letter-spacing:-.02em}.top-title p{margin:3px 0 0;color:var(--muted);font-size:8px}.top-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.btn{border:1px solid #35373d;background:#17181b;color:#ececf0;border-radius:8px;padding:7px 10px;font-size:8px;font-weight:850;transition:.14s}.btn:hover{background:#1f2024;border-color:#474a52}.btn:active{transform:translateY(1px)}.btn.primary{border-color:#d8b94b;background:linear-gradient(180deg,#f1db78,#d4b33e);color:#12120e}.btn.danger{color:#ffb0b8;border-color:rgba(241,127,130,.34);background:rgba(72,19,23,.24)}
+.studio-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:9px}.console{display:grid;gap:8px;min-width:0}.status-strip{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;border:1px solid var(--line);border-radius:10px;background:#101113}.status-left,.status-right{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.pill{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid #303238;border-radius:999px;background:#0d0e10;color:#999ba3;font-size:6px;font-weight:900;letter-spacing:.07em;text-transform:uppercase}.pill.live{color:var(--green);border-color:rgba(99,229,139,.3);background:rgba(99,229,139,.05)}.pill.armed{color:var(--gold2);border-color:rgba(228,198,84,.3);background:rgba(228,198,84,.05)}.pill.viewer{color:#e0e1e5}.timer{font:800 8px ui-monospace,SFMono-Regular,Menlo,monospace;color:#adb0b8}
+.monitors{display:grid;grid-template-columns:1fr 1fr;gap:8px}.monitor{position:relative;aspect-ratio:16/9;min-width:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#000;box-shadow:0 14px 45px rgba(0,0,0,.22)}.monitor-head{position:absolute;z-index:4;top:0;left:0;right:0;padding:8px 9px;display:flex;justify-content:space-between;background:linear-gradient(180deg,rgba(0,0,0,.86),transparent);pointer-events:none}.monitor-head strong{font-size:8px;letter-spacing:.12em}.monitor-head span{font-size:6px;color:#8c8f97}.monitor-head .preview{color:#d8d9de}.monitor-head .program{color:#ff9094}.monitor video{width:100%;height:100%;display:block;object-fit:cover;background:#000}.monitor-status{position:absolute;z-index:4;left:8px;right:8px;bottom:8px;display:flex;justify-content:space-between;gap:7px;pointer-events:none}.monitor-note,.monitor-live{padding:5px 7px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:rgba(6,6,8,.64);font-size:6px;color:#a8abb3;backdrop-filter:blur(8px)}.monitor-live{color:var(--green);border-color:rgba(99,229,139,.24);background:rgba(9,30,16,.52)}
+.sources-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.source-card{padding:7px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}.source-top{display:flex;justify-content:space-between;align-items:center;gap:6px}.source-top strong{font-size:6px;letter-spacing:.08em}.source-top span{font-size:6px;color:#747780}.source-visual{height:32px;display:grid;place-items:center;margin:6px 0;border:1px solid #202227;border-radius:5px;background:radial-gradient(circle at 50% 40%,rgba(228,198,84,.12),transparent 60%),#0a0b0c;color:#d0d2d7;font-size:12px}.source-foot{display:flex;justify-content:space-between;color:#72757d;font-size:6px}.dot{width:5px;height:5px;border-radius:50%;background:#50535a}.dot.ok{background:var(--green);box-shadow:0 0 8px rgba(99,229,139,.55)}
+.takebar{display:flex;justify-content:center;padding:6px;border:1px solid var(--line);border-radius:8px;background:#0e0f11}.take-btn{min-width:180px;padding:10px 16px;font-size:10px}
+.audio-console{display:grid;grid-template-columns:115px repeat(6,minmax(0,1fr));gap:7px;align-items:stretch;padding:8px;border:1px solid var(--line);border-radius:10px;background:#0f1012}.audio-title{display:flex;flex-direction:column;justify-content:center;gap:3px;padding:2px 3px}.audio-title strong{font-size:7px;letter-spacing:.12em}.audio-title span{color:#73767f;font-size:6px;line-height:1.4}.meter-card{min-width:0;display:grid;grid-template-rows:auto 64px auto;gap:4px;padding:5px;border:1px solid #24262b;border-radius:7px;background:#111214}.meter-card strong{display:block;font-size:6px;letter-spacing:.07em}.meter-card small{display:block;color:#73767f;font-size:5px;margin-top:2px}.meter-stack{height:64px;display:grid;grid-template-rows:repeat(20,1fr);gap:2px}.meter-stack i{display:block;border-radius:2px;background:#25272c;opacity:.64}.meter-stack i.on{background:var(--green);opacity:1}.meter-stack i.hot{background:var(--gold);opacity:1}.meter-stack i.clip{background:var(--red);opacity:1}.meter-value{display:flex;justify-content:space-between;align-items:center;font:800 7px ui-monospace,SFMono-Regular,Menlo,monospace;color:#d9dbe0}.peak-mark{position:relative;width:100%;height:0}.peak-mark:before{content:"";position:absolute;left:-2px;right:-2px;top:-60px;height:2px;background:#fff;opacity:.78}
+.right-rail{display:grid;gap:8px;min-width:0}.panel{border:1px solid var(--line);border-radius:10px;background:#111214;overflow:hidden}.panel-head{padding:8px 9px;border-bottom:1px solid #24262b;font-size:7px;font-weight:900;letter-spacing:.1em;color:#a4a7ae;text-transform:uppercase}.panel-body{padding:9px}.right-grid{display:grid}.stat-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #202227}.stat-row:last-child{border-bottom:0}.stat-row span{color:#747780;font-size:6px}.stat-row strong{font-size:7px;color:#eceef2;text-align:right}.right-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}.right-actions .btn{width:100%}.small-help{color:#6e7179;font-size:6px;line-height:1.5}.status-message{min-height:18px;margin-top:7px;padding:6px 7px;border:1px solid #292b30;border-radius:7px;background:#0b0c0e;color:#9ea1aa;font-size:6px;line-height:1.45}.status-message.error{color:#ffb4bd;border-color:rgba(241,127,130,.3);background:rgba(62,20,23,.22)}.status-message.ok{color:#9de7b7;border-color:rgba(99,229,139,.25);background:rgba(25,55,36,.16)}
+.footer{padding:4px 2px 0;color:#565a62;font-size:6px;text-align:center}
+.modal{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:18px;background:rgba(0,0,0,.77)}.modal.hidden{display:none}.modal-card{width:min(640px,100%);max-height:calc(100vh - 36px);overflow:auto;border:1px solid #393b42;border-radius:13px;background:linear-gradient(180deg,#17181b,#0e0f11);box-shadow:0 34px 110px rgba(0,0,0,.72)}.modal-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 13px;border-bottom:1px solid #2a2c31}.modal-head strong{font-size:10px}.modal-head span{display:block;color:#70737c;font-size:6px;margin-top:2px}.close-btn{border:0;background:transparent;color:#aeb1b9;font-size:18px;line-height:1;padding:2px 4px}.modal-body{padding:13px}.field{display:grid;gap:5px;margin-bottom:10px}.field label{font-size:6px;color:#92959d;text-transform:uppercase;letter-spacing:.08em}.field input,.field textarea,.field select{width:100%;background:#0a0b0d;border:1px solid #303238;color:#f1f2f5;border-radius:8px;padding:9px;font-size:8px}.field textarea{min-height:76px;resize:vertical}.modal-foot{display:flex;justify-content:flex-end;gap:6px;padding:10px 13px;border-top:1px solid #2a2c31}.connection-grid{display:grid;gap:7px}.cred{padding:8px;border:1px solid #292b31;border-radius:8px;background:#0b0c0e}.cred label{display:block;color:#747780;font-size:6px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px}.cred code{display:block;font:800 7px ui-monospace,SFMono-Regular,Menlo,monospace;color:#e2e4e9;white-space:pre-wrap;word-break:break-all}.local-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.local-item{padding:7px;border:1px solid #2a2c31;border-radius:8px;background:#0e0f11}.local-item strong{display:block;font-size:7px}.local-item span{display:block;margin-top:3px;color:#747780;font-size:5px;line-height:1.4}.local-actions{display:flex;gap:5px;margin-top:6px}.local-actions .btn{flex:1;padding:6px;font-size:6px}.toast{position:fixed;right:16px;bottom:16px;z-index:2000;max-width:min(360px,calc(100vw - 28px));padding:9px 11px;border:1px solid #3a3c43;border-radius:9px;background:#15161a;color:#eff0f3;font-size:7px;line-height:1.45;box-shadow:0 18px 60px rgba(0,0,0,.55);opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .16s,transform .16s}.toast.show{opacity:1;transform:none}
+@media(max-width:1100px){.studio-grid{grid-template-columns:1fr}.right-rail{grid-template-columns:repeat(3,minmax(0,1fr))}.audio-console{grid-template-columns:100px repeat(6,minmax(76px,1fr));overflow:auto}}
+@media(max-width:820px){.app{display:block}.sidebar{min-height:auto;padding:9px;border-right:0;border-bottom:1px solid var(--line)}.channel-list{display:flex;overflow:auto;padding-bottom:2px}.channel{min-width:190px}.side-foot{display:none}.main{padding:9px}.monitors{grid-template-columns:1fr}.sources-row{grid-template-columns:repeat(2,minmax(0,1fr))}.right-rail{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.status-strip{align-items:flex-start}.topbar{align-items:flex-start;flex-direction:column}.top-actions{width:100%}.top-actions .btn{flex:1}.sources-row{grid-template-columns:1fr 1fr}.right-rail{grid-template-columns:1fr}.local-grid{grid-template-columns:1fr}.take-btn{width:100%;min-width:0}.audio-console{grid-template-columns:95px repeat(6,minmax(72px,1fr))}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
 </style>
 </head>
 <body>
-<div id="root"></div>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-<div class="channel-modal hidden" id="channelModal"><div class="channel-box"><div class="channel-head"><b>Create Live Channel</b><button class="channel-close" id="channelClose">×</button></div><div class="channel-body"><p class="channel-help">Create a channel for OBS, vMix, Streamlabs or another RTMP encoder. The existing live streaming engine is unchanged.</p><div class="field"><label>Channel Name</label><input id="newChannelName" placeholder="e.g. Wedding Live"></div><div class="field"><label>Stream Title</label><input id="newChannelTitle" placeholder="Title viewers will see"></div><div class="field"><label>Description</label><textarea id="newChannelDescription" placeholder="Optional broadcast description"></textarea></div><div id="channelResult" class="channel-result" style="display:none"></div></div><div class="channel-foot"><button class="btn" id="channelCancel">Cancel</button><button class="btn primary" id="channelCreate">CREATE CHANNEL</button></div></div></div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><img src="/official-logo.png" alt="FBI"><div class="brand-copy"><strong>FBI LIVE</strong><span>Broadcast Control Room</span></div></div>
+    <div class="sidebar-head"><div><strong>Channels</strong><div style="margin-top:2px"><span id="channelCount">0 channels</span></div></div><button class="btn primary" id="addChannelBtn" type="button">+ ADD</button></div>
+    <div id="channelList" class="channel-list"></div>
+    <div class="side-foot">Film Beyond Imagination • Live broadcast control • Streaming engine unchanged</div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="top-title"><h1>FBI Live Control Room</h1><p>Preview locally. Take to Program. Monitor the real HLS output.</p></div>
+      <div class="top-actions">
+        <button class="btn" id="connectBtn" type="button">CONNECT STREAM</button>
+        <button class="btn" id="localBtn" type="button">LOCAL SOURCES</button>
+        <button class="btn" id="recordBtn" type="button">RECORD</button>
+        <button class="btn danger" id="stopRecordBtn" type="button">STOP</button>
+      </div>
+    </header>
+
+    <div class="studio-grid">
+      <section class="console">
+        <div class="status-strip">
+          <div class="status-left"><span class="pill" id="airPill">OFFLINE</span><span class="pill" id="recordPill">RECORD PAUSED</span><span class="pill viewer" id="viewerPill">0 VIEWERS</span><span class="pill" id="channelPill">NO CHANNEL</span></div>
+          <div class="status-right"><span class="timer" id="airTimer">OFFLINE</span></div>
+        </div>
+
+        <div class="monitors">
+          <div class="monitor">
+            <div class="monitor-head"><strong class="preview">PREVIEW</strong><span>LOCAL STUDIO SOURCE</span></div>
+            <video id="previewVideo" playsinline autoplay crossorigin="anonymous"></video>
+            <div class="monitor-status"><span class="monitor-note" id="previewNote">Enable a camera or screen source.</span><span class="monitor-note" id="inputStatus">INPUT IDLE</span></div>
+          </div>
+          <div class="monitor">
+            <div class="monitor-head"><strong class="program">PROGRAM</strong><span>HLS OUTPUT</span></div>
+            <video id="programVideo" controls playsinline autoplay crossorigin="anonymous"></video>
+            <div class="monitor-status"><span class="monitor-note" id="programNote">Select a channel to load Program.</span><span class="monitor-live" id="programStatus">OFFLINE</span></div>
+          </div>
+        </div>
+
+        <div class="sources-row">
+          <div class="source-card"><div class="source-top"><strong>LOCAL INPUT</strong><span id="sourceCameraState">IDLE</span></div><div class="source-visual">CAM</div><div class="source-foot"><span>Camera / USB Capture</span><i id="dotCamera" class="dot"></i></div></div>
+          <div class="source-card"><div class="source-top"><strong>SCREEN</strong><span id="sourceScreenState">IDLE</span></div><div class="source-visual">DESK</div><div class="source-foot"><span>Screen / Window</span><i id="dotScreen" class="dot"></i></div></div>
+          <div class="source-card"><div class="source-top"><strong>CHANNEL</strong><span id="sourceChannelState">OFF</span></div><div class="source-visual">HLS</div><div class="source-foot"><span>OBS / vMix Feed</span><i id="dotChannel" class="dot"></i></div></div>
+          <div class="source-card"><div class="source-top"><strong>RECORD</strong><span id="sourceRecordState">OFF</span></div><div class="source-visual">REC</div><div class="source-foot"><span>Engine Recording</span><i id="dotRecord" class="dot"></i></div></div>
+        </div>
+
+        <div class="takebar"><button class="btn primary take-btn" id="takeBtn" type="button">TAKE TO PROGRAM</button></div>
+
+        <div class="audio-console" aria-label="Live audio meters">
+          <div class="audio-title"><strong>AUDIO METERS</strong><span>Web Audio<br>Peak / 1.5s hold</span></div>
+          <div class="meter-card" data-meter="previewL"><div><strong>INPUT L</strong><small>Preview</small></div><div class="meter-stack"></div><div class="meter-value"><span>-∞ dB</span><i class="peak-mark"></i></div></div>
+          <div class="meter-card" data-meter="previewR"><div><strong>INPUT R</strong><small>Preview</small></div><div class="meter-stack"></div><div class="meter-value"><span>-∞ dB</span><i class="peak-mark"></i></div></div>
+          <div class="meter-card" data-meter="programL"><div><strong>PROGRAM L</strong><small>HLS</small></div><div class="meter-stack"></div><div class="meter-value"><span>-∞ dB</span><i class="peak-mark"></i></div></div>
+          <div class="meter-card" data-meter="programR"><div><strong>PROGRAM R</strong><small>HLS</small></div><div class="meter-stack"></div><div class="meter-value"><span>-∞ dB</span><i class="peak-mark"></i></div></div>
+          <div class="meter-card" data-meter="masterL"><div><strong>MASTER L</strong><small>HLS</small></div><div class="meter-stack"></div><div class="meter-value"><span>-∞ dB</span><i class="peak-mark"></i></div></div>
+          <div class="meter-card" data-meter="masterR"><div><strong>MASTER R</strong><small>HLS</small></div><div class="meter-stack"></div><div class="meter-value"><span>-∞ dB</span><i class="peak-mark"></i></div></div>
+        </div>
+
+        <div class="footer">FBI Live • Control-room UI only • Existing ingest, HLS, recording, API and database remain unchanged</div>
+      </section>
+
+      <aside class="right-rail">
+        <section class="panel"><div class="panel-head">Channel Status</div><div class="panel-body"><div class="right-grid">
+          <div class="stat-row"><span>Channel</span><strong id="statusChannel">—</strong></div>
+          <div class="stat-row"><span>Signal</span><strong id="statusSignal">OFFLINE</strong></div>
+          <div class="stat-row"><span>Viewers</span><strong id="statusViewers">0</strong></div>
+          <div class="stat-row"><span>Recording</span><strong id="statusRecording">PAUSED</strong></div>
+          <div class="stat-row"><span>Delivery</span><strong>HLS</strong></div>
+          <div class="stat-row"><span>Format</span><strong>H.264 / AAC</strong></div>
+        </div></div></section>
+
+        <section class="panel"><div class="panel-head">Operator Controls</div><div class="panel-body">
+          <div class="right-actions"><button class="btn" id="watchBtn" type="button">WATCH</button><button class="btn" id="muteBtn" type="button">MUTE</button><button class="btn" id="fullscreenBtn" type="button">FULL</button><button class="btn" id="copyBtn" type="button">COPY</button></div>
+          <div class="status-message" id="operatorMessage">Select a channel and a local Preview source.</div>
+        </div></section>
+
+        <section class="panel"><div class="panel-head">Live Meter State</div><div class="panel-body">
+          <div class="stat-row"><span>Web Audio</span><strong id="audioState">READY</strong></div>
+          <div class="stat-row"><span>Program graph</span><strong id="programGraphState">NOT ATTACHED</strong></div>
+          <div class="stat-row"><span>Input graph</span><strong id="inputGraphState">NOT ATTACHED</strong></div>
+          <p class="small-help">AudioContext resumes on the first click. MUTE uses a GainNode so the analyser keeps reading the HLS signal.</p>
+        </div></section>
+
+        <section class="panel"><div class="panel-head">Engine Notes</div><div class="panel-body">
+          <div class="small-help">TAKE uses your existing Local Studio encoder on 127.0.0.1:8765 plus the existing Program start/activate endpoints. No ingest or HLS code is changed.</div>
+          <div class="small-help" style="margin-top:7px">RECORD and STOP use the existing record_enabled setting. There is no new recording API in this UI.</div>
+        </div></section>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<div class="modal hidden" id="connectionModal"><div class="modal-card">
+  <div class="modal-head"><div><strong>CONNECT STREAM</strong><span>Existing RTMP publishing details</span></div><button class="close-btn" id="connectionClose" type="button">×</button></div>
+  <div class="modal-body"><div class="connection-grid">
+    <div class="cred"><label>Channel</label><code id="connChannel">—</code></div>
+    <div class="cred"><label>RTMP Server</label><code id="connRtmp">—</code></div>
+    <div class="cred"><label>Stream Key</label><code id="connKey">—</code></div>
+    <div class="cred"><label>HLS URL</label><code id="connHls">—</code></div>
+    <div class="cred"><label>Viewer URL</label><code id="connViewer">—</code></div>
+  </div><div class="status-message" id="connState">Connection details come from the existing channel API.</div></div>
+  <div class="modal-foot"><button class="btn" id="copyConnectionBtn" type="button">COPY SETUP</button><button class="btn primary" id="closeConnectionBtn" type="button">DONE</button></div>
+</div></div>
+
+<div class="modal hidden" id="channelModal"><div class="modal-card">
+  <div class="modal-head"><div><strong>ADD CHANNEL</strong><span>Create a channel with the existing stream API</span></div><button class="close-btn" id="channelClose" type="button">×</button></div>
+  <form id="channelForm"><div class="modal-body">
+    <div class="field"><label for="channelNameInput">Channel Name</label><input id="channelNameInput" autocomplete="off" required placeholder="e.g. Wedding Live"></div>
+    <div class="field"><label for="channelTitleInput">On-Air Title</label><input id="channelTitleInput" autocomplete="off" placeholder="Title viewers will see"></div>
+    <div class="field"><label for="channelDescriptionInput">Description</label><textarea id="channelDescriptionInput" placeholder="Optional broadcast description"></textarea></div>
+    <div class="status-message" id="channelCreateMessage">The existing channel API will generate the stream key and viewer URL.</div>
+  </div><div class="modal-foot"><button class="btn" id="channelCancel" type="button">CANCEL</button><button class="btn primary" id="channelCreate" type="submit">CREATE CHANNEL</button></div></form>
+</div></div>
+
+<div class="modal hidden" id="localModal"><div class="modal-card">
+  <div class="modal-head"><div><strong>LOCAL STUDIO SOURCES</strong><span>Choose what appears in Preview</span></div><button class="close-btn" id="localClose" type="button">×</button></div>
+  <div class="modal-body"><div class="local-grid">
+    <div class="local-item"><strong>Camera / USB Capture</strong><span>Browser camera or capture card with optional audio.</span><div class="local-actions"><button class="btn primary" id="addCameraBtn" type="button">ADD</button></div></div>
+    <div class="local-item"><strong>Screen / Window</strong><span>Desktop, application or browser tab capture.</span><div class="local-actions"><button class="btn" id="addScreenBtn" type="button">ADD</button></div></div>
+    <div class="local-item"><strong>NDI Gateway</strong><span>Use the existing local NDI discovery service.</span><div class="local-actions"><button class="btn" id="addNdiBtn" type="button">DISCOVER</button></div></div>
+  </div><div class="small-help" id="localMessage" style="margin-top:10px">Select a source for Preview. TAKE sends it through the existing local Program bridge.</div></div>
+</div></div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
 <script>
 (function(){
-  const root=document.getElementById('root');
-  let streams=[],selectedId=null,refreshTimer=null,audioState=null;
-  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
-  async function api(url,options){const r=await fetch(url,options);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.error||'Request failed');return d}
-  function authCard(mode,extra){
-    const setup=mode==='setup',forgot=mode==='forgot';
-    const title=setup?'Create Live Admin Account':forgot?'Reset Admin Password':'FBI Live Broadcast Studio';
-    const subtitle=setup?'Set up the administrator account for this standalone control room.':forgot?'Recover access using your security question.':'Standalone professional live production control room';
-    const body=setup
-      ? '<div class="field"><label>Full Name</label><input id="fullName" placeholder="Administrator name"></div>'+
-        '<div class="field"><label>Email</label><input id="email" type="email" placeholder="admin@example.com"></div>'+
-        '<div class="field"><label>Password</label><input id="password" type="password" placeholder="At least 10 characters"></div>'+
-        '<div class="field"><label>Confirm Password</label><input id="confirmPassword" type="password" placeholder="Repeat password"></div>'+
-        '<div class="field"><label>Security Question</label><select id="securityQuestion"><option value="What was the name of your first school?">What was the name of your first school?</option><option value="What city were you born in?">What city were you born in?</option><option value="What was your first job?">What was your first job?</option><option value="What was the name of your first pet?">What was the name of your first pet?</option></select></div>'+
-        '<div class="field"><label>Security Answer</label><input id="securityAnswer" placeholder="Your private recovery answer"></div>'+
-        '<button class="auth-primary" id="setupBtn">Create Admin Account</button>'+
-        '<button class="auth-link" id="toLogin">Already have an account? Sign in</button>'
-      : forgot
-        ? '<div class="field"><label>Admin Email</label><input id="email" type="email" placeholder="Your admin email"></div>'+
-          '<button class="auth-secondary" id="questionBtn">Load Security Question</button>'+
-          '<div id="questionBox" class="question-box" style="display:none"></div>'+
-          '<div id="resetFields" style="display:none"><div class="field"><label>Security Answer</label><input id="securityAnswer" placeholder="Your recovery answer"></div><div class="field"><label>New Password</label><input id="password" type="password" placeholder="At least 10 characters"></div><div class="field"><label>Confirm Password</label><input id="confirmPassword" type="password" placeholder="Repeat password"></div><button class="auth-primary" id="resetBtn">Reset Password</button></div>'+
-          '<button class="auth-link" id="toLogin">Back to sign in</button>'
-        : '<div class="field"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="Admin email"></div>'+
-          '<div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password" placeholder="Admin password"></div>'+
-          '<button class="auth-primary" id="loginBtn">Sign In</button>'+
-          '<div class="auth-row"><button class="auth-link" id="forgotBtn">Forgot password?</button><button class="auth-link" id="setupLink" style="display:none">Create admin account</button></div>';
-    root.innerHTML='<div class="login-page"><div class="login-glow"></div><div class="login-shell"><div class="login-brand"><div class="brand-mark"><img src="/official-logo.png" alt="FBI"></div><div class="login-kicker">FILM BEYOND IMAGINATION</div><div class="login-brand-title">FBI LIVE</div><div class="login-brand-sub">Standalone Broadcast Control Room</div></div><div class="login-card"><div class="login-head"><div class="login-eyebrow">'+(setup?'FIRST-TIME SETUP':forgot?'ACCOUNT RECOVERY':'ADMIN ACCESS')+'</div><h1>'+title+'</h1><p>'+subtitle+'</p></div><div class="login-body">'+body+(extra?'<div class="auth-message" id="extra">'+extra+'</div>':'')+'<div class="auth-message" id="authError"></div></div></div><div class="login-foot">Secure administration • Live engine remains independent from Client File Studio</div></div></div>';
+  "use strict";
 
-    const err=m=>{const e=document.getElementById('authError');if(e)e.textContent=m||''};
-    const toLogin=document.getElementById('toLogin');if(toLogin)toLogin.onclick=()=>login('login');
-    if(setup){
-      document.getElementById('setupBtn').onclick=async()=>{
-        err('');
-        try{await api('/api/live-auth/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-          full_name:document.getElementById('fullName').value,email:document.getElementById('email').value,password:document.getElementById('password').value,
-          confirm_password:document.getElementById('confirmPassword').value,security_question:document.getElementById('securityQuestion').value,security_answer:document.getElementById('securityAnswer').value
-        })});boot()}catch(e){err(e.message)}
-      };
-      return;
+  var state={streams:[],selectedId:"",selected:null,localSources:new Map(),selectedLocalId:"",localBridge:null,hls:null,programAudio:null,inputAudio:null,muted:false,pollTimer:0,durationTimer:0,loading:false};
+
+  function $(id){return document.getElementById(id)}
+  function esc(v){return String(v==null?"":v).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]})}
+  function toast(msg){var t=$("toast");if(!t)return;t.textContent=String(msg||"");t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(function(){t.classList.remove("show")},2600)}
+  function setMessage(msg,type){var e=$("operatorMessage");if(!e)return;e.textContent=String(msg||"");e.className="status-message"+(type?" "+type:"")}
+  function api(url,options){return fetch(url,options||{}).then(function(r){return r.text().then(function(t){var d={};try{d=t?JSON.parse(t):{}}catch{}if(!r.ok)throw new Error(d.error||"Request failed");return d})})}
+  function selectedStream(){return state.streams.find(function(s){return String(s.id)===String(state.selectedId)})||null}
+  function hlsForStream(s){
+    if(!s)return "";
+    var raw=String(s.hls_url||"").trim();
+    if(raw){
+      if(/^https?:\/\//i.test(raw))return raw;
+      if(/\.m3u8(?:\?|$)/i.test(raw))return new URL(raw,location.origin).toString();
+      return new URL(raw.replace(/\/+$/,"")+"/index.m3u8",location.origin).toString();
     }
-    if(forgot){
-      document.getElementById('questionBtn').onclick=async()=>{
-        err('');
-        try{const d=await api('/api/live-auth/forgot-question',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value})});const box=document.getElementById('questionBox');box.textContent=d.question;box.style.display='block';document.getElementById('resetFields').style.display='block'}catch(e){err(e.message)}
-      };
-      document.getElementById('resetBtn').onclick=async()=>{
-        err('');
-        try{await api('/api/live-auth/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value,security_answer:document.getElementById('securityAnswer').value,password:document.getElementById('password').value,confirm_password:document.getElementById('confirmPassword').value})});login('login','Password reset. Sign in with your new password.')}catch(e){err(e.message)}
-      };
-      return;
-    }
-    document.getElementById('loginBtn').onclick=async()=>{
-      err('');
-      try{await api('/api/live-auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value,password:document.getElementById('password').value})});boot()}catch(e){err(e.message)}
-    };
-    document.getElementById('forgotBtn').onclick=()=>login('forgot');
-    document.addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('loginBtn')?.click()},{once:true});
+    var viewer=String(s.viewer_url||"");
+    var token=(viewer.split("/watch/")[1]||"").split(/[?#]/)[0];
+    return token?location.origin+"/api/public/stream/"+encodeURIComponent(token)+"/hls/index.m3u8":"";
   }
-  async function login(mode='login',message=''){
-    if(mode==='setup'||mode==='forgot'||mode==='login')authCard(mode,message);
-    else authCard('login');
-  }
-  function renderShell(){
-    // Keep the install control visible; supported browsers use the native PWA prompt,
-    // while unsupported browsers are given the browser-menu installation fallback.
-    root.innerHTML='<div class="app"><aside class="sidebar"><div class="brand"><img src="/official-logo.png" alt="FBI"><strong>FBI LIVE</strong><span>Standalone Broadcast Studio</span></div><div class="sidebar-head"><div class="sidebar-head-left"><h2>Live Channels</h2><span id="channelCount">0</span></div><button class="add-channel-btn" id="addChannelBtn">＋ ADD CHANNEL</button></div><div class="channels" id="channels"></div><div class="footer">Streaming engine connected<br>HLS delivery online<br>Automatic recording paused during control-room development</div></aside><main class="main"><div class="topbar"><div class="top-title"><h1>FBI Live Broadcast Studio</h1><p>Monitor your live signal, program output, viewers and audio from one control surface.</p></div><div class="top-actions"><span class="chip gold">OPEN CONTROL MODE</span><button class="btn" id="installBtn">INSTALL APP</button><button class="btn" id="toolsBtn">TOOLS</button></div></div><section class="studio" id="studio"><div class="placeholder"><div><b>Select a live channel</b><span>Choose a channel from the left to open the control room.</span></div></div></section></main></div><div class="tools-modal hidden" id="toolsModal"><div class="tools-box"><div class="tools-head"><div><b>Encoder Tools</b><span id="toolsChannelName">Selected channel</span></div><button class="tools-close" id="toolsClose">×</button></div><div class="tools-body"><div class="encoder-grid"><div class="encoder-field"><label>RTMP Server URL</label><div class="encoder-value"><code id="toolsRtmp">—</code><button class="copy-value" data-copy-id="toolsRtmp">COPY</button></div></div><div class="encoder-field"><label>Stream Key</label><div class="encoder-value"><code id="toolsKey">—</code><button class="copy-value" data-copy-id="toolsKey">COPY</button></div></div><div class="encoder-field"><label>HLS Playback URL</label><div class="encoder-value"><code id="toolsHls">—</code><button class="copy-value" data-copy-id="toolsHls">COPY</button></div></div><div class="encoder-field"><label>Viewer / Share URL</label><div class="encoder-value"><code id="toolsViewer">—</code><button class="copy-value" data-copy-id="toolsViewer">COPY</button></div></div></div><div class="tools-warning">Use the RTMP Server URL and Stream Key in OBS, vMix, Streamlabs, or your encoder. Regenerating the key immediately invalidates the previous key.</div></div><div class="tools-foot"><div class="tools-foot-left"><button class="smallbtn" id="copyEncoderSetup">COPY ENCODER SETUP</button></div><div class="tools-foot-right"><button class="danger-btn" id="regenerateKeyBtn">REGENERATE STREAM KEY</button><button class="smallbtn" id="toolsDone">DONE</button></div></div></div></div>';
-    const toolsBtn=document.getElementById('toolsBtn'),toolsModal=document.getElementById('toolsModal'),toolsClose=document.getElementById('toolsClose'),toolsDone=document.getElementById('toolsDone'),regen=document.getElementById('regenerateKeyBtn'),copySetup=document.getElementById('copyEncoderSetup');
-    const installBtn=document.getElementById('installBtn');if(installBtn){installBtn.onclick=installLivePwa;if(isStandalone())installBtn.style.display='none';}
-    if(toolsBtn)toolsBtn.onclick=showTools;if(toolsClose)toolsClose.onclick=()=>toolsModal.classList.add('hidden');if(toolsDone)toolsDone.onclick=()=>toolsModal.classList.add('hidden');if(toolsModal)toolsModal.onclick=e=>{if(e.target===toolsModal)toolsModal.classList.add('hidden')};document.querySelectorAll('.copy-value').forEach(btn=>btn.onclick=async()=>{const el=document.getElementById(btn.dataset.copyId);const value=el?.textContent||'';try{await navigator.clipboard.writeText(value);btn.textContent='COPIED';setTimeout(()=>btn.textContent='COPY',1200)}catch{btn.textContent='FAILED'}});if(copySetup)copySetup.onclick=async()=>{const s=getSelected();if(!s)return;const text=['RTMP Server: '+(s.rtmp_server||''),'Stream Key: '+(s.stream_key||''),'HLS URL: '+(s.hls_url?(location.origin+s.hls_url):''),'Viewer URL: '+(s.viewer_url||'')].join('\\n');try{await navigator.clipboard.writeText(text);copySetup.textContent='COPIED';setTimeout(()=>copySetup.textContent='COPY ENCODER SETUP',1200)}catch{copySetup.textContent='COPY FAILED'}};if(regen)regen.onclick=async()=>{const s=getSelected();if(!s)return;if(!confirm('Regenerate the stream key for "'+s.name+'"? The current encoder will stop working until you update it with the new key.'))return;regen.disabled=true;regen.textContent='REGENERATING…';try{const d=await api('/api/live/streams/'+encodeURIComponent(s.id)+'/regenerate-key',{method:'POST'});const next=d.stream;streams=streams.map(x=>x.id===next.id?next:x);selectedId=next.id;showTools();renderChannels();renderedStudioSignature='';renderStudio();toast('Stream key regenerated. Update your encoder with the new key.')}catch(e){toast(e.message||'Could not regenerate stream key')}finally{regen.disabled=false;regen.textContent='REGENERATE STREAM KEY'}};
-  }
-  function showTools(){const s=getSelected(),m=document.getElementById('toolsModal');if(!s||!m){toast('Select a channel first');return}const name=document.getElementById('toolsChannelName'),rtmp=document.getElementById('toolsRtmp'),key=document.getElementById('toolsKey'),hls=document.getElementById('toolsHls'),viewer=document.getElementById('toolsViewer');if(name)name.textContent=s.name||'Selected channel';if(rtmp)rtmp.textContent=s.rtmp_server||'RTMP server unavailable';if(key)key.textContent=s.stream_key||'—';if(hls)hls.textContent=s.hls_url?(location.origin+s.hls_url):'—';if(viewer)viewer.textContent=s.viewer_url||'—';m.classList.remove('hidden')}  function getSelected(){return streams.find(s=>s.id===selectedId)||null}
-  function segments(n){return Array.from({length:n},()=>'<i></i>').join('')}
+  function normalizeStream(s){var o=Object.assign({},s||{});o.status=String(o.status||"offline").toLowerCase()==="live"?"live":"offline";o.current_viewers=Number(o.current_viewers||0);o.total_viewers=Number(o.total_viewers||0);o.hls_url=hlsForStream(o);return o}
+  function formatDuration(started){if(!started)return"OFFLINE";var ms=Math.max(0,Date.now()-new Date(started).getTime());if(!isFinite(ms))return"ON AIR";var sec=Math.floor(ms/1000),h=Math.floor(sec/3600);sec%=3600;var m=Math.floor(sec/60),s=sec%60;return(h?String(h).padStart(2,"0")+":":"")+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")}
+
   function renderChannels(){
-    const el=document.getElementById('channels'),count=document.getElementById('channelCount');if(!el)return;
-    count.textContent=streams.length+' channel'+(streams.length===1?'':'s');
-    el.innerHTML=streams.length?streams.map(s=>'<div class="channel '+(s.id===selectedId?'active':'')+'" data-id="'+esc(s.id)+'"><div class="channel-top"><div class="channel-name">'+esc(s.name)+'</div><span class="badge '+(s.status==='live'?'live':'')+'">'+(s.status==='live'?'● LIVE':'OFFLINE')+'</span></div><div class="channel-meta">'+esc(s.title||'')+'<br>'+Number(s.current_viewers||0)+' watching now</div></div>').join(''):'<div class="placeholder" style="min-height:160px"><div><b>No live channels</b><span>Create a channel from the main Studio when needed.</span></div></div>';
-    el.querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>{selectedId=x.dataset.id;renderChannels();renderedStudioSignature='';renderStudio();refreshViewerCount()});
-  }
-  function placeholder(msg,sub){return '<div class="placeholder"><div><b>'+esc(msg)+'</b><span>'+esc(sub)+'</span></div></div>'}
-  function renderStudio(){
-    const s=getSelected(),studio=document.getElementById('studio');if(!studio)return;
-    if(!s){studio.innerHTML=placeholder('Select a live channel','Choose a channel from the left to open the control room.');return}
-    const live=s.status==='live'&&!!s.viewer_url;
-    const frame='<video class="frame" id="previewVideo" playsinline muted autoplay></video>';
-    const program='<video class="frame" id="programVideo" playsinline muted autoplay></video>';
-    const previewNote=live?'Incoming live signal':'Select a Local Studio source below for Preview';
-    const programNote=live?'Clean program output':'Start OBS/vMix and go LIVE before using TAKE to Program';
-    studio.innerHTML='<div class="statusbar"><div class="chips"><span class="chip '+(live?'live':'')+'">'+(live?'● LIVE':'OFFLINE')+'</span><span class="chip">'+esc(s.name)+'</span><span class="chip gold">'+(s.record_enabled?'RECORD ARMED':'RECORD PAUSED')+'</span></div><div class="chips"><span class="control" id="duration">'+(live?'ON AIR':'OFFLINE')+'</span><span class="chip"><span class="viewers"><b id="viewerTop">'+Number(s.current_viewers||0)+'</b> VIEWERS</span></span></div></div>'+
-      '<div class="work"><div class="primary-area"><div class="views"><div class="view"><div class="view-head"><b class="preview-label">PREVIEW</b><span>LIVE FEED</span></div>'+frame+'<div class="overlay-note" id="previewNote">'+previewNote+'</div></div><div class="view"><div class="view-head"><b class="program-label">PROGRAM</b><span>ON AIR OUTPUT</span></div>'+program+'<div class="overlay-note" id="programNote">'+programNote+'</div></div></div>'+
-      '<div class="sources"><div class="source '+(live?'live':'')+'"><div class="source-head"><span>INPUT</span><span>'+(live?'ACTIVE':'WAITING')+'</span></div><div class="source-thumb">◉</div><div class="source-foot"><span>Live Feed</span><i class="dot"></i></div></div><div class="source '+(live?'live':'')+'"><div class="source-head"><span>PROGRAM</span><span>'+(live?'ON AIR':'OFF')+'</span></div><div class="source-thumb">▣</div><div class="source-foot"><span>Program Output</span><i class="dot"></i></div></div><div class="source"><div class="source-head"><span>WATCH</span><span>LINK</span></div><div class="source-thumb">▶</div><div class="source-foot"><span>Viewer Page</span><i class="dot"></i></div></div><div class="source '+(s.record_enabled?'live':'')+'"><div class="source-head"><span>REC</span><span>'+(s.record_enabled?'ARMED':'OFF')+'</span></div><div class="source-thumb">●</div><div class="source-foot"><span>Session Record</span><i class="dot"></i></div></div></div>'+
-      '<div class="mixer"><div class="strip"><strong>PROGRAM L</strong><small>Audio</small><div class="meter" id="meterL">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>LEVEL</span><b id="dbL">−∞</b></div></div><div class="strip"><strong>PROGRAM R</strong><small>Audio</small><div class="meter" id="meterR">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>LEVEL</span><b id="dbR">−∞</b></div></div><div class="strip"><strong>STREAM</strong><small>Output</small><div class="meter" id="meterStream">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>STATUS</span><b>'+(live?'LIVE':'OFF')+'</b></div></div><div class="strip"><strong>MONITOR</strong><small>Browser</small><div class="meter" id="meterMonitor">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>STATE</span><b id="monitorState">READY</b></div></div><div class="strip"><strong>MASTER</strong><small>Bus</small><div class="meter" id="meterMaster">'+segments(14)+'</div><div class="fader"><span class="knob"></span></div><div class="strip-foot"><span>PEAK</span><b id="dbMaster">−∞</b></div></div></div>'+
-      '<div class="audio-row"><div class="audio-title">AUDIO MONITOR</div><div class="audio-meter" id="audioMeter">'+segments(20)+'</div><div class="audio-db" id="audioDb">−∞ dBFS</div></div></div>'+
-      '<aside class="rack"><div class="panel"><div class="ph">OPERATOR CONTROLS</div><div class="pb grid2"><button class="rack-btn primary" id="watchBtn">WATCH</button><button class="rack-btn" id="fullBtn">FULL</button><button class="rack-btn" id="copyBtn">COPY</button><button class="rack-btn" id="muteBtn">MUTE</button></div></div>'+
-      '<div class="panel"><div class="ph">CHANNEL STATUS</div><div class="pb"><div class="rack-row"><span>Signal</span><b>'+(live?'ON AIR':'OFFLINE')+'</b></div><div class="rack-row"><span>Viewers</span><b id="viewerRack">'+Number(s.current_viewers||0)+'</b></div><div class="rack-row"><span>Recording</span><b>'+(s.record_enabled?'ARMED':'OFF')+'</b></div><div class="rack-row"><span>Format</span><b>H.264 / AAC</b></div><div class="rack-row"><span>Delivery</span><b>HLS</b></div></div></div>'+
-      '<div class="panel"><div class="ph">AUDIO METER</div><div class="pb rack-meter"><div class="rack-meter-line"><span>L</span><div class="rack-meter-segs" id="rackL">'+segments(12)+'</div><span id="rackDbL">−∞</span></div><div class="rack-meter-line"><span>R</span><div class="rack-meter-segs" id="rackR">'+segments(12)+'</div><span id="rackDbR">−∞</span></div></div></div>'+
-      '<div class="panel"><div class="ph">RECORDING</div><div class="pb"><div class="rack-row"><span>Automatic</span><b>'+(s.record_enabled?'ON':'OFF')+'</b></div><div class="rack-row"><span>Status</span><b>PAUSED</b></div></div></div></aside></div>'+
-      '<div class="controls"><div class="control-group"><button class="smallbtn primary" id="openWatch">OPEN WATCH PAGE</button><button class="smallbtn" id="monitorBtn">MONITOR AUDIO</button></div><div class="control-group"><span class="chip">'+(live?'PROGRAM LIVE':'PROGRAM OFFLINE')+'</span><span class="chip">'+(s.record_enabled?'AUTO RECORD ON':'AUTO RECORD OFF')+'</span></div></div>'+
-      '<div class="footer">FBI Live Standalone • Streaming engine unchanged • Recording currently paused</div>';
-    bindStudio(s,live);
-  }
-  function setVideoStatusStandalone(id,text){const e=document.getElementById(id);if(e)e.textContent=text||'';}
-  function startStandaloneHls(video,url,statusId){
-    if(!video||!url)return;
-    try{
-      if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=url;video.addEventListener('loadedmetadata',()=>{video.play().catch(()=>{});setVideoStatusStandalone(statusId,'LIVE')},{once:true});video.load();return}
-      if(window.Hls&&window.Hls.isSupported()){
-        const hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,maxBufferLength:20,maxMaxBufferLength:45,backBufferLength:30,capLevelToPlayerSize:true,startLevel:-1,xhrSetup:function(xhr){xhr.withCredentials=true}});
-        hls.loadSource(url);hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED,()=>{video.play().catch(()=>{});setVideoStatusStandalone(statusId,'LIVE')});
-        hls.on(Hls.Events.ERROR,(event,data)=>{if(data&&data.fatal){try{hls.destroy()}catch{}const s=document.getElementById(statusId);if(s)s.textContent='RECONNECTING';setTimeout(()=>startStandaloneHls(video,url,statusId),1200)}});
-        window.__studioHls=hls;
-        return;
-      }
-      video.src=url;video.addEventListener('loadedmetadata',()=>{video.play().catch(()=>{});setVideoStatusStandalone(statusId,'LIVE')},{once:true});video.load();
-    }catch(e){const s=document.getElementById('monitorState');if(s)s.textContent='PLAYBACK ERROR'}
-  }
-  function db(an){
-    const a=new Uint8Array(an.fftSize);an.getByteTimeDomainData(a);let s=0;for(let i=0;i<a.length;i++){let x=(a[i]-128)/128;s+=x*x}const rms=Math.sqrt(s/a.length);return rms>0?20*Math.log10(rms):-60;
-  }
-  function paint(id,val){
-    const e=document.getElementById(id);if(!e)return;const n=e.querySelectorAll('i'),lvl=Math.max(0,Math.min(n.length,Math.round((Math.max(-48,Math.min(0,val))+48)/48*n.length)));
-    n.forEach((x,i)=>x.className=i<lvl?(val>-6&&i>=n.length-4?'clip':val>-14&&i>=n.length-7?'hot':'on'):'');
-  }
-  function paintAudioLevel(level){
-    const v=Math.max(-60,Math.min(0,Number(level)));
-    ['meterL','rackL'].forEach(id=>paint(id,v));
-    ['meterR','rackR'].forEach(id=>paint(id,v));
-    ['meterStream','meterMonitor','meterMaster','audioMeter'].forEach(id=>paint(id,v));
-    [['dbL',v],['rackDbL',v],['dbR',v],['rackDbR',v],['dbMaster',v],['audioDb',v]].forEach(([id,val])=>{
-      const e=document.getElementById(id);
-      if(e)e.textContent=val<=-59?'−∞':val.toFixed(1)+(id==='audioDb'?' dBFS':' dB');
-    });
-    const st=document.getElementById('monitorState');
-    if(st)st.textContent='ACTIVE';
+    var list=$("channelList");if(!list)return;
+    $("channelCount").textContent=state.streams.length+" channel"+(state.streams.length===1?"":"s");
+    if(!state.streams.length){list.innerHTML='<div class="empty">No channels are configured. Use ADD.</div>';return}
+    list.innerHTML=state.streams.map(function(s){
+      return '<button type="button" class="channel '+(String(s.id)===String(state.selectedId)?"active":"")+'" data-channel-id="'+esc(s.id)+'">'+
+        '<div class="channel-top"><span class="channel-name">'+esc(s.name||s.title||"Untitled")+'</span><span class="channel-status '+(s.status==="live"?"live":"")+'">'+(s.status==="live"?"ON AIR":"OFFLINE")+'</span></div>'+
+        '<div class="channel-meta">'+esc(s.title||"FBI Live Channel")+"<br>"+Number(s.current_viewers||0)+" watching now</div></button>";
+    }).join("");
+    list.querySelectorAll("[data-channel-id]").forEach(function(b){b.addEventListener("click",function(){selectChannel(b.getAttribute("data-channel-id"))})})
   }
 
-  function stopAudioMeter(){
-    if(!audioState)return;
-    if(audioState.timer)clearInterval(audioState.timer);
-    audioState=null;
-    paintAudioLevel(-60);
-    const st=document.getElementById('monitorState');if(st)st.textContent='READY';
-  }
-
-  async function pollAudioMeter(){
-    const state=audioState;
-    if(!state||!state.streamId)return;
-    try{
-      const d=await api('/api/live/streams/'+encodeURIComponent(state.streamId)+'/audio-level?ts='+Date.now());
-      if(audioState!==state)return;
-      const level=Number.isFinite(Number(d.overall))?Number(d.overall):Math.max(Number(d.left)||-60,Number(d.right)||-60);
-      paintAudioLevel(level);
-      state.lastAt=Date.now();
-    }catch(e){
-      if(audioState===state)paintAudioLevel(-60);
-    }
-  }
-
-  function startAudioMeter(streamId){
-    stopAudioMeter();
-    audioState={streamId:String(streamId),timer:null,lastAt:0};
-    pollAudioMeter();
-    audioState.timer=setInterval(pollAudioMeter,200);
-  }
-
-  function bindStudioMedia(s,live){
-    const pv=document.getElementById('previewVideo'),pr=document.getElementById('programVideo');
-    if(!live){
-      stopAudioMeter();
+  function renderStatus(){
+    var s=state.selected;
+    if(!s){
+      $("airPill").textContent="OFFLINE";$("airPill").className="pill";
+      $("recordPill").textContent="RECORD PAUSED";$("recordPill").className="pill";
+      $("viewerPill").textContent="0 VIEWERS";$("channelPill").textContent="NO CHANNEL";$("airTimer").textContent="OFFLINE";
+      $("statusChannel").textContent="—";$("statusSignal").textContent="OFFLINE";$("statusViewers").textContent="0";$("statusRecording").textContent="PAUSED";
+      $("programStatus").textContent="OFFLINE";$("programStatus").className="monitor-note";$("programNote").textContent="Select a channel to load Program.";
       return;
     }
-    const publicToken=s.viewer_url?String(s.viewer_url).split('/watch/').pop().split(/[?#]/)[0]:'';
-    const playbackUrl=publicToken?('/api/public/stream/'+encodeURIComponent(publicToken)+'/hls/index.m3u8'):(s.hls_url||'');
-
-    // Preview and Program remain ordinary independent HLS players.
-    // Audio metering is supplied by the server-side analyser, so it cannot
-    // alter either player's mute state, autoplay, MediaSource, or playback.
-    if(pv)startStandaloneHls(pv,playbackUrl,'previewVideo');
-    if(pr)startStandaloneHls(pr,playbackUrl,'programVideo');
-    startAudioMeter(s.id);
+    var live=s.status==="live";
+    $("airPill").textContent=live?"ON AIR":"OFFLINE";$("airPill").className="pill"+(live?" live":"");
+    $("recordPill").textContent=s.record_enabled?"RECORDING ARMED":"RECORD PAUSED";$("recordPill").className="pill"+(s.record_enabled?" armed":"");
+    $("viewerPill").textContent=Number(s.current_viewers||0)+" VIEWERS";$("channelPill").textContent=String(s.name||s.title||"CHANNEL").toUpperCase();
+    $("statusChannel").textContent=s.name||s.title||"—";$("statusSignal").textContent=live?"ON AIR":"OFFLINE";$("statusViewers").textContent=String(Number(s.current_viewers||0));$("statusRecording").textContent=s.record_enabled?"ARMED":"PAUSED";
+    $("airTimer").textContent=live?formatDuration(s.started_at):"OFFLINE";
+    $("programStatus").textContent=live?"ON AIR":"OFFLINE";$("programStatus").className=live?"monitor-live":"monitor-note";$("programNote").textContent=live?"Program HLS is connected to the selected channel.":"Waiting for the channel signal.";
+    $("sourceChannelState").textContent=live?"ON AIR":"OFF";$("dotChannel").className="dot"+(live?" ok":"");
+    $("sourceRecordState").textContent=s.record_enabled?"ARMED":"OFF";$("dotRecord").className="dot"+(s.record_enabled?" ok":"");
   }
 
-  function bindStudio(s,live){
-    bindStudioMedia(s,live);
-    const open=()=>window.open(s.viewer_url,'_blank','noopener');
-    document.getElementById('watchBtn').onclick=open;document.getElementById('openWatch').onclick=open;
-    document.getElementById('copyBtn').onclick=()=>navigator.clipboard?.writeText('Server: '+s.rtmp_server+'\nStream Key: '+s.stream_key);
-    document.getElementById('fullBtn').onclick=()=>{
-      const v=document.getElementById('programVideo');
-      if(v?.requestFullscreen)v.requestFullscreen().catch(open);else open();
-    };
-    document.getElementById('muteBtn').onclick=()=>{
-      const v=document.getElementById('programVideo');if(!v)return;
-      v.muted=!v.muted;
-      document.getElementById('muteBtn').textContent=v.muted?'MUTE':'UNMUTE';
-    };
-    document.getElementById('monitorBtn').onclick=()=>{
-      const btn=document.getElementById('monitorBtn');
-      const st=document.getElementById('monitorState');
-      if(btn)btn.textContent='AUDIO METER ACTIVE';
-      if(st)st.textContent='ACTIVE';
-      pollAudioMeter();
-    };
-    if(window.__durationTimer)clearInterval(window.__durationTimer);
-    const started=s.started_at?Date.parse(s.started_at):NaN,el=document.getElementById('duration');const tick=()=>{if(!el||!live)return;if(!Number.isFinite(started)){el.textContent='ON AIR';return}let sec=Math.max(0,Math.floor((Date.now()-started)/1000)),h=Math.floor(sec/3600);sec%=3600;let m=Math.floor(sec/60),ss=sec%60;el.textContent=(h?String(h).padStart(2,'0')+':':'')+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0')};tick();window.__durationTimer=setInterval(tick,1000);
+  function updateDuration(){var s=state.selected;$("airTimer").textContent=s&&s.status==="live"?formatDuration(s.started_at):"OFFLINE"}
+
+  function destroyHls(){if(state.hls){try{state.hls.destroy()}catch{}state.hls=null}}
+
+  function loadProgramHls(force){
+    var s=state.selected,v=$("programVideo");if(!v)return;
+    var url=s?s.hls_url:"";
+    if(!url){destroyHls();v.removeAttribute("src");v.load();$("programNote").textContent="Select a channel to load Program.";return}
+    if(!force&&v.dataset.sourceUrl===url&&v.src)return;
+    destroyHls();v.dataset.sourceUrl=url;v.crossOrigin="anonymous";v.autoplay=true;v.playsInline=true;
+    function attach(){if(window.Hls&&Hls.isSupported()){
+        var h=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,maxBufferLength:20,maxMaxBufferLength:45,backBufferLength:30,capLevelToPlayerSize:true,startLevel:-1});
+        state.hls=h;
+        h.on(Hls.Events.MEDIA_ATTACHED,function(){v.play().catch(function(){})});
+        h.on(Hls.Events.MANIFEST_PARSED,function(){attachProgramAudio();v.play().catch(function(){})});
+        h.on(Hls.Events.ERROR,function(_,d){if(!d||!d.fatal)return;setMessage("Stream error. Check the URL and CORS headers.","error");$("programNote").textContent="Stream error. Check the URL and CORS headers.";try{h.destroy()}catch{}state.hls=null});
+        h.loadSource(url);h.attachMedia(v);
+      }else if(v.canPlayType("application/vnd.apple.mpegurl")){
+        v.src=url;v.load();v.addEventListener("loadedmetadata",function onMeta(){v.removeEventListener("loadedmetadata",onMeta);attachProgramAudio();v.play().catch(function(){})});
+      }else setMessage("This browser does not support HLS playback.","error")
+    }
+    attach();
   }
-  let viewerCountTimer=0;
-  async function refreshViewerCount(){
+
+  function fillMeters(){
+    document.querySelectorAll(".meter-stack").forEach(function(stack){if(stack.children.length)return;for(var i=0;i<20;i++)stack.appendChild(document.createElement("i"))})
+  }
+
+  function LevelMeter(analyser,id){
+    this.analyser=analyser;this.id=id;this.data=new Float32Array(analyser.fftSize);this.level=-60;this.peakHold=-60;this.holdUntil=0;
+  }
+  LevelMeter.prototype.paint=function(){
+    var peak=0;
+    this.analyser.getFloatTimeDomainData(this.data);
+    for(var i=0;i<this.data.length;i++){var a=Math.abs(this.data[i]);if(a>peak)peak=a}
+    var raw=peak>0?20*Math.log10(peak):-60;if(!isFinite(raw))raw=-60;raw=Math.max(-60,Math.min(0,raw));
+    if(raw>this.level)this.level=raw;else this.level=Math.max(raw,this.level-0.6);
+    var now=performance.now();
+    if(raw>=this.peakHold){this.peakHold=raw;this.holdUntil=now+1500}else if(now>this.holdUntil)this.peakHold=Math.max(-60,this.peakHold-0.35);
+    var card=document.querySelector('[data-meter="'+this.id+'"]');if(!card)return;
+    var segs=card.querySelectorAll(".meter-stack i"),lit=Math.round(((this.level+60)/60)*segs.length);
+    segs.forEach(function(seg,idx){var dbAt=-60+(idx+1)*60/segs.length;seg.className=idx<lit?(this.level>-6&&dbAt>-9?"clip":this.level>-14&&dbAt>-18?"hot":"on"):""},this);
+    var value=card.querySelector(".meter-value span");if(value)value.textContent=this.level<=-59?"-∞ dB":this.level.toFixed(1)+" dB";
+    var mark=card.querySelector(".peak-mark");if(mark){var y=((60-(this.peakHold+60))/60)*58;mark.style.transform="translateY("+y+"px)"}
+  }
+
+  function makeProgramAudio(){
+    var v=$("programVideo"),Ctx=window.AudioContext||window.webkitAudioContext;if(!v||!Ctx)return null;
+    if(state.programAudio&&state.programAudio.video===v)return state.programAudio;
     try{
-      const s=getSelected();
-      if(!s||!s.viewer_token)return;
-      const r=await api('/api/public/stream/'+encodeURIComponent(s.viewer_token)+'/status');
-      const count=Number(r.current_viewers||0);
-      const top=document.getElementById('viewerTop'),rack=document.getElementById('viewerRack');
-      if(top)top.textContent=String(count);
-      if(rack)rack.textContent=String(count);
-      // Keep the selected channel card in sync without rebuilding the player.
-      const card=document.querySelector('#channels [data-id="'+s.id+'"] .channel-meta');
-      if(card){
-        const title=esc(s.title||'');
-        card.innerHTML=title+'<br>'+count+' watching now';
-      }
-    }catch(e){/* viewer count is non-critical; keep the current displayed value */}
+      var ctx=new Ctx(),source=ctx.createMediaElementSource(v),splitter=ctx.createChannelSplitter(2),aL=ctx.createAnalyser(),aR=ctx.createAnalyser(),gain=ctx.createGain();
+      aL.fftSize=1024;aR.fftSize=1024;aL.smoothingTimeConstant=0;aR.smoothingTimeConstant=0;gain.gain.value=state.muted?0:1;
+      source.connect(splitter);splitter.connect(aL,0);splitter.connect(aR,1);source.connect(gain);gain.connect(ctx.destination);
+      state.programAudio={video:v,ctx:ctx,source:source,splitter:splitter,gain:gain,meterL:new LevelMeter(aL,"programL"),meterR:new LevelMeter(aR,"programR"),masterL:new LevelMeter(aL,"masterL"),masterR:new LevelMeter(aR,"masterR")};
+      $("programGraphState").textContent="ATTACHED";return state.programAudio;
+    }catch(e){$("programGraphState").textContent="BLOCKED";setMessage("Program audio meter could not attach. Check browser audio permissions.","error");return null}
   }
-  function startViewerCountPolling(){
-    if(viewerCountTimer)clearInterval(viewerCountTimer);
-    refreshViewerCount();
-    viewerCountTimer=setInterval(refreshViewerCount,2000);
-  }
-  let renderedStudioSignature='';
-  async function load(){
+
+  function makeInputAudio(){
+    var v=$("previewVideo"),Ctx=window.AudioContext||window.webkitAudioContext;if(!v||!Ctx)return null;
+    if(state.inputAudio&&state.inputAudio.video===v)return state.inputAudio;
     try{
-      const d=await api('/api/live/streams');
-      streams=d.streams||[];
-      if(!selectedId&&streams[0])selectedId=streams[0].id;
-      if(selectedId&&!streams.some(s=>s.id===selectedId))selectedId=streams[0]?.id||null;
-      renderChannels();
-      const s=getSelected();
-      // Keep the currently playing HLS MediaSource alive during status polling.
-      // Rebuilding the video DOM every 5 seconds was causing the picture to
-      // flash briefly and then return to black.
-      const signature=s?[s.id,s.status,s.viewer_url||'',s.hls_url||''].join('|'):'none';
-      if(signature!==renderedStudioSignature){
-        renderedStudioSignature=signature;
-        renderStudio();
-      }else if(s){
-        const v=Number(s.current_viewers||0);
-        const t=document.getElementById('viewerTop'),r=document.getElementById('viewerRack');
-        if(t)t.textContent=String(v);if(r)r.textContent=String(v);
-      }
-    }catch(e){if(e.message==='Unauthorised'||e.message==='Please log in')login()}
-  }
-  let deferredInstallPrompt=null;
-  window.addEventListener('beforeinstallprompt',event=>{
-    event.preventDefault();
-    deferredInstallPrompt=event;
-    const btn=document.getElementById('installBtn');
-    if(btn)btn.style.display='inline-flex';
-  });
-  window.addEventListener('appinstalled',()=>{
-    deferredInstallPrompt=null;
-    const btn=document.getElementById('installBtn');
-    if(btn)btn.style.display='none';
-  });
-  function isStandalone(){
-    return window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true;
-  }
-  async function installLivePwa(){
-    if(isStandalone())return;
-    if(!deferredInstallPrompt){toast('Use your browser menu and choose Install FBI Live.');return}
-    try{
-      deferredInstallPrompt.prompt();
-      await deferredInstallPrompt.userChoice;
-    }catch{}
-    deferredInstallPrompt=null;
-    const btn=document.getElementById('installBtn');
-    if(btn)btn.style.display='none';
+      var ctx=new Ctx(),source=ctx.createMediaElementSource(v),splitter=ctx.createChannelSplitter(2),aL=ctx.createAnalyser(),aR=ctx.createAnalyser(),gain=ctx.createGain();
+      aL.fftSize=1024;aR.fftSize=1024;aL.smoothingTimeConstant=0;aR.smoothingTimeConstant=0;gain.gain.value=0;
+      source.connect(splitter);splitter.connect(aL,0);splitter.connect(aR,1);source.connect(gain);gain.connect(ctx.destination);
+      state.inputAudio={video:v,ctx:ctx,source:source,splitter:splitter,gain:gain,meterL:new LevelMeter(aL,"previewL"),meterR:new LevelMeter(aR,"previewR")};
+      $("inputGraphState").textContent="ATTACHED";return state.inputAudio;
+    }catch(e){$("inputGraphState").textContent="BLOCKED";return null}
   }
 
-  async function registerLivePwa(){
-    if(!('serviceWorker' in navigator))return;
-    try{await navigator.serviceWorker.register('/sw.js',{scope:'/'})}catch(e){console.warn('FBI Live PWA registration failed',e)}
+  function resumeAudio(){
+    var jobs=[];
+    if(state.programAudio&&state.programAudio.ctx)jobs.push(state.programAudio.ctx.resume());
+    if(state.inputAudio&&state.inputAudio.ctx)jobs.push(state.inputAudio.ctx.resume());
+    Promise.allSettled(jobs);$("audioState").textContent="RUNNING";
+  }
+  function attachProgramAudio(){var a=makeProgramAudio();if(a){a.ctx.resume().catch(function(){});$("audioState").textContent="RUNNING"}}
+  function attachInputAudio(){var a=makeInputAudio();if(a){a.ctx.resume().catch(function(){});$("audioState").textContent="RUNNING"}}
+
+  function setPreviewSource(src){
+    if(!src)return;
+    state.selectedLocalId=src.id;
+    var v=$("previewVideo");
+    if(src.kind==="NDI"){
+      if(!src.image){src.image=new Image();src.image.crossOrigin="anonymous";src.image.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(src.name)+"&t="+Date.now()}
+      var c=document.createElement("canvas"),ctx=c.getContext("2d");c.width=1280;c.height=720;src.canvas=c;
+      function draw(){if(state.localSources.get(src.id)!==src)return;ctx.fillStyle="#000";ctx.fillRect(0,0,1280,720);if(src.image.complete&&src.image.naturalWidth){var scale=Math.max(1280/src.image.naturalWidth,720/src.image.naturalHeight),dw=src.image.naturalWidth*scale,dh=src.image.naturalHeight*scale;ctx.drawImage(src.image,(1280-dw)/2,(720-dh)/2,dw,dh)}src.raf=requestAnimationFrame(draw)}
+      draw();v.srcObject=c.captureStream(25);
+    }else v.srcObject=src.stream;
+    v.muted=false;v.autoplay=true;v.playsInline=true;v.play().catch(function(){});
+    attachInputAudio();$("previewNote").textContent=src.name+" ready in PREVIEW.";$("inputStatus").textContent=src.kind==="NDI"?"NDI PREVIEW":"INPUT ACTIVE";updateLocalState();
   }
 
-  async function boot(){
-    // Development/open-control mode: the standalone Live Control Center is
-    // intentionally accessible without an administrative login for now.
-    renderShell();
-    bindChannelCreator();
-    await load();
-    startViewerCountPolling();
-    if(refreshTimer)clearInterval(refreshTimer);
-    refreshTimer=setInterval(load,5000);
-    const installBtn=document.getElementById('installBtn');
-    if(installBtn){installBtn.style.display='inline-flex';installBtn.onclick=installLivePwa}
-  }  function closeChannelModal(){const m=document.getElementById('channelModal');if(m)m.classList.add('hidden')}
-  function openChannelModal(){const m=document.getElementById('channelModal');if(!m)return;m.classList.remove('hidden');document.getElementById('channelResult').style.display='none';document.getElementById('newChannelName').focus()}
-  function bindChannelCreator(){
-    const add=document.getElementById('addChannelBtn'),close=document.getElementById('channelClose'),cancel=document.getElementById('channelCancel'),modal=document.getElementById('channelModal'),create=document.getElementById('channelCreate');
-    if(add)add.onclick=openChannelModal;if(close)close.onclick=closeChannelModal;if(cancel)cancel.onclick=closeChannelModal;
-    if(modal)modal.onclick=e=>{if(e.target===modal)closeChannelModal()};
-    if(create)create.onclick=async function(){
-      const name=document.getElementById('newChannelName').value.trim(),title=document.getElementById('newChannelTitle').value.trim(),description=document.getElementById('newChannelDescription').value.trim(),result=document.getElementById('channelResult');
-      if(!name){toast('Channel name is required');return}
-      create.disabled=true;create.textContent='CREATING…';
-      try{
-        const d=await api('/api/live/streams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,title,description})});
-        selectedId=d.stream.id;
-        result.style.display='block';
-        result.innerHTML='<b>Channel created. RTMP setup generated.</b><div>Server<br><code>'+esc(d.stream.rtmp_server||'')+'</code></div><div style="margin-top:6px">Stream Key<br><code>'+esc(d.stream.stream_key||'')+'</code></div>';
-        await load();setTimeout(closeChannelModal,1000);
-      }catch(e){toast(e.message||'Could not create channel')}
-      finally{create.disabled=false;create.textContent='CREATE CHANNEL'}
-    };
+  function updateLocalState(){
+    var cam=Array.from(state.localSources.values()).some(function(s){return s.kind==="CAMERA"}),screen=Array.from(state.localSources.values()).some(function(s){return s.kind==="SCREEN"});
+    $("sourceCameraState").textContent=cam?"READY":"IDLE";$("sourceScreenState").textContent=screen?"READY":"IDLE";$("dotCamera").className="dot"+(cam?" ok":"");$("dotScreen").className="dot"+(screen?" ok":"");
   }
 
-  registerLivePwa();
-  boot();
+  function addCamera(){
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast("Camera capture is not supported in this browser.");return}
+    navigator.mediaDevices.getUserMedia({video:{width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}}).then(function(stream){
+      var id="camera-"+crypto.randomUUID();state.localSources.set(id,{id:id,name:"Camera / USB Capture",kind:"CAMERA",stream:stream});setPreviewSource(state.localSources.get(id));closeModal($("localModal"));toast("Camera source is ready in PREVIEW.");
+    }).catch(function(e){toast(e.name==="NotAllowedError"?"Camera access was blocked. Allow camera access and try again.":"Could not open the camera or capture device.")});
+  }
+
+  function addScreen(){
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getDisplayMedia){toast("Screen capture is not supported in this browser.");return}
+    navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:30}},audio:true}).then(function(stream){
+      var id="screen-"+crypto.randomUUID();state.localSources.set(id,{id:id,name:"Screen / Window",kind:"SCREEN",stream:stream});setPreviewSource(state.localSources.get(id));closeModal($("localModal"));toast("Screen source is ready in PREVIEW.");
+    }).catch(function(e){if(e.name!=="AbortError")toast("Screen capture was blocked or unavailable.")});
+  }
+
+  function addNdi(){
+    fetch("http://127.0.0.1:8765/sources",{cache:"no-store"}).then(function(r){return r.json()}).then(function(d){
+      var names=(d.sources||[]).map(String).filter(Boolean);if(!names.length)throw new Error();
+      var m=document.createElement("div");m.className="modal";
+      m.innerHTML='<div class="modal-card"><div class="modal-head"><div><strong>NDI SOURCES</strong><span>Select a discovered source for Preview</span></div><button class="close-btn" type="button">×</button></div><div class="modal-body" id="ndiList"></div></div>';
+      document.body.appendChild(m);var list=m.querySelector("#ndiList");
+      names.forEach(function(name){var row=document.createElement("div");row.className="local-item";row.innerHTML="<strong>"+esc(name)+"</strong><span>NDI Gateway / LAN</span><div class=\"local-actions\"><button class=\"btn primary\" type=\"button\">PREVIEW</button></div>";row.querySelector("button").addEventListener("click",function(){var id="ndi-"+crypto.randomUUID(),src={id:id,name:name,kind:"NDI"};state.localSources.set(id,src);setPreviewSource(src);m.remove();toast(name+" is ready in PREVIEW.")});list.appendChild(row)});
+      m.querySelector(".close-btn").addEventListener("click",function(){m.remove()});m.addEventListener("click",function(e){if(e.target===m)m.remove()});
+    }).catch(function(){toast("NDI Gateway is not available on this production computer.")});
+  }
+
+  function checkLocalEncoder(){
+    return fetch("http://127.0.0.1:8765/status",{cache:"no-store"}).then(function(r){if(!r.ok)throw new Error();return r.json()}).catch(function(){throw new Error("The FBI Local Studio encoder is not running on this production computer.")})
+  }
+
+  function makeLocalBridge(){
+    var Ctx=window.AudioContext||window.webkitAudioContext;if(!Ctx)throw new Error("Web Audio is not supported in this browser.");
+    var canvas=document.createElement("canvas"),ctx=canvas.getContext("2d",{alpha:false});canvas.width=1920;canvas.height=1080;var videoStream=canvas.captureStream(30),audio=new Ctx(),dest=audio.createMediaStreamDestination(),finalStream=new MediaStream(Array.from(videoStream.getVideoTracks()).concat(Array.from(dest.stream.getAudioTracks())));
+    var mime=["video/webm;codecs=vp8,opus","video/webm;codecs=vp9,opus","video/webm"].find(function(x){return window.MediaRecorder&&MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(x)})||"";if(!mime)throw new Error("This browser cannot encode the local Program output.");
+    return{canvas:canvas,ctx:ctx,videoStream:videoStream,audio:audio,destination:dest,recorder:new MediaRecorder(finalStream,{mimeType:mime,videoBitsPerSecond:4500000,audioBitsPerSecond:128000}),nodes:new Map(),raf:0,sendChain:Promise.resolve(),ready:false,session:"",channelId:""};
+  }
+
+  function drawLocal(bridge,src){
+    if(!bridge)return;
+    bridge.ctx.fillStyle="#000";bridge.ctx.fillRect(0,0,1920,1080);
+    var v=src&&src.stream?src.previewVideo:null;
+    if(src&&src.kind==="NDI"){
+      if(src.image&&src.image.complete&&src.image.naturalWidth){var scale=Math.max(1920/src.image.naturalWidth,1080/src.image.naturalHeight),dw=src.image.naturalWidth*scale,dh=src.image.naturalHeight*scale;bridge.ctx.drawImage(src.image,(1920-dw)/2,(1080-dh)/2,dw,dh)}
+    }else{
+      if(src&&!src.previewVideo){src.previewVideo=document.createElement("video");src.previewVideo.srcObject=src.stream;src.previewVideo.muted=true;src.previewVideo.playsInline=true;src.previewVideo.autoplay=true;src.previewVideo.play().catch(function(){});}
+      v=src?src.previewVideo:null;
+      if(v&&v.readyState>=2&&v.videoWidth&&v.videoHeight){var sc=Math.max(1920/v.videoWidth,1080/v.videoHeight),w=v.videoWidth*sc,h=v.videoHeight*sc;bridge.ctx.drawImage(v,(1920-w)/2,(1080-h)/2,w,h)}
+    }
+    bridge.raf=requestAnimationFrame(function(){drawLocal(bridge,src)});
+  }
+
+  function connectBridgeAudio(bridge,src){
+    if(!bridge||!src||src.kind==="NDI"||!src.stream||!src.stream.getAudioTracks||!src.stream.getAudioTracks().length)return null;
+    if(bridge.nodes.has(src.id))return bridge.nodes.get(src.id);
+    try{var ms=new MediaStream(src.stream.getAudioTracks()),input=bridge.audio.createMediaStreamSource(ms),gain=bridge.audio.createGain();gain.gain.value=1;input.connect(gain);gain.connect(bridge.destination);var node={input:input,gain:gain};bridge.nodes.set(src.id,node);return node}catch{return null}
+  }
+
+  function cleanupBridge(){
+    var b=state.localBridge;if(!b)return;
+    try{b.recorder.stop()}catch{}cancelAnimationFrame(b.raf);try{b.audio.close()}catch{}
+    if(b.session)fetch("http://127.0.0.1:8765/local/stop?session="+encodeURIComponent(b.session),{method:"POST"}).catch(function(){});
+    state.localBridge=null;
+  }
+
+  function takeToProgram(){
+    var s=state.selected,src=state.localSources.get(state.selectedLocalId);
+    if(!s){toast("Select a channel first.");return}
+    if(!src){toast("Select a local source for Preview first.");return}
+    if(s.status!=="live"){toast("TAKE requires the selected channel to be LIVE from OBS/vMix.");return}
+    $("takeBtn").disabled=true;$("takeBtn").textContent="PREPARING…";setMessage("Preparing the existing Program route and local encoder.","");
+    checkLocalEncoder().then(function(){return api("/api/live/streams/"+encodeURIComponent(s.id)+"/program/start",{method:"POST"})}).then(function(prep){
+      var bridge=makeLocalBridge();bridge.channelId=s.id;state.localBridge=bridge;
+      return fetch("http://127.0.0.1:8765/local/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({rtmp_url:prep.program_rtmp_url})}).then(function(r){return r.json().then(function(d){if(!r.ok||d.error)throw new Error(d.error||"Local Studio encoder could not start.");bridge.session=d.session;return bridge})})
+    }).then(function(bridge){
+      bridge.recorder.ondataavailable=function(e){
+        if(!e.data||!e.data.size)return;
+        bridge.sendChain=bridge.sendChain.then(function(){if(state.localBridge!==bridge)return e.data.arrayBuffer().then(function(){});return e.data.arrayBuffer()}).then(function(body){if(!body||state.localBridge!==bridge)return;return fetch("http://127.0.0.1:8765/local/chunk?session="+encodeURIComponent(bridge.session),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:body}).then(function(r){if(!r.ok)throw new Error("Local encoder rejected Program data.")})}).catch(function(e){setMessage(e.message||"Local encoder input failed.","error")});
+      };
+      connectBridgeAudio(bridge,state.localSources.get(state.selectedLocalId));bridge.audio.resume().catch(function(){});bridge.recorder.start(500);drawLocal(bridge,state.localSources.get(state.selectedLocalId));
+      var deadline=Date.now()+12000;
+      function waitReady(){return fetch("http://127.0.0.1:8765/local/status?session="+encodeURIComponent(bridge.session),{cache:"no-store"}).then(function(r){return r.json()}).then(function(st){if(st&&st.error)throw new Error(st.error);if(st&&st.running&&Number(st.bytes)>0){bridge.ready=true;return bridge}if(Date.now()>=deadline)throw new Error("Local Program encoder did not receive video data.");return new Promise(function(resolve){setTimeout(function(){resolve(waitReady())},350)})})}
+      return waitReady();
+    }).then(function(bridge){return api("/api/live/streams/"+encodeURIComponent(bridge.channelId)+"/program/activate",{method:"POST"}).then(function(){setMessage("TAKE completed. Program is now reading the active Program HLS route.","ok");toast("TAKE completed. Program is ON AIR.");loadProgramHls(true)})}).catch(function(e){cleanupBridge();if(s)api("/api/live/streams/"+encodeURIComponent(s.id)+"/program/stop",{method:"POST"}).catch(function(){});setMessage(e.message||"Could not take Preview to Program.","error");toast(e.message||"Could not take Preview to Program.")}).finally(function(){$("takeBtn").disabled=false;$("takeBtn").textContent="TAKE TO PROGRAM"})
+  }
+
+  function toggleMute(){state.muted=!state.muted;if(state.programAudio&&state.programAudio.gain)state.programAudio.gain.gain.value=state.muted?0:1;$("muteBtn").textContent=state.muted?"UNMUTE":"MUTE";setMessage(state.muted?"Program audio muted. Meters continue reading the HLS analyser.":"Program audio unmuted.","ok")}
+  function openWatch(){var s=state.selected;if(!s||!s.viewer_url){toast("No viewer page is available for this channel.");return}window.open(s.viewer_url,"_blank","noopener")}
+  function copySetup(){var s=state.selected;if(!s){toast("Select a channel first.");return}var t="Server: "+(s.rtmp_server||"")+"\nStream Key: "+(s.stream_key||"")+"\nHLS: "+(s.hls_url||"")+"\nViewer: "+(s.viewer_url||"");if(!navigator.clipboard){toast("Clipboard is unavailable.");return}navigator.clipboard.writeText(t).then(function(){toast("Setup copied.")}).catch(function(){toast("Could not copy the setup details.")})}
+  function openConnection(){var s=state.selected;if(!s){toast("Select a channel first.");return}$("connChannel").textContent=s.name||s.title||"—";$("connRtmp").textContent=s.rtmp_server||"RTMP server unavailable";$("connKey").textContent=s.stream_key||"—";$("connHls").textContent=s.hls_url||"—";$("connViewer").textContent=s.viewer_url||"—";$("connState").textContent=s.status==="live"?"Signal is live. OBS/vMix can publish to the existing RTMP server.":"Waiting for OBS/vMix. The channel configuration is ready.";openModal($("connectionModal"))}
+
+  function toggleRecord(enabled){
+    var s=state.selected;if(!s){toast("Select a channel first.");return}
+    api("/api/streams/"+encodeURIComponent(s.id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({record_enabled:!!enabled})}).then(function(d){
+      var updated=normalizeStream(d.stream);state.streams=state.streams.map(function(x){return x.id===s.id?updated:x});state.selected=updated;renderChannels();renderStatus();
+      setMessage(enabled?"Recording armed using the existing engine.":"Automatic recording has been disabled.","ok");toast(enabled?"Recording armed.":"Recording stopped/disarmed.")
+    }).catch(function(e){setMessage(e.message||"Could not update recording state.","error");toast(e.message||"Could not update recording state.")})
+  }
+
+  function createChannel(e){
+    e.preventDefault();var name=$("channelNameInput").value.trim(),title=$("channelTitleInput").value.trim(),description=$("channelDescriptionInput").value.trim();if(!name){toast("Channel name is required.");return}
+    $("channelCreate").disabled=true;$("channelCreate").textContent="CREATING…";$("channelCreateMessage").textContent="Creating the existing stream record…";
+    api("/api/live/streams",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name,title:title,description:description})}).then(function(d){state.selectedId=d.stream.id;return refreshStreams()}).then(function(){closeModal($("channelModal"));toast("Channel created.")}).catch(function(e){$("channelCreateMessage").textContent=e.message||"Could not create channel.";setMessage(e.message||"Could not create channel.","error")}).finally(function(){$("channelCreate").disabled=false;$("channelCreate").textContent="CREATE CHANNEL"})
+  }
+
+  function openModal(m){if(m)m.classList.remove("hidden")}function closeModal(m){if(m)m.classList.add("hidden")}
+
+  function selectChannel(id){
+    state.selectedId=id;state.selected=selectedStream();renderChannels();renderStatus();loadProgramHls(true);setMessage((state.selected.name||state.selected.title||"Channel")+" selected. Choose a local source for Preview.","");refreshStreams()
+  }
+
+  function refreshStreams(){
+    if(state.loading)return Promise.resolve(state.selected);state.loading=true;
+    return api("/api/live/streams",{cache:"no-store"}).then(function(d){
+      state.streams=(d.streams||[]).map(normalizeStream);
+      if(state.selectedId&&!state.streams.some(function(s){return String(s.id)===String(state.selectedId)}))state.selectedId="";
+      if(!state.selectedId&&state.streams[0])state.selectedId=state.streams[0].id;
+      state.selected=selectedStream();renderChannels();renderStatus();
+      if(state.selected&&!state.selected.hls_url)loadProgramHls(true);
+      return state.selected;
+    }).catch(function(e){setMessage(e.message||"Could not load channels.","error")}).finally(function(){state.loading=false})
+  }
+
+  function meterLoop(){
+    if(state.programAudio){state.programAudio.meterL.paint();state.programAudio.meterR.paint();state.programAudio.masterL.paint();state.programAudio.masterR.paint()}
+    if(state.inputAudio){state.inputAudio.meterL.paint();state.inputAudio.meterR.paint()}
+    requestAnimationFrame(meterLoop)
+  }
+
+  function setup(){
+    fillMeters();["previewVideo","programVideo"].forEach(function(id){$(id).setAttribute("crossorigin","anonymous")});
+    document.addEventListener("click",function(){resumeAudio()},{once:true});
+    $("connectBtn").addEventListener("click",openConnection);$("localBtn").addEventListener("click",function(){openModal($("localModal"))});
+    $("recordBtn").addEventListener("click",function(){toggleRecord(true)});$("stopRecordBtn").addEventListener("click",function(){toggleRecord(false)});
+    $("takeBtn").addEventListener("click",takeToProgram);$("watchBtn").addEventListener("click",openWatch);$("copyBtn").addEventListener("click",copySetup);
+    $("muteBtn").addEventListener("click",toggleMute);$("fullscreenBtn").addEventListener("click",function(){var v=$("programVideo");if(v.requestFullscreen)v.requestFullscreen().catch(function(){})});
+    $("connectionClose").addEventListener("click",function(){closeModal($("connectionModal"))});$("closeConnectionBtn").addEventListener("click",function(){closeModal($("connectionModal"))});$("copyConnectionBtn").addEventListener("click",copySetup);$("connectionModal").addEventListener("click",function(e){if(e.target===this)closeModal(this)});
+    $("addChannelBtn").addEventListener("click",function(){$("channelForm").reset();$("channelCreateMessage").textContent="The existing channel API will generate the stream key and viewer URL.";openModal($("channelModal"));setTimeout(function(){$("channelNameInput").focus()},40)});
+    $("channelClose").addEventListener("click",function(){closeModal($("channelModal"))});$("channelCancel").addEventListener("click",function(){closeModal($("channelModal"))});$("channelForm").addEventListener("submit",createChannel);$("channelModal").addEventListener("click",function(e){if(e.target===this)closeModal(this)});
+    $("localClose").addEventListener("click",function(){closeModal($("localModal"))});$("localModal").addEventListener("click",function(e){if(e.target===this)closeModal(this)});$("addCameraBtn").addEventListener("click",addCamera);$("addScreenBtn").addEventListener("click",addScreen);$("addNdiBtn").addEventListener("click",addNdi);
+    $("programVideo").addEventListener("loadedmetadata",attachProgramAudio);$("programVideo").addEventListener("canplay",attachProgramAudio);$("previewVideo").addEventListener("loadedmetadata",attachInputAudio);
+    $("programVideo").addEventListener("error",function(){var m="Stream error. Check the URL and CORS headers.";$("programNote").textContent=m;setMessage(m,"error")});
+    document.addEventListener("keydown",function(e){if(e.key==="Escape"){closeModal($("connectionModal"));closeModal($("channelModal"));closeModal($("localModal"))}});
+  }
+
+  cacheElsDummy=0;
+  setup();
+
+  setInterval(updateDuration,1000);
+  setInterval(function(){refreshStreams()},2000);
+  refreshStreams();
+  meterLoop();
 })();
 </script>
-<script src="/live-studio-addon.js?v=5"></script>
 </body>
 </html>
