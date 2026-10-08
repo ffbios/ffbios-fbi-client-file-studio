@@ -527,7 +527,7 @@ function loginView(){
 async function boot(){
   const path=location.pathname;
   if(path.startsWith('/share/')) return clientView(path.split('/')[2]||'');
-  const me=await api('/api/auth/me'); if(!me.authenticated)return loginView(); const params=new URLSearchParams(location.search); studioView(params.get('view')||'dashboard',params.get('stream')||'');
+  const params=new URLSearchParams(location.search); studioView(params.get('view')||'dashboard',params.get('stream')||'');
 }
 async function loadProjects(){
   const q=document.querySelector('#search')?.value||'';
