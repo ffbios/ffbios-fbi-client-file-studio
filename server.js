@@ -2619,22 +2619,20 @@ app.get("/api/public/stream/:token/replay",async(req,res)=>{
     const r=await publicStreamByToken(req.params.token);
     if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
     const stream=r.rows[0];
-    const q=await pool.query("SELECT id,filename,status,size_bytes,started_at,ended_at,created_at,storage_key FROM stream_recordings WHERE stream_id=$1 AND status='completed' AND size_bytes>0 ORDER BY ended_at DESC NULLS LAST,created_at DESC LIMIT 1",[stream.id]);
+    const q=await pool.query("SELECT id,filename,status,size_bytes,started_at,ended_at,created_at,storage_key,error FROM stream_recordings WHERE stream_id=$1 ORDER BY created_at DESC LIMIT 1",[stream.id]);
     const recording=q.rows[0];
 
     if(!s3Ready())return res.json({available:false,status:"storage_unavailable"});
-    if(!recording){
-      const latestQuery=await pool.query("SELECT id,filename,status,size_bytes,started_at,ended_at,created_at,error FROM stream_recordings WHERE stream_id=$1 ORDER BY created_at DESC LIMIT 1",[stream.id]);
-      const latest=latestQuery.rows[0];
-      if(latest&&latest.status==="recording"){
-        return res.json({available:false,status:"recording",recording:{id:latest.id,filename:latest.filename,started_at:latest.started_at}});
-      }
-      if(latest&&latest.status==="failed"){
-        return res.json({available:false,status:"failed",message:"Replay could not be saved for this broadcast."});
-      }
-      return res.json({available:false,status:"none"});
+    if(!recording)return res.json({available:false,status:"none"});
+    if(recording.status==="recording"){
+      return res.json({available:false,status:"recording",recording:{id:recording.id,filename:recording.filename,started_at:recording.started_at}});
     }
-
+    if(recording.status==="failed"){
+      return res.json({available:false,status:"failed",message:"Replay could not be saved for this broadcast."});
+    }
+    if(recording.status!=="completed"||Number(recording.size_bytes)<=0){
+      return res.json({available:false,status:"empty"});
+    }
     const meta=await headObjectWithRetry({Bucket:bucket(),Key:recording.storage_key});
     const total=Number(meta.ContentLength||recording.size_bytes||0);
     if(!Number.isFinite(total)||total<=0)return res.json({available:false,status:"empty"});
