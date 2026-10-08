@@ -16,8 +16,9 @@ const A={
 
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
 const api=async(url,options={})=>{const r=await fetch(url,options);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.error||"Request failed");return d};
-const activeChannelId=()=>document.querySelector("#channels .channel.active")?.dataset.id||"";
+const activeChannelId=()=>document.querySelector("#channelList .channel.active")?.dataset.channelId||"";
 const toast=msg=>{let t=document.getElementById("fbiLiveToast");if(!t){t=document.createElement("div");t.id="fbiLiveToast";document.body.appendChild(t)}t.textContent=msg;t.style.cssText="position:fixed;right:18px;bottom:18px;z-index:10000;background:#151518;color:#f4f4f6;border:1px solid #37373d;border-radius:9px;padding:10px 13px;font:800 9px Inter,system-ui,sans-serif;box-shadow:0 20px 70px rgba(0,0,0,.65)";clearTimeout(t._t);t._t=setTimeout(()=>t.remove(),2400)};
+async function refreshAddon(){const id=activeChannelId();if(!id)return;A.selectedChannel=id;try{await refreshChannelSource()}catch{}try{renderLocalGridOnly()}catch{}try{updateLocalUi()}catch{}}
 
 function injectStyle(){
   if(document.getElementById("fbiLiveAddonStyle"))return;
@@ -138,7 +139,7 @@ async function putChannelInProgram(openWatch=false){
   A.programChannel=id;A.localProgram="";A.selectedSource="channel";
   const pv=selectedPreviewVideo();if(pv&&A.channelData){destroyHls(pv);pv.srcObject=null;pv.removeAttribute("src");pv.load();setHls(pv,inputHlsUrl(A.channelData))}
   restoreProgram();
-  refresh();
+  refreshAddon();
   toast((A.channelData?.name||"Channel Feed")+" is back on PROGRAM");
   if(openWatch&&A.channelData?.viewer_url)window.open(A.channelData.viewer_url,"_blank","noopener");
 }
@@ -283,7 +284,7 @@ async function stopGateway(){
   try{b.out.audio.close()}catch{}
   A.bridge=null;A.localProgram="";
   await api("/api/live/streams/"+encodeURIComponent(id)+"/program/stop",{method:"POST"}).catch(()=>{});
-  restoreProgram();refresh();
+  restoreProgram();refreshAddon();
 }
 
 function restoreProgram(){
@@ -374,7 +375,7 @@ async function loadNdi(){
 async function addNdi(){
   const names=await loadNdi();const modal=document.createElement("div");modal.className="channel-modal";modal.style.zIndex="9000";
   modal.innerHTML='<div class="channel-box"><div class="channel-head"><b>NDI SOURCES</b><button class="channel-close" id="fbiNdiClose">×</button></div><div class="channel-body"><p class="channel-help">NDI sources are discovered automatically on the local network.</p><div id="fbiNdiList"></div></div></div>';document.body.appendChild(modal);const list=modal.querySelector("#fbiNdiList");
-  names.forEach(name=>{const row=document.createElement("div");row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px;border:1px solid #29292f;border-radius:7px;margin-bottom:6px";row.innerHTML='<b style="font-size:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(name)+'</b><button class="btn primary" style="font-size:7px">ADD</button>';row.querySelector("button").onclick=()=>{const id="ndi-"+crypto.randomUUID();const image=new Image();image.crossOrigin="anonymous";image.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(name)+"&t="+Date.now();A.sources.set(id,{id,name,kind:"NDI",detail:"NDI Gateway / LAN",ndiName:name,image});modal.remove();refresh();toast(name+" added")};list.appendChild(row)});
+  names.forEach(name=>{const row=document.createElement("div");row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px;border:1px solid #29292f;border-radius:7px;margin-bottom:6px";row.innerHTML='<b style="font-size:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(name)+'</b><button class="btn primary" style="font-size:7px">ADD</button>';row.querySelector("button").onclick=()=>{const id="ndi-"+crypto.randomUUID();const image=new Image();image.crossOrigin="anonymous";image.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(name)+"&t="+Date.now();A.sources.set(id,{id,name,kind:"NDI",detail:"NDI Gateway / LAN",ndiName:name,image});modal.remove();refreshAddon();toast(name+" added")};list.appendChild(row)});
   modal.querySelector("#fbiNdiClose").onclick=()=>modal.remove();modal.onclick=e=>{if(e.target===modal)modal.remove()};
 }
 function removeSource(id){
@@ -484,11 +485,10 @@ function build(){
   d.querySelector("#fbiTakeLocal").onclick=()=>{const s=A.sources.get(A.selectedSource);if(s)localTake(s);else toast("Select a local source for Preview first.")};
   const range=d.querySelector("#fbiLocalTbar");range.oninput=()=>{const n=Number(range.value);d.querySelector("#fbiLocalTbarValue").textContent=n+"%";if(n>=100){const s=A.sources.get(A.selectedSource);if(s)localTake(s);setTimeout(()=>{range.value=0;d.querySelector("#fbiLocalTbarValue").textContent="0%"},350)}};
 }
-function openLocal(){build();const id=activeChannelId();if(!id){toast("Select a live channel first.");return}A.selectedChannel=id;document.getElementById("fbiLocalDrawer").classList.add("open");refresh()}
+function openLocal(){build();const id=activeChannelId();if(!id){toast("Select a live channel first.");return}A.selectedChannel=id;document.getElementById("fbiLocalDrawer").classList.add("open");refreshAddon()}
 function addControls(){
-  const actions=document.querySelector(".top-actions");if(actions&&!document.getElementById("fbiLocalOpen")){const b=document.createElement("button");b.id="fbiLocalOpen";b.className="btn";b.textContent="LOCAL STUDIO";b.onclick=openLocal;actions.insertBefore(b,actions.firstChild)}
-  const rack=document.querySelector("#studio .rack .panel .pb.grid2");if(rack&&!document.getElementById("fbiTakeChannel")){const b=document.createElement("button");b.className="rack-btn primary";b.id="fbiTakeChannel";b.textContent="TAKE";rack.insertBefore(b,rack.firstChild);b.onclick=()=>putChannelInProgram(true)}
-  const ctrl=document.querySelector("#studio .controls .control-group");if(ctrl&&!document.getElementById("fbiTakeChannelBottom")){const b=document.createElement("button");b.className="smallbtn primary";b.id="fbiTakeChannelBottom";b.textContent="TAKE TO PROGRAM";ctrl.insertBefore(b,ctrl.firstChild);b.onclick=()=>putChannelInProgram(true)}
+  const local=document.getElementById("localBtn");
+  if(local&&!local.dataset.fbiBound){local.dataset.fbiBound="1";local.onclick=openLocal}
   build();
 }
 function protectProgram(){
