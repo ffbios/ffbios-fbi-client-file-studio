@@ -130,9 +130,12 @@ function render(){
   document.getElementById("mcrClock").textContent=fmtTime();
 }
 function dbFromMcrAnalyser(analyser){
-  const data=new Uint8Array(analyser.fftSize);analyser.getByteTimeDomainData(data);
-  let sum=0;for(let i=0;i<data.length;i++){const x=(data[i]-128)/128;sum+=x*x}
-  const rms=Math.sqrt(sum/data.length);return rms>0?20*Math.log10(rms):-60;
+  const data=new Float32Array(analyser.fftSize);
+  analyser.getFloatTimeDomainData(data);
+  let sum=0;
+  for(let i=0;i<data.length;i++)sum+=data[i]*data[i];
+  const rms=Math.sqrt(sum/data.length);
+  return rms>1e-6?Math.max(-96,20*Math.log10(rms)):-96;
 }
 function paintMcrSegments(id,value){
   const box=document.getElementById(id);if(!box)return;
@@ -143,27 +146,69 @@ function paintMcrSegments(id,value){
 function startMcrAudioMonitor(video){
   if(!video)return;
   try{
-    const C=window.AudioContext||window.webkitAudioContext;if(!C)throw new Error("Web Audio unavailable");
-    const ctx=new C(),source=ctx.createMediaElementSource(video),split=ctx.createChannelSplitter(2);
-    const left=ctx.createAnalyser(),right=ctx.createAnalyser();
-    left.fftSize=right.fftSize=1024;left.smoothingTimeConstant=right.smoothingTimeConstant=.78;
-    source.connect(split);split.connect(left,0);split.connect(right,1);
-    state.audio={ctx,video,left,right,raf:0};
+    const C=window.AudioContext||window.webkitAudioContext;
+    if(!C)throw new Error("Web Audio unavailable");
+
+    /*
+      The old monitor sampled the muted media element without keeping a live
+      Web Audio output path. Chromium can then expose silence to the analyser.
+      Keep the video muted, route decoded audio through a silent GainNode, and
+      analyse the actual stereo graph. The gain is zero, so this never becomes
+      audible to the operator.
+    */
+    const ctx=new C();
+    const source=ctx.createMediaElementSource(video);
+    const split=ctx.createChannelSplitter(2);
+    const left=ctx.createAnalyser();
+    const right=ctx.createAnalyser();
+    const silent=ctx.createGain();
+
+    left.fftSize=right.fftSize=2048;
+    left.minDecibels=right.minDecibels=-96;
+    left.maxDecibels=right.maxDecibels=0;
+    left.smoothingTimeConstant=right.smoothingTimeConstant=.32;
+
+    silent.gain.value=0;
+
+    source.connect(split);
+    split.connect(left,0);
+    split.connect(right,1);
+
+    // Keep the analyser graph alive without sending program audio to speakers.
+    left.connect(silent);
+    right.connect(silent);
+    silent.connect(ctx.destination);
+
+    state.audio={ctx,video,source,split,left,right,silent,raf:0};
+
     const tick=function(){
       if(!state.audio||state.audio.video!==video)return;
-      let l=dbFromMcrAnalyser(left),r=dbFromMcrAnalyser(right);if(r<=-58&&l>-52)r=l;
+
+      const l=dbFromMcrAnalyser(left);
+      const r=dbFromMcrAnalyser(right);
       const m=Math.max(l,r);
+
       ["meterL","rackL"].forEach(id=>paintMcrSegments(id,l));
       ["meterR","rackR"].forEach(id=>paintMcrSegments(id,r));
       ["meterStream","meterMonitor","meterMaster","audioMeter"].forEach(id=>paintMcrSegments(id,m));
+
       [["dbL",l],["rackDbL",l],["dbR",r],["rackDbR",r],["dbMaster",m],["audioDb",m]].forEach(([id,v])=>{
-        const e=document.getElementById(id);if(e)e.textContent=v<=-59?"−∞":v.toFixed(1)+(id==="audioDb"?" dBFS":" dB");
+        const e=document.getElementById(id);
+        if(e)e.textContent=v<=-59?"−∞":v.toFixed(1)+(id==="audioDb"?" dBFS":" dB");
       });
-      const st=document.getElementById("monitorState");if(st)st.textContent=ctx.state==="running"?"ACTIVE":"CLICK MONITOR";
+
+      const st=document.getElementById("monitorState");
+      if(st)st.textContent=ctx.state==="running"?"ACTIVE":"CLICK MONITOR";
+
       state.audio.raf=requestAnimationFrame(tick);
     };
-    ctx.resume().catch(()=>{});tick();
-    document.addEventListener("pointerdown",()=>{if(state.audio?.ctx?.state==="suspended")state.audio.ctx.resume().catch(()=>{})});
+
+    const resume=()=>{if(state.audio?.ctx===ctx&&ctx.state==="suspended")ctx.resume().catch(()=>{})};
+    ctx.resume().catch(()=>{});
+    document.addEventListener("pointerdown",resume,{passive:true});
+    video.addEventListener("play",resume,{once:false});
+
+    tick();
   }catch(e){
     const st=document.getElementById("monitorState");if(st)st.textContent="UNAVAILABLE";
     console.warn("MCR audio monitor:",e);
