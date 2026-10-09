@@ -1759,6 +1759,8 @@ app.post("/api/portal/team/invitations/accept",portalUser,async(req,res)=>{
   if(!invite)return res.status(404).json({error:"This invitation has expired or was already used. Ask the owner for a new link."});
   if(String(invite.email).toLowerCase()!==String(req.portalUser.email||"").toLowerCase())return res.status(403).json({error:"Use the email address the workspace owner invited."});
   if(String(invite.plan_id)!=="studio"||invite.subscription_status!=="active"||new Date(invite.current_period_end||0).getTime()<=Date.now())return res.status(403).json({error:"The Studio workspace subscription is not active. Ask the owner to check their subscription."});
+  const otherWorkspace=(await pool.query("SELECT workspace_id FROM creator_workspace_members WHERE user_id=$1 AND status='active' AND workspace_id<>$2 LIMIT 1",[req.portalUser.id,invite.workspace_id])).rows[0];
+  if(otherWorkspace)return res.status(409).json({error:"Your account already belongs to another Studio workspace. Leave that workspace before accepting a new invitation."});
   const already=(await pool.query("SELECT id FROM creator_workspace_members WHERE workspace_id=$1 AND user_id=$2 AND status='active' LIMIT 1",[invite.workspace_id,req.portalUser.id])).rows[0];
   if(!already){
     if(await workspaceMemberCount(invite.workspace_id)>=CREATOR_STUDIO_TEAM_SEATS)return res.status(409).json({error:"This team is full. Ask the owner to free a seat."});
