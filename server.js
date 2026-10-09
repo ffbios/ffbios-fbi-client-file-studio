@@ -2149,6 +2149,7 @@ app.patch("/api/portal/projects/:id",portalUser,async(req,res)=>{
   values.push(p.id,p.owner_id);
   const r=await pool.query("UPDATE projects SET "+fields.join(",")+" WHERE id=$"+n+" AND owner_id=$"+(n+1)+" RETURNING *",values);
   if(!r.rowCount)return res.status(404).json({error:"Project not found."});
+  await recordPortalActivity(req.portalUser.id,p.id,"project_updated",{fields:Object.keys(req.body||{}).filter(k=>["name","client_name","client_email","note","expires_at","shared","archived"].includes(k))});
   res.json({project:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not update project."})}
 });
