@@ -1,0 +1,228 @@
+let teamWorkspaceState = null;
+
+const ACTIVITY_LABELS = {
+  project_created: "Created project",
+  project_updated: "Updated project details",
+  project_added_to_workspace: "Moved project into Team Workspace",
+  client_share_link_created: "Created a client delivery link",
+  file_uploaded: "Uploaded a file",
+  file_favorited: "Added a file to Favorites",
+  file_unfavorited: "Removed a file from Favorites",
+  file_trashed: "Moved a file to Trash",
+  file_restored: "Restored a file from Trash",
+  file_permanently_deleted: "Permanently deleted a file",
+  project_deleted: "Deleted a project"
+};
+function activityTimestamp(value) {
+  try { return value ? new Date(value).toLocaleString() : ""; } catch { return String(value || ""); }
+}
+async function loadActivity() {
+  const box = document.querySelector("#portalActivityList");
+  if (box) box.innerHTML = '<div class="empty">Loading activity…</div>';
+  try {
+    const data = await api("/api/portal/activity?limit=100");
+    const events = Array.isArray(data.events) ? data.events : [];
+    if (!box) return;
+    if (!events.length) {
+      box.innerHTML = '<div class="empty">No activity has been recorded yet. As you create projects, share links and upload or manage files, your history will appear here.</div>';
+      return;
+    }
+    box.innerHTML = '<div class="activity-list" style="display:grid;gap:0">' + events.map(event => {
+      const details = event.details && typeof event.details === "object" ? event.details : {};
+      const project = details.project_name || "Project";
+      const file = details.file_name ? " • " + esc(details.file_name) : "";
+      const actor = event.actor_email || "Workspace member";
+      const action = ACTIVITY_LABELS[event.action] || String(event.action || "Activity").replaceAll("_", " ");
+      const extra = event.action === "file_uploaded" && Number(details.size_bytes) > 0 ? " • " + fmt(details.size_bytes) : "";
+      return '<article class="billing-history-row" style="grid-template-columns:minmax(0,1fr) auto;gap:10px"><div><b>' + esc(action) + '</b><span>' + esc(project) + file + extra + '</span><span>' + esc(actor) + '</span></div><div><span class="billing-muted">' + esc(activityTimestamp(event.created_at)) + '</span></div></article>';
+    }).join("") + '</div>';
+  } catch (error) {
+    if (box) box.innerHTML = '<div class="empty-action">' + esc(error.message || "Could not load activity history.") + '</div>';
+  }
+}
+document.querySelector("#refreshActivityBtn")?.addEventListener("click", loadActivity);
+
+async function loadTeamWorkspace() {
+  const box = document.querySelector("#teamWorkspaceContent");
+  if (box) box.innerHTML = '<div class="empty">Loading team workspace…</div>';
+  try {
+    teamWorkspaceState = await api("/api/portal/team");
+    renderTeamWorkspace();
+  } catch (error) {
+    if (box) box.innerHTML = '<div class="empty-action">' + esc(error.message || "Could not load the team workspace.") + '</div>';
+  }
+}
+
+function copyTeamInvitation(url) {
+  const value = String(url || "");
+  if (!value) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(value).then(
+      () => toastPortal("Invitation link copied."),
+      () => window.prompt("Copy this invitation link:", value)
+    );
+  } else {
+    window.prompt("Copy this invitation link:", value);
+  }
+}
+
+function renderTeamWorkspace() {
+  const box = document.querySelector("#teamWorkspaceContent");
+  if (!box) return;
+  const data = teamWorkspaceState || {};
+  if (!data.available) {
+    box.innerHTML = '<div class="panel"><div class="panelhead"><h3>Studio Team Workspace</h3></div><div class="panelbody"><p>Team Workspace is included with the active Studio subscription. The owner and two teammates use their own email accounts and share one storage allowance.</p><button type="button" class="btn primary" data-team-billing>View Storage Plans</button></div></div>';
+    box.querySelector("[data-team-billing]")?.addEventListener("click", () => selectPortalNav("billing"));
+    return;
+  }
+
+  const workspace = data.workspace || {};
+  const members = Array.isArray(data.members) ? data.members : [];
+  const invitations = Array.isArray(data.invitations) ? data.invitations : [];
+  const isOwner = data.is_owner === true;
+  const isActive = data.active === true;
+  const expiration = workspace.current_period_end ? new Date(workspace.current_period_end).toLocaleDateString() : "—";
+  const memberRows = members.map(member => {
+    const isWorkspaceOwner = member.role === "owner";
+    const role = isOwner && !isWorkspaceOwner
+      ? '<select class="inputlike" data-member-role="' + esc(member.user_id) + '"><option value="editor" ' + (member.role === "editor" ? "selected" : "") + '>Editor</option><option value="viewer" ' + (member.role === "viewer" ? "selected" : "") + '>Viewer</option></select>'
+      : '<span class="billing-pill">' + esc(isWorkspaceOwner ? "Owner" : member.role) + '</span>';
+    const remove = isOwner && !isWorkspaceOwner ? '<button type="button" class="btn danger" data-remove-member="' + esc(member.user_id) + '">Remove</button>' : "";
+    return '<div class="billing-history-row" style="grid-template-columns:minmax(0,1fr) auto auto;gap:8px"><div><b>' + esc(member.full_name || member.email) + '</b><span>' + esc(member.email) + '</span></div><div>' + role + '</div><div>' + remove + '</div></div>';
+  }).join("");
+
+  const invitationRows = invitations.map(invite => {
+    return '<div class="billing-history-row" style="grid-template-columns:minmax(0,1fr) auto;gap:8px"><div><b>' + esc(invite.email) + '</b><span>Pending invitation • expires ' + esc(new Date(invite.expires_at).toLocaleDateString()) + '</span></div><div><span class="billing-pill">' + esc(invite.role) + '</span> <button type="button" class="btn danger" data-cancel-invite="' + esc(invite.id) + '">Cancel</button></div></div>';
+  }).join("");
+
+  const totalSeats = Number(data.seat_limit || 3);
+  const usedSeats = Number(data.seat_count || members.length);
+  box.innerHTML =
+    '<div class="dashboard-wide"><div class="dashboard-card"><div class="billing-kicker">Studio Workspace</div><h2 style="margin:7px 0">' + esc(workspace.name || "Your Studio") + '</h2><p>Owned by ' + esc(workspace.owner_name || workspace.owner_email || "you") + '</p><div class="billing-big-price">' + usedSeats + ' / ' + totalSeats + ' <small>accounts reserved</small></div><p>One shared storage allowance for the owner and team. Subscription period ends ' + esc(expiration) + '.</p><span class="billing-pill ' + (isActive ? "" : "expired") + '">' + (isActive ? "Active Studio plan" : "Studio plan inactive") + '</span></div><div class="dashboard-card"><div class="billing-kicker">Team access</div><h3>Individual sign-ins, shared projects</h3><p>Each teammate signs in with their own email. Editors can upload and manage team projects; viewers have read-only access. Only the owner controls billing.</p><p><b>Plan limit:</b> three named accounts in total, including the owner.</p></div></div>' +
+    (!isActive ? '<div class="billing-notice"><strong>Team access is paused.</strong>Renew the Studio subscription to restore shared project and upload access.</div>' : '') +
+    '<div class="panel" style="margin-top:14px"><div class="panelhead"><h3>Team Members</h3><p>Adjust access roles or remove a teammate.</p></div><div class="panelbody">' + (memberRows || '<div class="empty">No members yet.</div>') + '</div></div>' +
+    (isOwner
+      ? '<div class="panel" style="margin-top:14px"><div class="panelhead"><h3>Invite a Teammate</h3><p>Three accounts total: you plus up to two teammates.</p></div><div class="panelbody"><form id="teamInviteForm"><div class="settinggrid"><div class="field"><label for="teamInviteEmail">Teammate email</label><input id="teamInviteEmail" type="email" required placeholder="editor@example.com"></div><div class="field"><label for="teamInviteRole">Access role</label><select id="teamInviteRole" class="inputlike"><option value="editor">Editor • Upload and manage team projects</option><option value="viewer">Viewer • Read-only project access</option></select></div></div><div id="teamInviteStatus" class="billing-muted" style="margin-bottom:9px"></div><button type="submit" class="btn primary" ' + (!isActive || usedSeats >= totalSeats ? "disabled" : "") + '>Create Invitation</button></form></div></div><div class="panel" style="margin-top:14px"><div class="panelhead"><h3>Pending Invitations</h3></div><div class="panelbody">' + (invitationRows || '<div class="empty">No pending invitations.</div>') + '</div></div>'
+      : '<div class="billing-notice"><strong>Workspace membership</strong>Only the workspace owner can invite or remove teammates and manage the subscription.</div>') +
+    (isOwner ? '<div class="panel" style="margin-top:14px"><div class="panelhead"><h3>Move Existing Projects into the Team Workspace</h3><p>Choose which existing private projects should become visible to your team.</p></div><div class="panelbody" id="teamPrivateProjects"><div class="empty">Loading your private projects…</div></div></div>' : '');
+
+  if (isOwner) loadPrivateProjectsForWorkspace().catch(error => {
+    const host = document.querySelector("#teamPrivateProjects");
+    if (host) host.innerHTML = '<div class="empty-action">' + esc(error.message || "Could not load private projects.") + '</div>';
+  });
+
+  box.querySelectorAll("[data-member-role]").forEach(select => {
+    select.addEventListener("change", async () => {
+      try {
+        await api("/api/portal/team/members/" + encodeURIComponent(select.dataset.memberRole), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: select.value }) });
+        toastPortal("Team role updated.");
+        await loadTeamWorkspace();
+      } catch (error) {
+        toastPortal(error.message);
+        await loadTeamWorkspace();
+      }
+    });
+  });
+  box.querySelectorAll("[data-remove-member]").forEach(button => {
+    button.addEventListener("click", async () => {
+      if (!confirm("Remove this member's Studio workspace access? Their individual account will remain intact.")) return;
+      try {
+        await api("/api/portal/team/members/" + encodeURIComponent(button.dataset.removeMember), { method: "DELETE" });
+        toastPortal("Workspace access removed.");
+        await loadTeamWorkspace();
+        await loadProjects();
+      } catch (error) { toastPortal(error.message); }
+    });
+  });
+  box.querySelectorAll("[data-cancel-invite]").forEach(button => {
+    button.addEventListener("click", async () => {
+      try {
+        await api("/api/portal/team/invitations/" + encodeURIComponent(button.dataset.cancelInvite), { method: "DELETE" });
+        toastPortal("Invitation cancelled.");
+        await loadTeamWorkspace();
+      } catch (error) { toastPortal(error.message); }
+    });
+  });
+  box.querySelectorAll("[data-copy-invite]").forEach(button => {
+    button.addEventListener("click", () => copyTeamInvitation(button.dataset.inviteUrl));
+  });
+  const form = document.querySelector("#teamInviteForm");
+  if (form) form.addEventListener("submit", async event => {
+    event.preventDefault();
+    const status = document.querySelector("#teamInviteStatus");
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    status.textContent = "Creating invitation…";
+    try {
+      const result = await api("/api/portal/team/invitations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: document.querySelector("#teamInviteEmail").value.trim(), role: document.querySelector("#teamInviteRole").value }) });
+      if (result.invitation_url) {
+        copyTeamInvitation(result.invitation_url);
+        toastPortal("Invitation link copied. Send it to " + result.email + ".");
+      } else {
+        toastPortal("The existing account has been added to the workspace.");
+      }
+      await loadTeamWorkspace();
+    } catch (error) {
+      status.textContent = error.message || "Could not create the invitation.";
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+async function loadPrivateProjectsForWorkspace() {
+  const host = document.querySelector("#teamPrivateProjects");
+  if (!host) return;
+  const data = await api("/api/portal/projects");
+  const rows = Array.isArray(data.projects) ? data.projects : [];
+  const privateProjects = rows.filter(project => !project.workspace_id);
+  if (!privateProjects.length) {
+    host.innerHTML = '<div class="empty">No private projects need moving. New projects created from this Studio account are already added to the team workspace.</div>';
+    return;
+  }
+  host.innerHTML = '<div class="billing-notice"><strong>Review before moving</strong>Team members will gain access to files in a moved project. Existing named project collaborators are removed from the project when it is converted, so they cannot bypass the Studio three-account limit. Public client delivery links remain as configured.</div>' +
+    privateProjects.map(project => '<div class="billing-history-row" style="grid-template-columns:minmax(0,1fr) auto;gap:8px"><div><b>' + esc(project.name) + '</b><span>' + esc(project.client_name || "No client") + ' • ' + Number(project.file_count || 0) + ' files • ' + fmt(project.total_bytes || 0) + '</span></div><div><button type="button" class="btn primary" data-move-project="' + esc(project.id) + '">Move to Team</button></div></div>').join("");
+  host.querySelectorAll("[data-move-project]").forEach(button => button.addEventListener("click", async () => {
+    const project = privateProjects.find(item => item.id === button.dataset.moveProject);
+    if (!project) return;
+    const confirmed = confirm('Move "' + project.name + '" into the shared Studio workspace? Your teammates will gain access to its files. Existing named collaborators will be removed from this project; its public client delivery links will remain.');
+    if (!confirmed) return;
+    button.disabled = true;
+    button.textContent = "Moving…";
+    try {
+      await api("/api/portal/projects/" + encodeURIComponent(project.id) + "/move-to-workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      toastPortal("Project moved into the Team Workspace.");
+      await loadProjects();
+      await loadTeamWorkspace();
+    } catch (error) {
+      toastPortal(error.message || "Could not move the project.");
+      button.disabled = false;
+      button.textContent = "Move to Team";
+    }
+  }));
+}
+
+async function acceptWorkspaceInvitationIfPresent() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get("invite");
+  if (!token || !me) return;
+  try {
+    const result = await api("/api/portal/team/invitations/accept", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
+    params.delete("invite");
+    const search = params.toString();
+    window.history.replaceState({}, "", location.pathname + (search ? "?" + search : "") + location.hash);
+    toastPortal("You joined " + (result.workspace_name || "the Studio workspace") + ".");
+    await loadProjects();
+    await selectPortalNav("team");
+  } catch (error) {
+    toastPortal(error.message || "Could not accept this invitation.");
+  }
+}
+
+const originalEnterPortalWithTeam = enterPortal;
+enterPortal = async function(user) {
+  await originalEnterPortalWithTeam(user);
+  await acceptWorkspaceInvitationIfPresent();
+};
+
+if (me) acceptWorkspaceInvitationIfPresent();

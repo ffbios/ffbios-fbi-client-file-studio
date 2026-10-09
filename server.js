@@ -368,19 +368,81 @@ async function portalProjectOwned(userId,projectId){
 }
 async function portalProjectAccessible(userId,projectId){
   const r=await pool.query(
-    "SELECT p.* FROM projects p LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE p.id=$1 AND (p.owner_id=$2 OR pc.user_id=$2)",
+    `SELECT p.* FROM projects p
+     LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2
+     WHERE p.id=$1 AND (p.owner_id=$2 OR pc.user_id=$2 OR EXISTS(
+       SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id
+       JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id
+       WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active'
+         AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()
+     ))`,
     [projectId,userId]
   );
   return r.rows[0]||null;
 }
 async function portalFileAccessible(userId,fileId){
   const r=await pool.query(
-    "SELECT f.*,p.name project_name,p.client_name,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND (p.owner_id=$2 OR pc.user_id=$2)",
+    `SELECT f.*,p.name project_name,p.client_name,p.owner_id,p.workspace_id
+     FROM files f JOIN projects p ON p.id=f.project_id
+     LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2
+     WHERE f.id=$1 AND (p.owner_id=$2 OR pc.user_id=$2 OR EXISTS(
+       SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id
+       JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id
+       WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active'
+         AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()
+     ))`,
     [fileId,userId]
   );
   return r.rows[0]||null;
 }
+async function portalProjectWritable(userId,projectId){
+  const r=await pool.query(
+    `SELECT p.* FROM projects p WHERE p.id=$1 AND (p.owner_id=$2 OR EXISTS(
+       SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id
+       JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id
+       WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active'
+         AND wm.role IN ('owner','admin','editor')
+         AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()
+     ))`,
+    [projectId,userId]
+  );
+  return r.rows[0]||null;
+}
+async function portalProjectManageable(userId,projectId){
+  const r=await pool.query(
+    `SELECT p.* FROM projects p WHERE p.id=$1 AND (p.owner_id=$2 OR EXISTS(
+       SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id
+       JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id
+       WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active'
+         AND wm.role IN ('owner','admin')
+         AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()
+     ))`,
+    [projectId,userId]
+  );
+  return r.rows[0]||null;
+}
+async function portalUploadSessionAccessible(userId,uploadId){
+  return pool.query(
+    `SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id
+     WHERE u.id=$1 AND (p.owner_id=$2 OR EXISTS(
+       SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id
+       JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id
+       WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active'
+         AND wm.role IN ('owner','admin','editor')
+         AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()
+     ))`,
+    [uploadId,userId]
+  );
+}
 
+async function recordPortalActivity(userId,projectId,action,details={}){
+ try{
+  const project=(await pool.query("SELECT id,name,workspace_id FROM projects WHERE id=$1 LIMIT 1",[projectId])).rows[0];
+  if(!project)return;
+  const user=(await pool.query("SELECT email FROM users WHERE id=$1 LIMIT 1",[userId])).rows[0]||{};
+  await pool.query("INSERT INTO creator_activity_events(id,actor_user_id,actor_email,workspace_id,project_id,action,details) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)",[uid(),userId,String(user.email||""),project.workspace_id||null,project.id,String(action||"activity").slice(0,80),JSON.stringify({project_name:project.name||"",...(details||{})})]);
+ }catch(e){console.warn("Could not record creative activity:",e?.message||e)}
+}
 function clientIp(req){return String(req.headers["x-forwarded-for"]||req.socket.remoteAddress||"").split(",")[0].trim().slice(0,120)}
 function s3Ready(){return Boolean(process.env.S3_BUCKET&&process.env.S3_ENDPOINT&&process.env.S3_ACCESS_KEY_ID&&process.env.S3_SECRET_ACCESS_KEY&&process.env.S3_REGION)}
 const s3=s3Ready()?new S3Client({
@@ -856,6 +918,77 @@ async function initDb(){
     );
     CREATE INDEX IF NOT EXISTS idx_creator_subscriptions_status ON creator_subscriptions(status,current_period_end);
 
+    CREATE TABLE IF NOT EXISTS creator_workspaces(
+      id uuid PRIMARY KEY,
+      owner_user_id uuid NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      name text NOT NULL DEFAULT '',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS creator_workspace_members(
+      id uuid PRIMARY KEY,
+      workspace_id uuid NOT NULL REFERENCES creator_workspaces(id) ON DELETE CASCADE,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role text NOT NULL DEFAULT 'editor' CHECK(role IN ('owner','admin','editor','viewer')),
+      status text NOT NULL DEFAULT 'active' CHECK(status IN ('active','revoked')),
+      invited_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE(workspace_id,user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_creator_workspace_members_user ON creator_workspace_members(user_id,status);
+    CREATE INDEX IF NOT EXISTS idx_creator_workspace_members_workspace ON creator_workspace_members(workspace_id,status);
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS workspace_id uuid REFERENCES creator_workspaces(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS idx_projects_workspace ON projects(workspace_id,updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS creator_workspace_invitations(
+      id uuid PRIMARY KEY,
+      workspace_id uuid NOT NULL REFERENCES creator_workspaces(id) ON DELETE CASCADE,
+      email text NOT NULL,
+      role text NOT NULL DEFAULT 'editor' CHECK(role IN ('editor','viewer')),
+      token_hash text UNIQUE NOT NULL,
+      status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','cancelled','expired')),
+      invited_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      accepted_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+      expires_at timestamptz NOT NULL,
+      accepted_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_workspace_invites_email ON creator_workspace_invitations(lower(email),status);
+    CREATE INDEX IF NOT EXISTS idx_workspace_invites_workspace ON creator_workspace_invitations(workspace_id,status,expires_at);
+
+    CREATE TABLE IF NOT EXISTS support_tickets(
+      id uuid PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      workspace_id uuid REFERENCES creator_workspaces(id) ON DELETE SET NULL,
+      subscription_plan_id text NOT NULL DEFAULT 'trial',
+      priority text NOT NULL DEFAULT 'standard' CHECK(priority IN ('standard','priority','high','studio')),
+      category text NOT NULL DEFAULT 'other',
+      subject text NOT NULL,
+      status text NOT NULL DEFAULT 'open' CHECK(status IN ('open','in_progress','waiting_on_customer','resolved')),
+      assigned_to text NOT NULL DEFAULT '',
+      closed_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_support_tickets_queue ON support_tickets(status,priority,created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id,created_at DESC);
+    CREATE TABLE IF NOT EXISTS support_ticket_messages(
+      id uuid PRIMARY KEY,
+      ticket_id uuid NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+      sender_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+      sender_type text NOT NULL CHECK(sender_type IN ('customer','admin')),
+      sender_name text NOT NULL DEFAULT '',
+      message text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_support_ticket_messages_ticket ON support_ticket_messages(ticket_id,created_at ASC);
+    CREATE TABLE IF NOT EXISTS creator_activity_events(id uuid PRIMARY KEY,actor_user_id uuid REFERENCES users(id) ON DELETE SET NULL,actor_email text NOT NULL DEFAULT '',workspace_id uuid REFERENCES creator_workspaces(id) ON DELETE SET NULL,project_id uuid REFERENCES projects(id) ON DELETE SET NULL,action text NOT NULL,details jsonb NOT NULL DEFAULT '{}'::jsonb,created_at timestamptz NOT NULL DEFAULT now());
+    CREATE INDEX IF NOT EXISTS idx_creator_activity_workspace ON creator_activity_events(workspace_id,created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_creator_activity_actor ON creator_activity_events(actor_user_id,created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_creator_activity_project ON creator_activity_events(project_id,created_at DESC);
+
     CREATE TABLE IF NOT EXISTS payment_transactions(
       id uuid PRIMARY KEY,
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -950,6 +1083,7 @@ const DEFAULT_CREATIVE_SETTINGS={business_name:"",portal_title:"Private Client G
 const CREATOR_TRIAL_BYTES=10*1000*1000*1000;
 const CREATOR_BILLING_CURRENCY=String(process.env.MOOLRE_CURRENCY||"GHS").trim().toUpperCase()||"GHS";
 const CREATOR_PLAN_IDS=["starter","creator","professional","studio"];
+const CREATOR_STUDIO_TEAM_SEATS=3;
 
 function moolreBaseUrl(){return String(process.env.MOOLRE_API_BASE||"https://api.moolre.com").replace(/\/+$/,"");}
 function moolreConfigured(){return Boolean(String(process.env.MOOLRE_API_USER||"").trim()&&String(process.env.MOOLRE_API_PUBKEY||"").trim()&&String(process.env.MOOLRE_ACCOUNT_NUMBER||"").trim());}
@@ -1000,43 +1134,81 @@ async function ensureCreatorSubscription(userId){
 async function getCreatorSubscription(userId){
   return ensureCreatorSubscription(userId);
 }
-async function creatorStorageUsage(userId){
+function creatorSubscriptionActive(sub){
+  return !!sub&&["trialing","active"].includes(String(sub.status||""))&&new Date(sub.current_period_end||0).getTime()>Date.now();
+}
+async function ensureCreatorWorkspace(userId){
+  const sub=await getCreatorSubscription(userId);
+  let existing=(await pool.query("SELECT * FROM creator_workspaces WHERE owner_user_id=$1 LIMIT 1",[userId])).rows[0]||null;
+  if(!existing){
+    if(String(sub?.plan_id||"")!=="studio"||!creatorSubscriptionActive(sub))return null;
+    const user=(await pool.query("SELECT u.full_name,u.email,cs.business_name FROM users u LEFT JOIN creative_settings cs ON cs.user_id=u.id WHERE u.id=$1 LIMIT 1",[userId])).rows[0]||{};
+    const displayName=String(user.business_name||user.full_name||String(user.email||"").split("@")[0]||"Creative").trim().slice(0,140);
+    existing=(await pool.query("INSERT INTO creator_workspaces(id,owner_user_id,name) VALUES($1,$2,$3) ON CONFLICT(owner_user_id) DO UPDATE SET updated_at=now() RETURNING *",[uid(),userId,(displayName+" Studio").slice(0,160)])).rows[0]||null;
+  }
+  if(existing)await pool.query("INSERT INTO creator_workspace_members(id,workspace_id,user_id,role,status) VALUES($1,$2,$3,'owner','active') ON CONFLICT(workspace_id,user_id) DO UPDATE SET role='owner',status='active',updated_at=now()",[uid(),existing.id,userId]);
+  return existing;
+}
+async function findWorkspaceForUser(userId,{includeInactive=true}={}){
+  await ensureCreatorWorkspace(userId);
+  const activeFilter=includeInactive?"":"AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()";
+  const r=await pool.query(
+    `SELECT w.*,wm.role,wm.status member_status,u.email owner_email,u.full_name owner_name,
+       cs.plan_id,cs.status subscription_status,cs.storage_bytes subscription_storage_bytes,
+       cs.monthly_price_ghs subscription_price_ghs,cs.current_period_end subscription_period_end
+     FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id
+     JOIN users u ON u.id=w.owner_user_id JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id
+     WHERE wm.user_id=$1 AND wm.status='active' ${activeFilter}
+     ORDER BY (w.owner_user_id=$1) DESC,w.created_at ASC LIMIT 1`,
+    [userId]
+  );
+  return r.rows[0]||null;
+}
+async function creatorStorageUsage(userId,workspaceId=null){
+  const where=workspaceId?"(p.owner_id=$1 OR p.workspace_id=$2)":"p.owner_id=$1";
+  const params=workspaceId?[userId,workspaceId]:[userId];
   const [used,reserved]=await Promise.all([
-    pool.query("SELECT COALESCE(SUM(f.size_bytes),0) bytes FROM files f JOIN projects p ON p.id=f.project_id WHERE p.owner_id=$1",[userId]),
-    pool.query("SELECT COALESCE(SUM(u.size_bytes),0) bytes FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE p.owner_id=$1 AND u.status='active'",[userId])
+    pool.query("SELECT COALESCE(SUM(f.size_bytes),0) bytes FROM files f JOIN projects p ON p.id=f.project_id WHERE "+where,params),
+    pool.query("SELECT COALESCE(SUM(u.size_bytes),0) bytes FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE "+where+" AND u.status='active'",params)
   ]);
   return {usedBytes:Number(used.rows[0]?.bytes||0),reservedBytes:Number(reserved.rows[0]?.bytes||0)};
 }
-async function creatorQuota(userId){
-  const sub=await getCreatorSubscription(userId);
-  const now=new Date();
-  const active=!!sub&&["trialing","active"].includes(String(sub.status))&&new Date(sub.current_period_end).getTime()>now.getTime();
-  const quota=active?Number(sub.storage_bytes||0):0;
-  const usage=await creatorStorageUsage(userId);
+async function creatorQuota(userId,projectId=null){
+  const personalSub=await getCreatorSubscription(userId);
+  let billingUserId=userId,workspaceId=null,sub=personalSub,isWorkspace=false,canManageBilling=true;
+  if(projectId){
+    const project=(await pool.query("SELECT workspace_id FROM projects WHERE id=$1 LIMIT 1",[projectId])).rows[0];
+    if(project?.workspace_id){
+      const ws=(await pool.query("SELECT id,owner_user_id FROM creator_workspaces WHERE id=$1 LIMIT 1",[project.workspace_id])).rows[0];
+      if(ws){workspaceId=ws.id;billingUserId=ws.owner_user_id;sub=await getCreatorSubscription(billingUserId);isWorkspace=true;canManageBilling=billingUserId===userId;}
+    }
+  }
+  if(!workspaceId&&String(personalSub?.plan_id||"")==="studio"){
+    const ws=await ensureCreatorWorkspace(userId);
+    const old=ws||((await pool.query("SELECT id FROM creator_workspaces WHERE owner_user_id=$1 LIMIT 1",[userId])).rows[0]||null);
+    if(old){workspaceId=old.id;billingUserId=userId;sub=personalSub;isWorkspace=true;canManageBilling=true;}
+  }
+  if(!workspaceId&&!projectId){
+    const memberWorkspace=await findWorkspaceForUser(userId,{includeInactive:true});
+    if(memberWorkspace){workspaceId=memberWorkspace.id;billingUserId=memberWorkspace.owner_user_id;sub=await getCreatorSubscription(billingUserId);isWorkspace=true;canManageBilling=billingUserId===userId;}
+  }
+  const active=creatorSubscriptionActive(sub),quota=active?Number(sub.storage_bytes||0):0;
+  const usage=await creatorStorageUsage(billingUserId,workspaceId);
   const available=Math.max(0,quota-usage.usedBytes-usage.reservedBytes);
-  return {subscription:sub,active,quotaBytes:quota,usedBytes:usage.usedBytes,reservedBytes:usage.reservedBytes,availableBytes:available};
+  return {subscription:sub,active,quotaBytes:quota,usedBytes:usage.usedBytes,reservedBytes:usage.reservedBytes,availableBytes:available,billingUserId,workspaceId,isWorkspace,canManageBilling};
 }
-async function assertCreatorQuotaForUpload(userId,uploadId,sizeBytes){
-  const q=await creatorQuota(userId);
-  if(!q.active) {
-    const err=new Error("Your storage plan is not active. Please subscribe to continue uploading.");
-    err.code="SUBSCRIPTION_REQUIRED";
-    err.quota=q;
-    throw err;
-  }
-  const otherReserved=await pool.query(
-    "SELECT COALESCE(SUM(u.size_bytes),0) bytes FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE p.owner_id=$1 AND u.status='active' AND u.id<>$2",
-    [userId,uploadId||"00000000-0000-0000-0000-000000000000"]
-  );
+async function assertCreatorQuotaForUpload(userId,uploadId,sizeBytes,projectId=null){
+  const q=await creatorQuota(userId,projectId);
+  if(!q.active){const err=new Error("Your storage plan is not active. Please subscribe to continue uploading.");err.code="SUBSCRIPTION_REQUIRED";err.quota=q;throw err;}
+  const where=q.workspaceId?"(p.owner_id=$1 OR p.workspace_id=$2)":"p.owner_id=$1";
+  const values=q.workspaceId?[q.billingUserId,q.workspaceId,uploadId||"00000000-0000-0000-0000-000000000000"]:[q.billingUserId,uploadId||"00000000-0000-0000-0000-000000000000"];
+  const exclude=q.workspaceId?"$3":"$2";
+  const otherReserved=await pool.query("SELECT COALESCE(SUM(u.size_bytes),0) bytes FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE "+where+" AND u.status='active' AND u.id<>"+exclude,values);
   const projected=q.usedBytes+Number(otherReserved.rows[0]?.bytes||0)+Number(sizeBytes||0);
-  if(projected>q.quotaBytes){
-    const err=new Error("This upload would exceed your current storage plan. Upgrade your plan to continue.");
-    err.code="STORAGE_QUOTA_EXCEEDED";
-    err.quota={...q,otherReservedBytes:Number(otherReserved.rows[0]?.bytes||0),projectedBytes:projected};
-    throw err;
-  }
+  if(projected>q.quotaBytes){const err=new Error("This upload would exceed your current storage plan. Upgrade your plan to continue.");err.code="STORAGE_QUOTA_EXCEEDED";err.quota={...q,otherReservedBytes:Number(otherReserved.rows[0]?.bytes||0),projectedBytes:projected};throw err;}
   return q;
 }
+
 async function fetchMoolre(pathname,body){
   if(!moolreConfigured()){
     const err=new Error("Moolre payment is not configured. Add MOOLRE_API_USER, MOOLRE_API_PUBKEY and MOOLRE_ACCOUNT_NUMBER in Railway.");
@@ -1075,6 +1247,7 @@ async function activateSubscriptionFromPayment(payment,providerPayload){
     "UPDATE creator_subscriptions SET plan_id=$2,status='active',storage_bytes=$3,monthly_price_ghs=$4,current_period_start=$5,current_period_end=$6,canceled_at=NULL,updated_at=now() WHERE user_id=$1",
     [payment.user_id,plan.id,Number(plan.storage_bytes),Number(plan.monthly_price_ghs),now,addOneMonth(now)]
   );
+  if(plan.id==="studio"){try{await ensureCreatorWorkspace(payment.user_id)}catch(e){console.error("Studio workspace initialization failed after payment activation:",e?.message||e)}}
   return (await pool.query("SELECT * FROM creator_subscriptions WHERE user_id=$1 LIMIT 1",[payment.user_id])).rows[0];
 }
 async function processMoolreWebhookPayload(body){
@@ -1538,15 +1711,237 @@ app.get("/api/portal/me",portalUser,async(req,res)=>{
 });
 
 
+async function studioWorkspaceForOwner(userId){
+  const sub=await getCreatorSubscription(userId);
+  if(String(sub?.plan_id||"")!=="studio"||!creatorSubscriptionActive(sub))return null;
+  return ensureCreatorWorkspace(userId);
+}
+async function workspaceMemberCount(workspaceId){
+  const r=await pool.query("SELECT count(*)::int total FROM creator_workspace_members WHERE workspace_id=$1 AND status='active'",[workspaceId]);
+  return Number(r.rows[0]?.total||0);
+}
+app.get("/api/portal/team",portalUser,async(req,res)=>{
+ try{
+  const ws=await findWorkspaceForUser(req.portalUser.id,{includeInactive:true});
+  if(!ws)return res.json({available:false,requires_studio:true,seat_limit:CREATOR_STUDIO_TEAM_SEATS});
+  const sub=await getCreatorSubscription(ws.owner_user_id);
+  const active=String(sub?.plan_id||"")==="studio"&&creatorSubscriptionActive(sub);
+  const isOwner=ws.owner_user_id===req.portalUser.id;
+  const members=(await pool.query("SELECT wm.id,wm.user_id,wm.role,wm.status,wm.created_at,u.email,u.full_name FROM creator_workspace_members wm JOIN users u ON u.id=wm.user_id WHERE wm.workspace_id=$1 AND wm.status='active' ORDER BY CASE wm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END,wm.created_at ASC",[ws.id])).rows;
+  const invitations=isOwner?(await pool.query("SELECT id,email,role,expires_at,created_at FROM creator_workspace_invitations WHERE workspace_id=$1 AND status='pending' AND expires_at>now() ORDER BY created_at DESC",[ws.id])).rows:[];
+  res.json({available:true,active,is_owner:isOwner,seat_limit:CREATOR_STUDIO_TEAM_SEATS,seat_count:members.length+invitations.length,
+    workspace:{id:ws.id,name:ws.name,owner_email:ws.owner_email,owner_name:ws.owner_name,plan_id:sub?.plan_id||"trial",status:sub?.status||"expired",current_period_end:sub?.current_period_end||null,storage_bytes:Number(sub?.storage_bytes||0)},
+    members,invitations});
+ }catch(e){console.error("Portal team workspace load failed:",e);res.status(500).json({error:"Could not load the team workspace."})}
+});
+app.post("/api/portal/team/invitations",portalUser,async(req,res)=>{
+ try{
+  const ws=await studioWorkspaceForOwner(req.portalUser.id);
+  if(!ws)return res.status(403).json({error:"Only the owner of an active Studio subscription can invite teammates."});
+  const email=String(req.body.email||"").trim().toLowerCase(),role=String(req.body.role||"editor").trim().toLowerCase();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({error:"Enter a valid email address."});
+  if(!["editor","viewer"].includes(role))return res.status(400).json({error:"Choose Editor or Viewer access."});
+  if(email===String(req.portalUser.email||"").toLowerCase())return res.status(400).json({error:"The workspace owner is already a member."});
+  await pool.query("UPDATE creator_workspace_invitations SET status='expired',updated_at=now() WHERE workspace_id=$1 AND lower(email)=lower($2) AND status='pending' AND expires_at<=now()",[ws.id,email]);
+  const existingUser=(await pool.query("SELECT id,email,full_name FROM users WHERE lower(email)=lower($1) LIMIT 1",[email])).rows[0]||null;
+  if(existingUser){const otherWorkspace=(await pool.query("SELECT workspace_id FROM creator_workspace_members WHERE user_id=$1 AND status='active' AND workspace_id<>$2 LIMIT 1",[existingUser.id,ws.id])).rows[0];if(otherWorkspace)return res.status(409).json({error:"That account already belongs to another Studio workspace. One account can join only one team workspace at a time."});}
+  const activeCount=await workspaceMemberCount(ws.id);
+  const pendingCount=Number((await pool.query("SELECT count(*)::int total FROM creator_workspace_invitations WHERE workspace_id=$1 AND status='pending' AND expires_at>now()",[ws.id])).rows[0]?.total||0);
+  if(existingUser){
+    const existingMember=(await pool.query("SELECT id,status FROM creator_workspace_members WHERE workspace_id=$1 AND user_id=$2 LIMIT 1",[ws.id,existingUser.id])).rows[0];
+    if(existingMember?.status==="active")return res.status(409).json({error:"That account is already a member of this workspace."});
+    if(activeCount+pendingCount>=CREATOR_STUDIO_TEAM_SEATS)return res.status(409).json({error:"Studio allows three named accounts total, including the owner. Remove a member or pending invitation before adding another."});
+    await pool.query("INSERT INTO creator_workspace_members(id,workspace_id,user_id,role,status,invited_by) VALUES($1,$2,$3,$4,'active',$5) ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=EXCLUDED.role,status='active',invited_by=EXCLUDED.invited_by,updated_at=now()",[uid(),ws.id,existingUser.id,role,req.portalUser.id]);
+    await pool.query("UPDATE creator_workspace_invitations SET status='cancelled',updated_at=now() WHERE workspace_id=$1 AND lower(email)=lower($2) AND status='pending'",[ws.id,email]);
+    return res.json({ok:true,added_existing_account:true,member:{email:existingUser.email,full_name:existingUser.full_name,role},invitation_url:""});
+  }
+  if(activeCount+pendingCount>=CREATOR_STUDIO_TEAM_SEATS)return res.status(409).json({error:"Studio allows three named accounts total, including the owner. Remove a member or pending invitation before adding another."});
+  await pool.query("UPDATE creator_workspace_invitations SET status='cancelled',updated_at=now() WHERE workspace_id=$1 AND lower(email)=lower($2) AND status='pending'",[ws.id,email]);
+  const token=crypto.randomBytes(32).toString("base64url"),expiresAt=new Date(Date.now()+7*86400000);
+  await pool.query("INSERT INTO creator_workspace_invitations(id,workspace_id,email,role,token_hash,invited_by,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)",[uid(),ws.id,email,role,crypto.createHash("sha256").update(token).digest("hex"),req.portalUser.id,expiresAt]);
+  res.json({ok:true,added_existing_account:false,invitation_url:appPublicBaseUrl(req)+"/portal?invite="+encodeURIComponent(token),email,role,expires_at:expiresAt});
+ }catch(e){console.error("Portal team invite failed:",e);res.status(500).json({error:"Could not create the team invitation."})}
+});
+app.post("/api/portal/team/invitations/accept",portalUser,async(req,res)=>{
+ try{
+  const token=String(req.body.token||"").trim();
+  if(!token||token.length>200)return res.status(400).json({error:"Invitation link is invalid."});
+  const hash=crypto.createHash("sha256").update(token).digest("hex");
+  const invite=(await pool.query("SELECT i.*,w.owner_user_id,w.name workspace_name,cs.plan_id,cs.status subscription_status,cs.current_period_end FROM creator_workspace_invitations i JOIN creator_workspaces w ON w.id=i.workspace_id JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id WHERE i.token_hash=$1 AND i.status='pending' AND i.expires_at>now() LIMIT 1",[hash])).rows[0];
+  if(!invite)return res.status(404).json({error:"This invitation has expired or was already used. Ask the owner for a new link."});
+  if(String(invite.email).toLowerCase()!==String(req.portalUser.email||"").toLowerCase())return res.status(403).json({error:"Use the email address the workspace owner invited."});
+  if(String(invite.plan_id)!=="studio"||invite.subscription_status!=="active"||new Date(invite.current_period_end||0).getTime()<=Date.now())return res.status(403).json({error:"The Studio workspace subscription is not active. Ask the owner to check their subscription."});
+  const otherWorkspace=(await pool.query("SELECT workspace_id FROM creator_workspace_members WHERE user_id=$1 AND status='active' AND workspace_id<>$2 LIMIT 1",[req.portalUser.id,invite.workspace_id])).rows[0];
+  if(otherWorkspace)return res.status(409).json({error:"Your account already belongs to another Studio workspace. Leave that workspace before accepting a new invitation."});
+  const already=(await pool.query("SELECT id FROM creator_workspace_members WHERE workspace_id=$1 AND user_id=$2 AND status='active' LIMIT 1",[invite.workspace_id,req.portalUser.id])).rows[0];
+  if(!already){
+    if(await workspaceMemberCount(invite.workspace_id)>=CREATOR_STUDIO_TEAM_SEATS)return res.status(409).json({error:"This team is full. Ask the owner to free a seat."});
+    await pool.query("INSERT INTO creator_workspace_members(id,workspace_id,user_id,role,status,invited_by) VALUES($1,$2,$3,$4,'active',$5) ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=EXCLUDED.role,status='active',invited_by=EXCLUDED.invited_by,updated_at=now()",[uid(),invite.workspace_id,req.portalUser.id,invite.role,invite.invited_by]);
+  }
+  await pool.query("UPDATE creator_workspace_invitations SET status='accepted',accepted_user_id=$2,accepted_at=now(),updated_at=now() WHERE id=$1",[invite.id,req.portalUser.id]);
+  res.json({ok:true,workspace_name:invite.workspace_name,role:invite.role});
+ }catch(e){console.error("Team invitation acceptance failed:",e);res.status(500).json({error:"Could not accept the invitation."})}
+});
+app.delete("/api/portal/team/invitations/:id",portalUser,async(req,res)=>{
+ try{
+  const ws=await studioWorkspaceForOwner(req.portalUser.id);
+  if(!ws)return res.status(403).json({error:"Only the active Studio workspace owner can manage invitations."});
+  const r=await pool.query("UPDATE creator_workspace_invitations SET status='cancelled',updated_at=now() WHERE id=$1 AND workspace_id=$2 AND status='pending' RETURNING id",[req.params.id,ws.id]);
+  if(!r.rowCount)return res.status(404).json({error:"Pending invitation not found."});
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not cancel the invitation."})}
+});
+app.patch("/api/portal/team/members/:userId",portalUser,async(req,res)=>{
+ try{
+  const ws=await studioWorkspaceForOwner(req.portalUser.id);
+  if(!ws)return res.status(403).json({error:"Only the active Studio workspace owner can manage members."});
+  const role=String(req.body.role||"").trim().toLowerCase();
+  if(!["editor","viewer"].includes(role))return res.status(400).json({error:"Choose Editor or Viewer access."});
+  const r=await pool.query("UPDATE creator_workspace_members SET role=$3,updated_at=now() WHERE workspace_id=$1 AND user_id=$2 AND status='active' AND role<>'owner' RETURNING user_id,role,status",[ws.id,req.params.userId,role]);
+  if(!r.rowCount)return res.status(404).json({error:"Team member not found."});
+  res.json({ok:true,member:r.rows[0]});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not update the team member."})}
+});
+app.delete("/api/portal/team/members/:userId",portalUser,async(req,res)=>{
+ try{
+  const ws=await studioWorkspaceForOwner(req.portalUser.id);
+  if(!ws)return res.status(403).json({error:"Only the active Studio workspace owner can remove members."});
+  if(req.params.userId===req.portalUser.id)return res.status(400).json({error:"The workspace owner cannot remove themselves."});
+  const r=await pool.query("UPDATE creator_workspace_members SET status='revoked',updated_at=now() WHERE workspace_id=$1 AND user_id=$2 AND role<>'owner' AND status='active' RETURNING user_id",[ws.id,req.params.userId]);
+  if(!r.rowCount)return res.status(404).json({error:"Team member not found."});
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not remove the team member."})}
+});
+
+function creatorSupportPriority(planId,active){
+  if(!active)return "standard";
+  return ({studio:"studio",professional:"high",creator:"priority"})[String(planId||"")]||"standard";
+}
+async function currentCreatorSupportContext(userId){
+  const q=await creatorQuota(userId);
+  return {planId:String(q.subscription?.plan_id||"trial"),priority:creatorSupportPriority(q.subscription?.plan_id,q.active),workspaceId:q.workspaceId||null,active:q.active};
+}
+app.get("/api/portal/activity",portalUser,async(req,res)=>{
+ try{
+  const raw=Number(req.query.limit||100),limit=Math.max(1,Math.min(200,Number.isFinite(raw)?Math.floor(raw):100));
+  const ws=await findWorkspaceForUser(req.portalUser.id,{includeInactive:true});
+  let result;
+  if(ws&&ws.owner_user_id!==req.portalUser.id){
+    result=await pool.query("SELECT e.id,e.actor_user_id,e.actor_email,e.workspace_id,e.project_id,e.action,e.details,e.created_at FROM creator_activity_events e WHERE e.workspace_id=$1 ORDER BY e.created_at DESC LIMIT $2",[ws.id,limit]);
+  }else if(ws){
+    result=await pool.query("SELECT e.id,e.actor_user_id,e.actor_email,e.workspace_id,e.project_id,e.action,e.details,e.created_at FROM creator_activity_events e WHERE e.workspace_id=$1 OR (e.workspace_id IS NULL AND e.actor_user_id=$2) ORDER BY e.created_at DESC LIMIT $3",[ws.id,req.portalUser.id,limit]);
+  }else{
+    result=await pool.query("SELECT e.id,e.actor_user_id,e.actor_email,e.workspace_id,e.project_id,e.action,e.details,e.created_at FROM creator_activity_events e WHERE e.workspace_id IS NULL AND e.actor_user_id=$1 ORDER BY e.created_at DESC LIMIT $2",[req.portalUser.id,limit]);
+  }
+  res.json({events:result.rows,workspace:ws?{id:ws.id,name:ws.name,is_owner:ws.owner_user_id===req.portalUser.id}:null});
+ }catch(e){console.error("Portal activity list failed:",e);res.status(500).json({error:"Could not load activity history."})}
+});
+app.get("/api/portal/support/tickets",portalUser,async(req,res)=>{
+ try{
+  const r=await pool.query(
+    `SELECT t.*,(SELECT m.message FROM support_ticket_messages m WHERE m.ticket_id=t.id ORDER BY m.created_at DESC LIMIT 1) last_message
+     FROM support_tickets t WHERE t.user_id=$1
+     ORDER BY CASE t.priority WHEN 'studio' THEN 0 WHEN 'high' THEN 1 WHEN 'priority' THEN 2 ELSE 3 END,t.updated_at DESC LIMIT 100`,
+    [req.portalUser.id]
+  );
+  res.json({tickets:r.rows});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load your support requests."})}
+});
+app.post("/api/portal/support/tickets",portalUser,async(req,res)=>{
+ try{
+  const subject=String(req.body.subject||"").trim().slice(0,160);
+  const message=String(req.body.message||"").trim().slice(0,6000);
+  const allowedCategories=["uploads","client_sharing","billing","account_access","file_management","other"];
+  const category=allowedCategories.includes(String(req.body.category||""))?String(req.body.category):"other";
+  if(subject.length<4)return res.status(400).json({error:"Enter a short subject for your request."});
+  if(message.length<8)return res.status(400).json({error:"Please describe the issue in a little more detail."});
+  const context=await currentCreatorSupportContext(req.portalUser.id);
+  const user=(await pool.query("SELECT full_name FROM users WHERE id=$1",[req.portalUser.id])).rows[0]||{};
+  const id=uid();
+  await pool.query("INSERT INTO support_tickets(id,user_id,workspace_id,subscription_plan_id,priority,category,subject,status) VALUES($1,$2,$3,$4,$5,$6,$7,'open')",[id,req.portalUser.id,context.workspaceId,context.planId,context.priority,category,subject]);
+  await pool.query("INSERT INTO support_ticket_messages(id,ticket_id,sender_user_id,sender_type,sender_name,message) VALUES($1,$2,$3,'customer',$4,$5)",[uid(),id,req.portalUser.id,String(user.full_name||req.portalUser.email||"Customer"),message]);
+  const ticket=(await pool.query("SELECT * FROM support_tickets WHERE id=$1",[id])).rows[0];
+  res.json({ok:true,ticket});
+ }catch(e){console.error("Support ticket creation failed:",e);res.status(500).json({error:"Could not submit your support request."})}
+});
+app.get("/api/portal/support/tickets/:id",portalUser,async(req,res)=>{
+ try{
+  const ticket=(await pool.query("SELECT * FROM support_tickets WHERE id=$1 AND user_id=$2 LIMIT 1",[req.params.id,req.portalUser.id])).rows[0];
+  if(!ticket)return res.status(404).json({error:"Support request not found."});
+  const messages=(await pool.query("SELECT id,sender_type,sender_name,message,created_at FROM support_ticket_messages WHERE ticket_id=$1 ORDER BY created_at ASC",[ticket.id])).rows;
+  res.json({ticket,messages});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not open the support request."})}
+});
+app.post("/api/portal/support/tickets/:id/messages",portalUser,async(req,res)=>{
+ try{
+  const message=String(req.body.message||"").trim().slice(0,6000);
+  if(message.length<2)return res.status(400).json({error:"Enter a reply before sending."});
+  const ticket=(await pool.query("SELECT * FROM support_tickets WHERE id=$1 AND user_id=$2 LIMIT 1",[req.params.id,req.portalUser.id])).rows[0];
+  if(!ticket)return res.status(404).json({error:"Support request not found."});
+  const user=(await pool.query("SELECT full_name FROM users WHERE id=$1",[req.portalUser.id])).rows[0]||{};
+  await pool.query("INSERT INTO support_ticket_messages(id,ticket_id,sender_user_id,sender_type,sender_name,message) VALUES($1,$2,$3,'customer',$4,$5)",[uid(),ticket.id,req.portalUser.id,String(user.full_name||req.portalUser.email||"Customer"),message]);
+  await pool.query("UPDATE support_tickets SET status=CASE WHEN status='resolved' OR status='waiting_on_customer' THEN 'open' ELSE status END,closed_at=NULL,updated_at=now() WHERE id=$1",[ticket.id]);
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not send your reply."})}
+});
+app.get("/api/admin/support/tickets",admin,async(req,res)=>{
+ try{
+  const status=String(req.query.status||"").trim(),allowed=["open","in_progress","waiting_on_customer","resolved"],values=[];
+  let filter="";
+  if(allowed.includes(status)){values.push(status);filter="WHERE t.status=$1";}
+  const r=await pool.query(
+    `SELECT t.*,u.email user_email,u.full_name user_name,
+       (SELECT count(*)::int FROM support_ticket_messages m WHERE m.ticket_id=t.id) message_count,
+       (SELECT m.message FROM support_ticket_messages m WHERE m.ticket_id=t.id ORDER BY m.created_at DESC LIMIT 1) last_message
+     FROM support_tickets t JOIN users u ON u.id=t.user_id ${filter}
+     ORDER BY CASE t.priority WHEN 'studio' THEN 0 WHEN 'high' THEN 1 WHEN 'priority' THEN 2 ELSE 3 END,
+       CASE t.status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'waiting_on_customer' THEN 2 ELSE 3 END,
+       t.updated_at DESC LIMIT 300`,
+    values
+  );
+  res.json({tickets:r.rows});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load support queue."})}
+});
+app.get("/api/admin/support/tickets/:id",admin,async(req,res)=>{
+ try{
+  const ticket=(await pool.query("SELECT t.*,u.email user_email,u.full_name user_name FROM support_tickets t JOIN users u ON u.id=t.user_id WHERE t.id=$1 LIMIT 1",[req.params.id])).rows[0];
+  if(!ticket)return res.status(404).json({error:"Support request not found."});
+  const messages=(await pool.query("SELECT id,sender_type,sender_name,message,created_at FROM support_ticket_messages WHERE ticket_id=$1 ORDER BY created_at ASC",[ticket.id])).rows;
+  res.json({ticket,messages});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not open support request."})}
+});
+app.post("/api/admin/support/tickets/:id/reply",admin,async(req,res)=>{
+ try{
+  const message=String(req.body.message||"").trim().slice(0,6000);
+  if(message.length<2)return res.status(400).json({error:"Enter a reply before sending."});
+  const ticket=(await pool.query("SELECT id FROM support_tickets WHERE id=$1 LIMIT 1",[req.params.id])).rows[0];
+  if(!ticket)return res.status(404).json({error:"Support request not found."});
+  await pool.query("INSERT INTO support_ticket_messages(id,ticket_id,sender_user_id,sender_type,sender_name,message) VALUES($1,$2,NULL,'admin',$3,$4)",[uid(),ticket.id,ADMIN_EMAIL,message]);
+  await pool.query("UPDATE support_tickets SET status=CASE WHEN status='resolved' THEN 'open' ELSE 'waiting_on_customer' END,closed_at=NULL,assigned_to=$2,updated_at=now() WHERE id=$1",[ticket.id,ADMIN_EMAIL]);
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not send the support reply."})}
+});
+app.patch("/api/admin/support/tickets/:id",admin,async(req,res)=>{
+ try{
+  const status=String(req.body.status||"").trim();
+  if(!["open","in_progress","waiting_on_customer","resolved"].includes(status))return res.status(400).json({error:"Select a valid ticket status."});
+  const r=await pool.query("UPDATE support_tickets SET status=$2,closed_at=CASE WHEN $2='resolved' THEN now() ELSE NULL END,assigned_to=$3,updated_at=now() WHERE id=$1 RETURNING *",[req.params.id,status,ADMIN_EMAIL]);
+  if(!r.rowCount)return res.status(404).json({error:"Support request not found."});
+  res.json({ok:true,ticket:r.rows[0]});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not update the support request."})}
+});
+
 app.get("/api/portal/billing",portalUser,async(req,res)=>{
  try{
-  const sub=await getCreatorSubscription(req.portalUser.id);
   const q=await creatorQuota(req.portalUser.id);
+  const sub=q.subscription||await getCreatorSubscription(req.portalUser.id);
   const plans=(await pool.query("SELECT id,name,storage_bytes,monthly_price_ghs FROM subscription_plans WHERE active=true AND id<>$1 ORDER BY monthly_price_ghs ASC",["trial"])).rows;
-  const payments=(await pool.query("SELECT id,plan_id,amount_ghs,currency,provider,external_ref,provider_ref,status,authorization_url,created_at,paid_at FROM payment_transactions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 8",[req.portalUser.id])).rows;
+  const payments=q.canManageBilling?(await pool.query("SELECT id,plan_id,amount_ghs,currency,provider,external_ref,provider_ref,status,authorization_url,created_at,paid_at FROM payment_transactions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 8",[q.billingUserId||req.portalUser.id])).rows:[];
   const plan=(await pool.query("SELECT id,name,storage_bytes,monthly_price_ghs FROM subscription_plans WHERE id=$1",[sub?.plan_id||"trial"])).rows[0]||null;
   res.json({
     plans:plans.map(p=>({id:p.id,name:p.name,storage_bytes:Number(p.storage_bytes),monthly_price_ghs:Number(p.monthly_price_ghs)})),
+    can_manage_billing:!!q.canManageBilling,
+    workspace:q.workspaceId?{id:q.workspaceId,shared_storage:true,owner_user_id:q.billingUserId}:null,
     current:sub?{...sub,storage_bytes:Number(sub.storage_bytes),monthly_price_ghs:Number(sub.monthly_price_ghs),plan:plan?{id:plan.id,name:plan.name,storage_bytes:Number(plan.storage_bytes),monthly_price_ghs:Number(plan.monthly_price_ghs)}:null}:null,
     usage:{quota_bytes:q.quotaBytes,used_bytes:q.usedBytes,reserved_bytes:q.reservedBytes,available_bytes:q.availableBytes,usage_percent:q.quotaBytes?Math.min(100,(q.usedBytes+q.reservedBytes)/q.quotaBytes*100):0},
     moolre:{configured:moolreConfigured(),checkout_available:moolreConfigured(),currency:CREATOR_BILLING_CURRENCY}
@@ -1555,6 +1950,8 @@ app.get("/api/portal/billing",portalUser,async(req,res)=>{
 });
 app.post("/api/portal/billing/checkout",portalUser,async(req,res)=>{
  try{
+  const context=await creatorQuota(req.portalUser.id);
+  if(context.isWorkspace&&!context.canManageBilling)return res.status(403).json({error:"The Studio workspace owner manages this subscription and its payments."});
   const planId=String(req.body.plan_id||"").trim();
   if(!CREATOR_PLAN_IDS.includes(planId))return res.status(400).json({error:"Select a valid storage plan."});
   const planQ=await pool.query("SELECT * FROM subscription_plans WHERE id=$1 AND active=true",[planId]);
@@ -1680,9 +2077,11 @@ app.delete("/api/portal/settings/logo",portalUser,async(req,res)=>{try{const cur
 app.get("/api/portal/settings/logo",portalUser,async(req,res)=>{try{const cur=await loadCreativeSettings(req.portalUser.id);if(!cur.logo_key||!s3Ready())return res.status(404).end();const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:cur.logo_key}));res.type("png").set("Cache-Control","private, max-age=300");if(got.Body?.pipe)return got.Body.pipe(res);res.end(Buffer.from(await got.Body.transformToByteArray()))}catch(e){res.status(404).end()}});
 app.get("/api/portal/projects",portalUser,async(req,res)=>{
  try{
-  const q=String(req.query.q||"").trim();
-  const sql=q ? "SELECT p.*,COALESCE((SELECT count(*) FROM files f WHERE f.project_id=p.id),0)::int file_count,COALESCE((SELECT sum(size_bytes) FROM files f WHERE f.project_id=p.id),0) total_bytes FROM projects p WHERE p.owner_id=$1 AND (p.name ILIKE $2 OR p.client_name ILIKE $2) ORDER BY p.updated_at DESC" : "SELECT p.*,COALESCE((SELECT count(*) FROM files f WHERE f.project_id=p.id),0)::int file_count,COALESCE((SELECT sum(size_bytes) FROM files f WHERE f.project_id=p.id),0) total_bytes FROM projects p WHERE p.owner_id=$1 ORDER BY p.updated_at DESC";
-  const vals=q?[req.portalUser.id,"%"+q+"%"]:[req.portalUser.id];
+  const search=String(req.query.q||"").trim();
+  const ws=await findWorkspaceForUser(req.portalUser.id,{includeInactive:false});
+  const base="SELECT p.*,COALESCE((SELECT count(*) FROM files f WHERE f.project_id=p.id AND f.trashed_at IS NULL),0)::int file_count,COALESCE((SELECT sum(f.size_bytes) FROM files f WHERE f.project_id=p.id AND f.trashed_at IS NULL),0) total_bytes FROM projects p WHERE (p.owner_id=$1 OR p.workspace_id=$2)";
+  const sql=search?base+" AND (p.name ILIKE $3 OR p.client_name ILIKE $3) ORDER BY p.updated_at DESC":base+" ORDER BY p.updated_at DESC";
+  const vals=search?[req.portalUser.id,ws?.id||null,"%"+search+"%"]:[req.portalUser.id,ws?.id||null];
   const r=await pool.query(sql,vals);res.json({projects:r.rows});
  }catch(e){console.error(e);res.status(500).json({error:"Could not load your projects."})}
 });
@@ -1690,25 +2089,78 @@ app.post("/api/portal/projects",portalUser,async(req,res)=>{
  try{
   const name=String(req.body.name||"").trim();if(!name)return res.status(400).json({error:"Project name is required."});
   const id=uid(),shareToken=token(),settings=await loadSettings(),creative=await loadCreativeSettings(req.portalUser.id);
+  const entitlement=await creatorQuota(req.portalUser.id);
+  if(entitlement.isWorkspace&&entitlement.billingUserId!==req.portalUser.id){
+    const member=(await pool.query("SELECT role FROM creator_workspace_members WHERE workspace_id=$1 AND user_id=$2 AND status='active' LIMIT 1",[entitlement.workspaceId,req.portalUser.id])).rows[0];
+    if(!member||!["owner","admin","editor"].includes(member.role))return res.status(403).json({error:"Your workspace role is read-only. Ask the owner for Editor access to create projects."});
+  }
   const defaultNote=String(req.body.note||"").trim()||settings.default_client_note||"";
   const days=settingInt(creative.preferences?.default_expiry_days,settingInt(settings.default_expiry_days,30));
   const expires=days?new Date(Date.now()+days*86400000):null;
   const autoShare=creative.preferences?.auto_share===true;
-  const r=await pool.query("INSERT INTO projects(id,owner_id,name,client_name,client_email,note,share_token,expires_at,shared) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *",[id,req.portalUser.id,name,String(req.body.client_name||"").trim(),String(req.body.client_email||"").trim(),defaultNote,shareToken,expires,autoShare]);
+  const ownerId=entitlement.isWorkspace?entitlement.billingUserId:req.portalUser.id;
+  const workspaceId=entitlement.isWorkspace?entitlement.workspaceId:null;
+  const r=await pool.query("INSERT INTO projects(id,owner_id,workspace_id,name,client_name,client_email,note,share_token,expires_at,shared) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *",[id,ownerId,workspaceId,name,String(req.body.client_name||"").trim(),String(req.body.client_email||"").trim(),defaultNote,shareToken,expires,autoShare]);
+  await recordPortalActivity(req.portalUser.id,id,"project_created",{client_name:String(req.body.client_name||"").trim()});
   res.json({project:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not create project."})}
 });
+app.post("/api/portal/projects/:id/move-to-workspace",portalUser,async(req,res)=>{
+ try{
+  const ws=await studioWorkspaceForOwner(req.portalUser.id);
+  if(!ws)return res.status(403).json({error:"Only the owner of an active Studio subscription can move projects into the team workspace."});
+  const project=await portalProjectOwned(req.portalUser.id,req.params.id);
+  if(!project)return res.status(404).json({error:"Project not found."});
+  if(project.workspace_id===ws.id)return res.json({ok:true,already_shared:true});
+  if(project.workspace_id)return res.status(409).json({error:"This project already belongs to another workspace."});
+  const client=await pool.connect();
+  try{
+    await client.query("BEGIN");
+    await client.query("DELETE FROM project_collaborators WHERE project_id=$1",[project.id]);
+    const updated=await client.query("UPDATE projects SET workspace_id=$1,owner_id=$2,updated_at=now() WHERE id=$3 AND owner_id=$2 AND workspace_id IS NULL RETURNING id,name,workspace_id",[ws.id,req.portalUser.id,project.id]);
+    if(!updated.rowCount){await client.query("ROLLBACK");return res.status(409).json({error:"The project changed while being moved. Refresh and try again."});}
+    await client.query("COMMIT");
+    await recordPortalActivity(req.portalUser.id,project.id,"project_added_to_workspace",{workspace_name:ws.name});
+    res.json({ok:true,project:updated.rows[0],workspace_name:ws.name});
+  }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e}
+  finally{client.release()}
+ }catch(e){console.error("Studio project migration failed:",e);res.status(500).json({error:"Could not move the project to the team workspace."})}
+});
 app.get("/api/portal/projects/:id",portalUser,async(req,res)=>{
- try{const p=await portalProjectAccessible(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const f=await pool.query("SELECT * FROM files WHERE project_id=$1 AND trashed_at IS NULL ORDER BY created_at DESC",[p.id]);res.json({project:p,files:f.rows,read_only:p.owner_id!==req.portalUser.id});}
- catch(e){console.error(e);res.status(500).json({error:"Could not load project."})}
+ try{
+  const p=await portalProjectAccessible(req.portalUser.id,req.params.id);
+  if(!p)return res.status(404).json({error:"Project not found."});
+  const f=await pool.query("SELECT * FROM files WHERE project_id=$1 AND trashed_at IS NULL ORDER BY created_at DESC",[p.id]);
+  const writable=await portalProjectWritable(req.portalUser.id,p.id);
+  res.json({project:p,files:f.rows,read_only:!writable});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load project."})}
 });
 app.patch("/api/portal/projects/:id",portalUser,async(req,res)=>{
- try{const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const fields=[],values=[];let n=1;for(const k of ["name","client_name","client_email","note","expires_at","shared","archived"])if(Object.prototype.hasOwnProperty.call(req.body,k)){fields.push(k+"=$"+n++);values.push(k==="shared"||k==="archived"?Boolean(req.body[k]):req.body[k]===null?null:String(req.body[k]).trim())}if(!fields.length)return res.status(400).json({error:"Nothing to update."});fields.push("updated_at=now()");values.push(p.id,req.portalUser.id);const r=await pool.query("UPDATE projects SET "+fields.join(",")+" WHERE id=$"+n+" AND owner_id=$"+(n+1)+" RETURNING *",values);if(!r.rowCount)return res.status(404).json({error:"Project not found."});res.json({project:r.rows[0]});}
- catch(e){console.error(e);res.status(500).json({error:"Could not update project."})}
+ try{
+  const p=await portalProjectWritable(req.portalUser.id,req.params.id);
+  if(!p)return res.status(404).json({error:"Project not found or read-only."});
+  const fields=[],values=[];let n=1;
+  for(const k of ["name","client_name","client_email","note","expires_at","shared","archived"])if(Object.prototype.hasOwnProperty.call(req.body,k)){
+    fields.push(k+"=$"+n++);
+    values.push(k==="shared"||k==="archived"?Boolean(req.body[k]):req.body[k]===null?null:String(req.body[k]).trim());
+  }
+  if(!fields.length)return res.status(400).json({error:"Nothing to update."});
+  fields.push("updated_at=now()");
+  values.push(p.id,p.owner_id);
+  const r=await pool.query("UPDATE projects SET "+fields.join(",")+" WHERE id=$"+n+" AND owner_id=$"+(n+1)+" RETURNING *",values);
+  if(!r.rowCount)return res.status(404).json({error:"Project not found."});
+  await recordPortalActivity(req.portalUser.id,p.id,"project_updated",{fields:Object.keys(req.body||{}).filter(k=>["name","client_name","client_email","note","expires_at","shared","archived"].includes(k))});
+  res.json({project:r.rows[0]});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not update project."})}
 });
 app.post("/api/portal/projects/:id/share",portalUser,async(req,res)=>{
- try{const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const r=await pool.query("UPDATE projects SET share_token=$1,shared=true,updated_at=now() WHERE id=$2 AND owner_id=$3 RETURNING *",[token(),p.id,req.portalUser.id]);res.json({project:r.rows[0],share_url:(req.protocol+"://"+req.get("host"))+"/share/"+r.rows[0].share_token});}
- catch(e){console.error(e);res.status(500).json({error:"Could not create client share link."})}
+ try{
+  const p=await portalProjectWritable(req.portalUser.id,req.params.id);
+  if(!p)return res.status(404).json({error:"Project not found or read-only."});
+  const r=await pool.query("UPDATE projects SET share_token=$1,shared=true,updated_at=now() WHERE id=$2 AND owner_id=$3 RETURNING *",[token(),p.id,p.owner_id]);
+  await recordPortalActivity(req.portalUser.id,p.id,"client_share_link_created",{});
+  res.json({project:r.rows[0],share_url:(req.protocol+"://"+req.get("host"))+"/share/"+r.rows[0].share_token});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not create client share link."})}
 });
 app.get("/api/portal/projects/:id/collaborators",portalUser,async(req,res)=>{
  try{
@@ -1720,6 +2172,7 @@ app.get("/api/portal/projects/:id/collaborators",portalUser,async(req,res)=>{
 app.post("/api/portal/projects/:id/collaborators",portalUser,async(req,res)=>{
  try{
   const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});
+  if(p.workspace_id)return res.status(403).json({error:"Use Team Workspace to add members to a Studio team. The Studio plan includes three named accounts total."});
   const email=String(req.body.email||"").trim().toLowerCase();if(!email)return res.status(400).json({error:"Enter the collaborator's account email."});
   if(email===String(req.portalUser.email||"").trim().toLowerCase())return res.status(400).json({error:"You already own this project."});
   const u=await pool.query("SELECT id,full_name,email FROM users WHERE lower(email)=lower($1) LIMIT 1",[email]);
@@ -1740,7 +2193,7 @@ app.get("/api/portal/files",portalUser,async(req,res)=>{
  try{
   const view=String(req.query.view||"all").toLowerCase();
   const q=String(req.query.q||"").trim();
-  const conditions=["p.owner_id=$1","f.trashed_at IS NULL"],vals=[req.portalUser.id];
+  const conditions=["(p.owner_id=$1 OR EXISTS(SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$1 AND wm.status='active' AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()))","f.trashed_at IS NULL"],vals=[req.portalUser.id];
   if(view==="favorites")conditions.push("f.favorite=true");
   if(view==="recent"){}
   if(q){vals.push("%"+q+"%");conditions.push("(f.original_name ILIKE $"+vals.length+" OR p.name ILIKE $"+vals.length+")");}
@@ -1757,7 +2210,8 @@ app.get("/api/portal/shared",portalUser,async(req,res)=>{
 });
 app.get("/api/portal/trash",portalUser,async(req,res)=>{
  try{
-  const r=await pool.query("SELECT f.*,p.name project_name,p.client_name FROM files f JOIN projects p ON p.id=f.project_id WHERE p.owner_id=$1 AND f.trashed_at IS NOT NULL ORDER BY f.trashed_at DESC LIMIT 500",[req.portalUser.id]);
+  const ws=await findWorkspaceForUser(req.portalUser.id,{includeInactive:false});
+  const r=await pool.query("SELECT f.*,p.name project_name,p.client_name FROM files f JOIN projects p ON p.id=f.project_id WHERE (p.owner_id=$1 OR p.workspace_id=$2) AND f.trashed_at IS NOT NULL ORDER BY f.trashed_at DESC LIMIT 500",[req.portalUser.id,ws?.id||null]);
   res.json({files:r.rows});
  }catch(e){console.error(e);res.status(500).json({error:"Could not load trash."})}
 });
@@ -1766,35 +2220,42 @@ app.patch("/api/portal/files/:id/favorite",portalUser,async(req,res)=>{
   const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f)return res.status(404).json({error:"File not found."});
   const favorite=Boolean(req.body&&req.body.favorite);
   const r=await pool.query("UPDATE files SET favorite=$1 WHERE id=$2 RETURNING *",[favorite,f.id]);
+  await recordPortalActivity(req.portalUser.id,f.project_id,favorite?"file_favorited":"file_unfavorited",{file_name:f.original_name||""});
   res.json({file:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not update favorite."})}
 });
 app.delete("/api/portal/files/:id",portalUser,async(req,res)=>{
  try{
-  const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f||f.owner_id!==req.portalUser.id)return res.status(404).json({error:"File not found."});
+  const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f)return res.status(404).json({error:"File not found."});
+  const writable=await portalProjectWritable(req.portalUser.id,f.project_id);if(!writable)return res.status(404).json({error:"File not found or read-only."});
   await pool.query("UPDATE files SET trashed_at=now(),updated_at=now() WHERE id=$1",[f.id]).catch(async()=>{
     await pool.query("UPDATE files SET trashed_at=now() WHERE id=$1",[f.id]);
   });
+  await recordPortalActivity(req.portalUser.id,f.project_id,"file_trashed",{file_name:f.original_name||""});
   res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not move file to trash."})}
 });
 app.post("/api/portal/files/:id/restore",portalUser,async(req,res)=>{
  try{
-  const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f||f.owner_id!==req.portalUser.id)return res.status(404).json({error:"File not found."});
-  await pool.query("UPDATE files SET trashed_at=NULL WHERE id=$1",[f.id]);res.json({ok:true});
+  const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f)return res.status(404).json({error:"File not found."});
+  const writable=await portalProjectWritable(req.portalUser.id,f.project_id);if(!writable)return res.status(404).json({error:"File not found or read-only."});
+  await pool.query("UPDATE files SET trashed_at=NULL WHERE id=$1",[f.id]);
+  await recordPortalActivity(req.portalUser.id,f.project_id,"file_restored",{file_name:f.original_name||""});res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not restore file."})}
 });
 app.delete("/api/portal/files/:id/permanent",portalUser,async(req,res)=>{
  try{
-  const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f||f.owner_id!==req.portalUser.id)return res.status(404).json({error:"File not found."});
+  const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f)return res.status(404).json({error:"File not found."});
+  const manageable=await portalProjectManageable(req.portalUser.id,f.project_id);if(!manageable)return res.status(404).json({error:"File not found or permanent deletion is restricted."});
   if(!f.trashed_at)return res.status(400).json({error:"Move the file to Trash before permanent deletion."});
   if(s3Ready()&&f.storage_path)await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:f.storage_path})).catch(()=>{});
+  await recordPortalActivity(req.portalUser.id,f.project_id,"file_permanently_deleted",{file_name:f.original_name||""});
   await pool.query("DELETE FROM files WHERE id=$1",[f.id]);res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not permanently delete the file."})}
 });
 app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
+  const q=await pool.query("SELECT f.*,p.owner_id,p.workspace_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2 OR EXISTS(SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active' AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()))",[req.params.id,req.portalUser.id]);
   if(!q.rowCount)return res.status(404).send("File not found.");
   const f=q.rows[0];
   const width=Math.max(160,Math.min(640,Number(req.query.w||360))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
@@ -1819,8 +2280,8 @@ app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
 app.delete("/api/portal/projects/:id",portalUser,async(req,res)=>{
  try{
   if(!s3Ready())return res.status(503).json({error:"Cloud file storage is not ready."});
-  const p=await portalProjectOwned(req.portalUser.id,req.params.id);
-  if(!p)return res.status(404).json({error:"Project not found."});
+  const p=await portalProjectManageable(req.portalUser.id,req.params.id);
+  if(!p)return res.status(404).json({error:"Project not found or deletion is restricted."});
   const files=await pool.query("SELECT storage_path FROM files WHERE project_id=$1",[p.id]);
   const sessions=await pool.query("SELECT storage_key,multipart_upload_id,mode FROM upload_sessions WHERE project_id=$1 AND status='active'",[p.id]);
   for(const u of sessions.rows){
@@ -1832,26 +2293,27 @@ app.delete("/api/portal/projects/:id",portalUser,async(req,res)=>{
    const out=await s3.send(new DeleteObjectsCommand({Bucket:bucket(),Delete:{Objects:keys.slice(i,i+1000).map(function(Key){return {Key:Key}}),Quiet:true}}));
    if(out.Errors&&out.Errors.length)throw new Error("One or more cloud files could not be deleted.");
   }
-  await pool.query("DELETE FROM projects WHERE id=$1 AND owner_id=$2",[p.id,req.portalUser.id]);
+  await recordPortalActivity(req.portalUser.id,p.id,"project_deleted",{project_name:p.name||""});
+   await pool.query("DELETE FROM projects WHERE id=$1 AND owner_id=$2",[p.id,p.owner_id]);
   res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not completely delete the project."})}
 });
 app.get("/api/portal/media/:id",portalUser,async(req,res)=>{
   try{
-    const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
+    const r=await pool.query("SELECT f.*,p.owner_id,p.workspace_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2 OR EXISTS(SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active' AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()))",[req.params.id,req.portalUser.id]);
     if(!r.rowCount)return res.status(404).send("File not found.");
     await streamStoredObject(req,res,r.rows[0]);
   }catch(e){console.error("Portal media stream failed:",e?.stack||e);res.status(500).send("Unable to stream file.")}
 });
 app.head("/api/portal/media/:id",portalUser,async(req,res)=>{
   try{
-    const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
+    const r=await pool.query("SELECT f.*,p.owner_id,p.workspace_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2 OR EXISTS(SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active' AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()))",[req.params.id,req.portalUser.id]);
     if(!r.rowCount)return res.status(404).end();
     await streamStoredObject(req,res,r.rows[0]);
   }catch(e){console.error("Portal media HEAD failed:",e?.stack||e);res.status(500).end()}
 });
 app.get("/api/portal/file/:id",portalUser,async(req,res)=>{
- try{const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);if(!r.rowCount)return res.status(404).send("File not found.");const f=r.rows[0];const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:900});res.redirect(url);}
+ try{const r=await pool.query("SELECT f.*,p.owner_id,p.workspace_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2 OR EXISTS(SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active' AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()))",[req.params.id,req.portalUser.id]);if(!r.rowCount)return res.status(404).send("File not found.");const f=r.rows[0];const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:900});res.redirect(url);}
  catch(e){console.error(e);res.status(500).send("Unable to serve file.")}
 });
 app.get("/api/projects",admin,async(req,res)=>{
@@ -3363,10 +3825,10 @@ app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
  try{
   if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
   const projectId=String(req.body.projectId||""),originalName=String(req.body.name||"").trim(),relativePath=safeRelativePath(req.body.relativePath,originalName),size=Number(req.body.size||0),mimeType=String(req.body.mimeType||"application/octet-stream"),fingerprint=String(req.body.fingerprint||"").trim().slice(0,128),fingerprintType=String(req.body.fingerprintType||"full").trim().toLowerCase();
-  const project=await portalProjectOwned(req.portalUser.id,projectId);
-  if(!project)return res.status(404).json({error:"Project not found."});
+  const project=await portalProjectWritable(req.portalUser.id,projectId);
+  if(!project)return res.status(404).json({error:"Project not found or read-only."});
   if(!originalName||!Number.isFinite(size)||size<0||size>MAX_FILE_SIZE)return res.status(400).json({error:"Invalid file."});
-  const entitlement=await creatorQuota(req.portalUser.id);
+  const entitlement=await creatorQuota(req.portalUser.id,projectId);
   if(!entitlement.active)return res.status(402).json({error:"Your storage trial or subscription is not active. Open Billing to choose a plan.",code:"SUBSCRIPTION_REQUIRED",storage:{quota_bytes:entitlement.quotaBytes,used_bytes:entitlement.usedBytes,reserved_bytes:entitlement.reservedBytes,available_bytes:entitlement.availableBytes}});
   // Sample-based large-file identity is only for resumable session binding,
   // not strong enough for duplicate detection.
@@ -3390,7 +3852,7 @@ app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
     await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
   }
   let quotaForNewUpload;
-  try{quotaForNewUpload=await assertCreatorQuotaForUpload(req.portalUser.id,null,size)}
+  try{quotaForNewUpload=await assertCreatorQuotaForUpload(req.portalUser.id,null,size,projectId)}
   catch(e){
     const status=e.code==="STORAGE_QUOTA_EXCEEDED"?413:e.code==="SUBSCRIPTION_REQUIRED"?402:500;
     return res.status(status).json({error:e.message,code:e.code||"UPLOAD_QUOTA_ERROR",storage:e.quota?{quota_bytes:e.quota.quotaBytes,used_bytes:e.quota.usedBytes,reserved_bytes:e.quota.reservedBytes,available_bytes:e.quota.availableBytes,projected_bytes:e.quota.projectedBytes}:undefined});
@@ -3417,7 +3879,7 @@ app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
 });
 app.get("/api/portal/uploads/:id/state",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  const q=await portalUploadSessionAccessible(req.portalUser.id,req.params.id);
   if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
   const u=q.rows[0];
   if(u.mode!=="multipart")return res.json({uploadId:u.id,mode:u.mode,status:u.status,parts:[]});
@@ -3441,7 +3903,7 @@ app.get("/api/portal/uploads/:id/state",portalUser,async(req,res)=>{
 app.post("/api/portal/uploads/:id/part-fallback",portalUser,express.raw({type:"application/octet-stream",limit:"80mb"}),async(req,res)=>{
   try{
     if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
-    const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+    const q=await portalUploadSessionAccessible(req.portalUser.id,req.params.id);
     if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
     const u=q.rows[0];
     if(u.mode!=="multipart"||!u.multipart_upload_id)return res.status(400).json({error:"This upload does not use multipart storage."});
@@ -3472,7 +3934,7 @@ app.post("/api/portal/uploads/:id/part-fallback",portalUser,express.raw({type:"a
 });
 app.post("/api/portal/uploads/:id/parts",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  const q=await portalUploadSessionAccessible(req.portalUser.id,req.params.id);
   if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
   const u=q.rows[0];
   await pool.query("UPDATE upload_sessions SET updated_at=now() WHERE id=$1 AND status='active'",[u.id]);
@@ -3495,17 +3957,18 @@ app.post("/api/portal/uploads/:id/parts",portalUser,async(req,res)=>{
 });
 app.post("/api/portal/uploads/:id/complete",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  const q=await portalUploadSessionAccessible(req.portalUser.id,req.params.id);
   if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
   const u=q.rows[0];
 
   try{
-    try{await assertCreatorQuotaForUpload(req.portalUser.id,u.id,Number(u.size_bytes||0));}
+    try{await assertCreatorQuotaForUpload(req.portalUser.id,u.id,Number(u.size_bytes||0),u.project_id);}
     catch(e){
       const status=e.code==="STORAGE_QUOTA_EXCEEDED"?413:e.code==="SUBSCRIPTION_REQUIRED"?402:500;
       return res.status(status).json({error:e.message,code:e.code||"UPLOAD_QUOTA_ERROR"});
     }
     const fileRow=await finalizeStoredUpload(u);
+     if(u.status!=="completed")await recordPortalActivity(req.portalUser.id,u.project_id,"file_uploaded",{file_name:u.original_name||"",size_bytes:Number(u.size_bytes||0)});
     return res.json({ok:true,file:fileRow,alreadyCompleted:u.status==="completed"});
   }catch(e){
     if(e&&e.code==="UPLOAD_INCOMPLETE"){
@@ -3535,7 +3998,7 @@ app.post("/api/portal/uploads/:id/complete",portalUser,async(req,res)=>{
 });
 app.post("/api/portal/uploads/:id/abort",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  const q=await portalUploadSessionAccessible(req.portalUser.id,req.params.id);
   if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
   const u=q.rows[0];
   if(u.mode==="multipart"&&u.multipart_upload_id)await s3.send(new AbortMultipartUploadCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id})).catch(function(){});
@@ -4485,6 +4948,10 @@ app.post("/portal",async(req,res)=>{
   return res.redirect(303,"/portal");
  }catch(e){console.error("Portal form fallback failed:",e);return res.status(500).type("html").send("<!doctype html><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>Portal error</title><body style=\"font-family:system-ui;padding:40px;background:#09090a;color:#fff\"><h2>Portal error</h2><p>Please try again.</p><p><a href=\"/portal\" style=\"color:#f4d56d\">Back to portal</a></p></body>")}
 });
+app.get("/admin/support",(req,res)=>{res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.type("html").sendFile(path.join(ROOT,"admin-support.html"))});
+app.get("/admin-support.html",(req,res)=>{res.redirect(302,"/admin/support")});
+app.get("/team-support.js",(req,res)=>{res.type("application/javascript").set("Cache-Control","no-cache, no-store, must-revalidate").sendFile(path.join(ROOT,"team-support.js"))});
+app.get("/portal-support.js",(req,res)=>{res.type("application/javascript").set("Cache-Control","no-cache, no-store, must-revalidate").sendFile(path.join(ROOT,"portal-support.js"))});
 app.get("/portal.html",(req,res)=>{res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.type("html").sendFile(path.join(ROOT,"portal.html"))});
 app.get("/portal",(req,res)=>{res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.type("html").sendFile(path.join(ROOT,"portal.html"))});
 app.get("/",(req,res)=>{
