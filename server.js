@@ -4883,6 +4883,8 @@ app.post("/portal",async(req,res)=>{
   return res.redirect(303,"/portal");
  }catch(e){console.error("Portal form fallback failed:",e);return res.status(500).type("html").send("<!doctype html><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>Portal error</title><body style=\"font-family:system-ui;padding:40px;background:#09090a;color:#fff\"><h2>Portal error</h2><p>Please try again.</p><p><a href=\"/portal\" style=\"color:#f4d56d\">Back to portal</a></p></body>")}
 });
+app.get("/admin/support",(req,res)=>{res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.type("html").sendFile(path.join(ROOT,"admin-support.html"))});
+app.get("/admin-support.html",(req,res)=>{res.redirect(302,"/admin/support")});
 app.get("/team-support.js",(req,res)=>{res.type("application/javascript").set("Cache-Control","no-cache, no-store, must-revalidate").sendFile(path.join(ROOT,"team-support.js"))});
 app.get("/portal-support.js",(req,res)=>{res.type("application/javascript").set("Cache-Control","no-cache, no-store, must-revalidate").sendFile(path.join(ROOT,"portal-support.js"))});
 app.get("/portal.html",(req,res)=>{res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");res.type("html").sendFile(path.join(ROOT,"portal.html"))});
