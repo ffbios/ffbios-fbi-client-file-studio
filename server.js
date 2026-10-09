@@ -1732,6 +1732,7 @@ app.post("/api/portal/team/invitations",portalUser,async(req,res)=>{
   if(email===String(req.portalUser.email||"").toLowerCase())return res.status(400).json({error:"The workspace owner is already a member."});
   await pool.query("UPDATE creator_workspace_invitations SET status='expired',updated_at=now() WHERE workspace_id=$1 AND lower(email)=lower($2) AND status='pending' AND expires_at<=now()",[ws.id,email]);
   const existingUser=(await pool.query("SELECT id,email,full_name FROM users WHERE lower(email)=lower($1) LIMIT 1",[email])).rows[0]||null;
+  if(existingUser){const otherWorkspace=(await pool.query("SELECT workspace_id FROM creator_workspace_members WHERE user_id=$1 AND status='active' AND workspace_id<>$2 LIMIT 1",[existingUser.id,ws.id])).rows[0];if(otherWorkspace)return res.status(409).json({error:"That account already belongs to another Studio workspace. One account can join only one team workspace at a time."});}
   const activeCount=await workspaceMemberCount(ws.id);
   const pendingCount=Number((await pool.query("SELECT count(*)::int total FROM creator_workspace_invitations WHERE workspace_id=$1 AND status='pending' AND expires_at>now()",[ws.id])).rows[0]?.total||0);
   if(existingUser){
