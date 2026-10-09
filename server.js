@@ -2293,7 +2293,8 @@ app.delete("/api/portal/projects/:id",portalUser,async(req,res)=>{
    const out=await s3.send(new DeleteObjectsCommand({Bucket:bucket(),Delete:{Objects:keys.slice(i,i+1000).map(function(Key){return {Key:Key}}),Quiet:true}}));
    if(out.Errors&&out.Errors.length)throw new Error("One or more cloud files could not be deleted.");
   }
-  await pool.query("DELETE FROM projects WHERE id=$1 AND owner_id=$2",[p.id,p.owner_id]);
+  await recordPortalActivity(req.portalUser.id,p.id,"project_deleted",{project_name:p.name||""});
+   await pool.query("DELETE FROM projects WHERE id=$1 AND owner_id=$2",[p.id,p.owner_id]);
   res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not completely delete the project."})}
 });
@@ -3967,6 +3968,7 @@ app.post("/api/portal/uploads/:id/complete",portalUser,async(req,res)=>{
       return res.status(status).json({error:e.message,code:e.code||"UPLOAD_QUOTA_ERROR"});
     }
     const fileRow=await finalizeStoredUpload(u);
+     if(u.status!=="completed")await recordPortalActivity(req.portalUser.id,u.project_id,"file_uploaded",{file_name:u.original_name||"",size_bytes:Number(u.size_bytes||0)});
     return res.json({ok:true,file:fileRow,alreadyCompleted:u.status==="completed"});
   }catch(e){
     if(e&&e.code==="UPLOAD_INCOMPLETE"){
