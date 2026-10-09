@@ -1,5 +1,47 @@
 let teamWorkspaceState = null;
 
+const ACTIVITY_LABELS = {
+  project_created: "Created project",
+  project_updated: "Updated project details",
+  project_added_to_workspace: "Moved project into Team Workspace",
+  client_share_link_created: "Created a client delivery link",
+  file_uploaded: "Uploaded a file",
+  file_favorited: "Added a file to Favorites",
+  file_unfavorited: "Removed a file from Favorites",
+  file_trashed: "Moved a file to Trash",
+  file_restored: "Restored a file from Trash",
+  file_permanently_deleted: "Permanently deleted a file",
+  project_deleted: "Deleted a project"
+};
+function activityTimestamp(value) {
+  try { return value ? new Date(value).toLocaleString() : ""; } catch { return String(value || ""); }
+}
+async function loadActivity() {
+  const box = document.querySelector("#portalActivityList");
+  if (box) box.innerHTML = '<div class="empty">Loading activity…</div>';
+  try {
+    const data = await api("/api/portal/activity?limit=100");
+    const events = Array.isArray(data.events) ? data.events : [];
+    if (!box) return;
+    if (!events.length) {
+      box.innerHTML = '<div class="empty">No activity has been recorded yet. As you create projects, share links and upload or manage files, your history will appear here.</div>';
+      return;
+    }
+    box.innerHTML = '<div class="activity-list" style="display:grid;gap:0">' + events.map(event => {
+      const details = event.details && typeof event.details === "object" ? event.details : {};
+      const project = details.project_name || "Project";
+      const file = details.file_name ? " • " + esc(details.file_name) : "";
+      const actor = event.actor_email || "Workspace member";
+      const action = ACTIVITY_LABELS[event.action] || String(event.action || "Activity").replaceAll("_", " ");
+      const extra = event.action === "file_uploaded" && Number(details.size_bytes) > 0 ? " • " + fmt(details.size_bytes) : "";
+      return '<article class="billing-history-row" style="grid-template-columns:minmax(0,1fr) auto;gap:10px"><div><b>' + esc(action) + '</b><span>' + esc(project) + file + extra + '</span><span>' + esc(actor) + '</span></div><div><span class="billing-muted">' + esc(activityTimestamp(event.created_at)) + '</span></div></article>';
+    }).join("") + '</div>';
+  } catch (error) {
+    if (box) box.innerHTML = '<div class="empty-action">' + esc(error.message || "Could not load activity history.") + '</div>';
+  }
+}
+document.querySelector("#refreshActivityBtn")?.addEventListener("click", loadActivity);
+
 async function loadTeamWorkspace() {
   const box = document.querySelector("#teamWorkspaceContent");
   if (box) box.innerHTML = '<div class="empty">Loading team workspace…</div>';
