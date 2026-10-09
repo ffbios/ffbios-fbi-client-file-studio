@@ -2151,7 +2151,8 @@ app.get("/api/portal/shared",portalUser,async(req,res)=>{
 });
 app.get("/api/portal/trash",portalUser,async(req,res)=>{
  try{
-  const r=await pool.query("SELECT f.*,p.name project_name,p.client_name FROM files f JOIN projects p ON p.id=f.project_id WHERE p.owner_id=$1 AND f.trashed_at IS NOT NULL ORDER BY f.trashed_at DESC LIMIT 500",[req.portalUser.id]);
+  const ws=await findWorkspaceForUser(req.portalUser.id,{includeInactive:false});
+  const r=await pool.query("SELECT f.*,p.name project_name,p.client_name FROM files f JOIN projects p ON p.id=f.project_id WHERE (p.owner_id=$1 OR p.workspace_id=$2) AND f.trashed_at IS NOT NULL ORDER BY f.trashed_at DESC LIMIT 500",[req.portalUser.id,ws?.id||null]);
   res.json({files:r.rows});
  }catch(e){console.error(e);res.status(500).json({error:"Could not load trash."})}
 });
