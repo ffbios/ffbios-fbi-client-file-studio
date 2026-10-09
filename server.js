@@ -1698,6 +1698,105 @@ app.get("/api/portal/me",portalUser,async(req,res)=>{
 });
 
 
+async function studioWorkspaceForOwner(userId){
+  const sub=await getCreatorSubscription(userId);
+  if(String(sub?.plan_id||"")!=="studio"||!creatorSubscriptionActive(sub))return null;
+  return ensureCreatorWorkspace(userId);
+}
+async function workspaceMemberCount(workspaceId){
+  const r=await pool.query("SELECT count(*)::int total FROM creator_workspace_members WHERE workspace_id=$1 AND status='active'",[workspaceId]);
+  return Number(r.rows[0]?.total||0);
+}
+app.get("/api/portal/team",portalUser,async(req,res)=>{
+ try{
+  const ws=await findWorkspaceForUser(req.portalUser.id,{includeInactive:true});
+  if(!ws)return res.json({available:false,requires_studio:true,seat_limit:CREATOR_STUDIO_TEAM_SEATS});
+  const sub=await getCreatorSubscription(ws.owner_user_id);
+  const active=String(sub?.plan_id||"")==="studio"&&creatorSubscriptionActive(sub);
+  const isOwner=ws.owner_user_id===req.portalUser.id;
+  const members=(await pool.query("SELECT wm.id,wm.user_id,wm.role,wm.status,wm.created_at,u.email,u.full_name FROM creator_workspace_members wm JOIN users u ON u.id=wm.user_id WHERE wm.workspace_id=$1 AND wm.status='active' ORDER BY CASE wm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END,wm.created_at ASC",[ws.id])).rows;
+  const invitations=isOwner?(await pool.query("SELECT id,email,role,expires_at,created_at FROM creator_workspace_invitations WHERE workspace_id=$1 AND status='pending' AND expires_at>now() ORDER BY created_at DESC",[ws.id])).rows:[];
+  res.json({available:true,active,is_owner:isOwner,seat_limit:CREATOR_STUDIO_TEAM_SEATS,seat_count:members.length+invitations.length,
+    workspace:{id:ws.id,name:ws.name,owner_email:ws.owner_email,owner_name:ws.owner_name,plan_id:sub?.plan_id||"trial",status:sub?.status||"expired",current_period_end:sub?.current_period_end||null,storage_bytes:Number(sub?.storage_bytes||0)},
+    members,invitations});
+ }catch(e){console.error("Portal team workspace load failed:",e);res.status(500).json({error:"Could not load the team workspace."})}
+});
+app.post("/api/portal/team/invitations",portalUser,async(req,res)=>{
+ try{
+  const ws=await studioWorkspaceForOwner(req.portalUser.id);
+  if(!ws)return res.status(403).json({error:"Only the owner of an active Studio subscription can invite teammates."});
+  const email=String(req.body.email||"").trim().toLowerCase(),role=String(req.body.role||"editor").trim().toLowerCase();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({error:"Enter a valid email address."});
+  if(!["editor","viewer"].includes(role))return res.status(400).json({error:"Choose Editor or Viewer access."});
+  if(email===String(req.portalUser.email||"").toLowerCase())return res.status(400).json({error:"The workspace owner is already a member."});
+  await pool.query("UPDATE creator_workspace_invitations SET status='expired',updated_at=now() WHERE workspace_id=$1 AND lower(email)=lower($2) AND status='pending' AND expires_at<=now()",[ws.id,email]);
+  const existingUser=(await pool.query("SELECT id,email,full_name FROM users WHERE lower(email)=lower($1) LIMIT 1",[email])).rows[0]||null;
+  const activeCount=await workspaceMemberCount(ws.id);
+  const pendingCount=Number((await pool.query("SELECT count(*)::int total FROM creator_workspace_invitations WHERE workspace_id=$1 AND status='pending' AND expires_at>now()",[ws.id])).rows[0]?.total||0);
+  if(existingUser){
+    const existingMember=(await pool.query("SELECT id,status FROM creator_workspace_members WHERE workspace_id=$1 AND user_id=$2 LIMIT 1",[ws.id,existingUser.id])).rows[0];
+    if(existingMember?.status==="active")return res.status(409).json({error:"That account is already a member of this workspace."});
+    if(activeCount+pendingCount>=CREATOR_STUDIO_TEAM_SEATS)return res.status(409).json({error:"Studio allows three named accounts total, including the owner. Remove a member or pending invitation before adding another."});
+    await pool.query("INSERT INTO creator_workspace_members(id,workspace_id,user_id,role,status,invited_by) VALUES($1,$2,$3,$4,'active',$5) ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=EXCLUDED.role,status='active',invited_by=EXCLUDED.invited_by,updated_at=now()",[uid(),ws.id,existingUser.id,role,req.portalUser.id]);
+    await pool.query("UPDATE creator_workspace_invitations SET status='cancelled',updated_at=now() WHERE workspace_id=$1 AND lower(email)=lower($2) AND status='pending'",[ws.id,email]);
+    return res.json({ok:true,added_existing_account:true,member:{email:existingUser.email,full_name:existingUser.full_name,role},invitation_url:""});
+  }
+  if(activeCount+pendingCount>=CREATOR_STUDIO_TEAM_SEATS)return res.status(409).json({error:"Studio allows three named accounts total, including the owner. Remove a member or pending invitation before adding another."});
+  await pool.query("UPDATE creator_workspace_invitations SET status='cancelled',updated_at=now() WHERE workspace_id=$1 AND lower(email)=lower($2) AND status='pending'",[ws.id,email]);
+  const token=crypto.randomBytes(32).toString("base64url"),expiresAt=new Date(Date.now()+7*86400000);
+  await pool.query("INSERT INTO creator_workspace_invitations(id,workspace_id,email,role,token_hash,invited_by,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)",[uid(),ws.id,email,role,crypto.createHash("sha256").update(token).digest("hex"),req.portalUser.id,expiresAt]);
+  res.json({ok:true,added_existing_account:false,invitation_url:appPublicBaseUrl(req)+"/portal?invite="+encodeURIComponent(token),email,role,expires_at:expiresAt});
+ }catch(e){console.error("Portal team invite failed:",e);res.status(500).json({error:"Could not create the team invitation."})}
+});
+app.post("/api/portal/team/invitations/accept",portalUser,async(req,res)=>{
+ try{
+  const token=String(req.body.token||"").trim();
+  if(!token||token.length>200)return res.status(400).json({error:"Invitation link is invalid."});
+  const hash=crypto.createHash("sha256").update(token).digest("hex");
+  const invite=(await pool.query("SELECT i.*,w.owner_user_id,w.name workspace_name,cs.plan_id,cs.status subscription_status,cs.current_period_end FROM creator_workspace_invitations i JOIN creator_workspaces w ON w.id=i.workspace_id JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id WHERE i.token_hash=$1 AND i.status='pending' AND i.expires_at>now() LIMIT 1",[hash])).rows[0];
+  if(!invite)return res.status(404).json({error:"This invitation has expired or was already used. Ask the owner for a new link."});
+  if(String(invite.email).toLowerCase()!==String(req.portalUser.email||"").toLowerCase())return res.status(403).json({error:"Use the email address the workspace owner invited."});
+  if(String(invite.plan_id)!=="studio"||invite.subscription_status!=="active"||new Date(invite.current_period_end||0).getTime()<=Date.now())return res.status(403).json({error:"The Studio workspace subscription is not active. Ask the owner to check their subscription."});
+  const already=(await pool.query("SELECT id FROM creator_workspace_members WHERE workspace_id=$1 AND user_id=$2 AND status='active' LIMIT 1",[invite.workspace_id,req.portalUser.id])).rows[0];
+  if(!already){
+    if(await workspaceMemberCount(invite.workspace_id)>=CREATOR_STUDIO_TEAM_SEATS)return res.status(409).json({error:"This team is full. Ask the owner to free a seat."});
+    await pool.query("INSERT INTO creator_workspace_members(id,workspace_id,user_id,role,status,invited_by) VALUES($1,$2,$3,$4,'active',$5) ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=EXCLUDED.role,status='active',invited_by=EXCLUDED.invited_by,updated_at=now()",[uid(),invite.workspace_id,req.portalUser.id,invite.role,invite.invited_by]);
+  }
+  await pool.query("UPDATE creator_workspace_invitations SET status='accepted',accepted_user_id=$2,accepted_at=now(),updated_at=now() WHERE id=$1",[invite.id,req.portalUser.id]);
+  res.json({ok:true,workspace_name:invite.workspace_name,role:invite.role});
+ }catch(e){console.error("Team invitation acceptance failed:",e);res.status(500).json({error:"Could not accept the invitation."})}
+});
+app.delete("/api/portal/team/invitations/:id",portalUser,async(req,res)=>{
+ try{
+  const ws=await studioWorkspaceForOwner(req.portalUser.id);
+  if(!ws)return res.status(403).json({error:"Only the active Studio workspace owner can manage invitations."});
+  const r=await pool.query("UPDATE creator_workspace_invitations SET status='cancelled',updated_at=now() WHERE id=$1 AND workspace_id=$2 AND status='pending' RETURNING id",[req.params.id,ws.id]);
+  if(!r.rowCount)return res.status(404).json({error:"Pending invitation not found."});
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not cancel the invitation."})}
+});
+app.patch("/api/portal/team/members/:userId",portalUser,async(req,res)=>{
+ try{
+  const ws=await studioWorkspaceForOwner(req.portalUser.id);
+  if(!ws)return res.status(403).json({error:"Only the active Studio workspace owner can manage members."});
+  const role=String(req.body.role||"").trim().toLowerCase();
+  if(!["editor","viewer"].includes(role))return res.status(400).json({error:"Choose Editor or Viewer access."});
+  const r=await pool.query("UPDATE creator_workspace_members SET role=$3,updated_at=now() WHERE workspace_id=$1 AND user_id=$2 AND status='active' AND role<>'owner' RETURNING user_id,role,status",[ws.id,req.params.userId,role]);
+  if(!r.rowCount)return res.status(404).json({error:"Team member not found."});
+  res.json({ok:true,member:r.rows[0]});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not update the team member."})}
+});
+app.delete("/api/portal/team/members/:userId",portalUser,async(req,res)=>{
+ try{
+  const ws=await studioWorkspaceForOwner(req.portalUser.id);
+  if(!ws)return res.status(403).json({error:"Only the active Studio workspace owner can remove members."});
+  if(req.params.userId===req.portalUser.id)return res.status(400).json({error:"The workspace owner cannot remove themselves."});
+  const r=await pool.query("UPDATE creator_workspace_members SET status='revoked',updated_at=now() WHERE workspace_id=$1 AND user_id=$2 AND role<>'owner' AND status='active' RETURNING user_id",[ws.id,req.params.userId]);
+  if(!r.rowCount)return res.status(404).json({error:"Team member not found."});
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not remove the team member."})}
+});
+
 app.get("/api/portal/billing",portalUser,async(req,res)=>{
  try{
   const sub=await getCreatorSubscription(req.portalUser.id);
