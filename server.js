@@ -976,6 +976,10 @@ async function initDb(){
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS idx_support_ticket_messages_ticket ON support_ticket_messages(ticket_id,created_at ASC);
+    CREATE TABLE IF NOT EXISTS creator_activity_events(id uuid PRIMARY KEY,actor_user_id uuid REFERENCES users(id) ON DELETE SET NULL,actor_email text NOT NULL DEFAULT '',workspace_id uuid REFERENCES creator_workspaces(id) ON DELETE SET NULL,project_id uuid REFERENCES projects(id) ON DELETE SET NULL,action text NOT NULL,details jsonb NOT NULL DEFAULT '{}'::jsonb,created_at timestamptz NOT NULL DEFAULT now());
+    CREATE INDEX IF NOT EXISTS idx_creator_activity_workspace ON creator_activity_events(workspace_id,created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_creator_activity_actor ON creator_activity_events(actor_user_id,created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_creator_activity_project ON creator_activity_events(project_id,created_at DESC);
 
     CREATE TABLE IF NOT EXISTS payment_transactions(
       id uuid PRIMARY KEY,
