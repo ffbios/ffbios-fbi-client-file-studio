@@ -2421,31 +2421,73 @@ async function clientView(token){
     box.classList.add('show');
   }
   function moveLight(delta){const list=window.__fbiPreviewFiles||[];if(list.length)openLocalLightbox(currentLightIndex+delta)}
+  // Same-origin download URL (relative, so fetch() never hits CORS).
+  function sameOriginDownload(f){return '/api/public/file/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&download=1'}
+  function saveBlobAs(blob,name){
+    const href=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=href;a.download=name||'download';a.rel='noopener';a.style.display='none';
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){URL.revokeObjectURL(href)},120000);
+  }
+  function directDownload(url,name){
+    const a=document.createElement('a');
+    a.href=url;a.rel='noreferrer';a.setAttribute('download',name||'');a.style.display='none';
+    document.body.appendChild(a);a.click();a.remove();
+  }
+  // Fetch the file ourselves, then hand the finished file to the browser to
+  // save. This works the same in every browser (including iPhone Safari) and
+  // lets the client see progress instead of "nothing happening".
+  async function downloadOne(f,label){
+    const name=f.original_name||'download';
+    const url=sameOriginDownload(f);
+    const size=Number(f.size_bytes||0);
+    // Very large files (long videos) would use too much memory as a blob,
+    // so let the browser stream those straight to disk.
+    if(size>300*1024*1024||!window.fetch||!window.ReadableStream||!window.Blob||!window.URL){
+      galleryToast(label+'Your download is starting…');
+      directDownload(url,name);return true;
+    }
+    try{
+      const res=await fetch(url,{credentials:'same-origin',cache:'no-store'});
+      if(!res.ok)throw new Error('HTTP '+res.status);
+      const total=Number(res.headers.get('content-length'))||size;
+      const type=res.headers.get('content-type')||'application/octet-stream';
+      let blob;
+      if(res.body&&res.body.getReader){
+        const reader=res.body.getReader();const chunks=[];let got=0,lastPct=-1;
+        for(;;){
+          const r=await reader.read();if(r.done)break;
+          chunks.push(r.value);got+=r.value.length;
+          const pct=total?Math.min(99,Math.floor(got/total*100)):0;
+          if(pct!==lastPct){lastPct=pct;galleryToast(label+'Downloading… '+(total?pct+'%':fmt(got)))}
+        }
+        blob=new Blob(chunks,{type});
+      }else{
+        galleryToast(label+'Downloading…');
+        blob=await res.blob();
+      }
+      saveBlobAs(blob,name);
+      return true;
+    }catch(err){
+      console.warn('Download via fetch failed, falling back to direct link',err);
+      galleryToast(label+'Your download is starting…');
+      directDownload(url,name);
+      return false;
+    }
+  }
   async function startDownload(list){
     if(!list.length)return;
     if(list.length>1){
-      if(!confirm('Start '+list.length+' individual downloads? Your browser may ask for permission to download multiple files.'))return;
+      if(!confirm('Download '+list.length+' files? Your browser may ask once to allow multiple downloads.'))return;
     }
-    galleryToast(list.length===1?'Preparing your download…':'Starting '+list.length+' downloads…');
+    galleryToast(list.length===1?'Preparing your download…':'Preparing '+list.length+' downloads…');
     for(let i=0;i<list.length;i++){
-      const url=fileDownload(list[i]);
-      if(list.length===1){
-        // The server answers with "Content-Disposition: attachment", so a
-        // same-tab link downloads the file without leaving the gallery and
-        // without being stopped by pop-up blockers.
-        const a=document.createElement('a');
-        a.href=url;a.rel='noreferrer';a.setAttribute('download',list[i].original_name||'');
-        document.body.appendChild(a);a.click();a.remove();
-      }else{
-        // Several files: one hidden frame per file so each download starts
-        // without replacing the page.
-        const frame=document.createElement('iframe');
-        frame.style.display='none';frame.src=url;
-        document.body.appendChild(frame);
-        setTimeout(function(){frame.remove()},120000);
-      }
-      if(i<list.length-1)await new Promise(r=>setTimeout(r,600));
+      const label=list.length>1?('File '+(i+1)+' of '+list.length+' · '):'';
+      await downloadOne(list[i],label);
+      if(i<list.length-1)await new Promise(r=>setTimeout(r,400));
     }
+    galleryToast(list.length===1?'Saved to your Downloads ✓':'All '+list.length+' files saved to your Downloads ✓');
   }
   function galleryToast(msg){
     let t=document.querySelector('#galleryToast');
