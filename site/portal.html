@@ -255,7 +255,7 @@ function fmt(n){
   return (i===0?String(Math.round(x)):(x>=100?x.toFixed(0):x>=10?x.toFixed(1):x.toFixed(2)))+" "+units[i];
 }
 
-let me=null,projects=[],current=null,authMode="signup",uploadItems=new Map();
+let me=null,projects=[],current=null,authMode="signup",uploadItems=new Map(),teamWorkspaceData=null,supportTicketCache=[],activeSupportTicketId=null;
 async function api(url,opt={}){
   const {timeoutMs=60000,...fetchOptions}=opt||{};
   const controller=new AbortController();
@@ -536,8 +536,8 @@ async function loadSharedProjects(){
   catch(e){box.innerHTML='<div class="empty-action">'+esc(e.message||"Could not load shared projects.")+'</div>'}
 }
 function renderProjectsPage(){const box=$("#projectsPageGrid");if(!box)return;if(!projects.length){box.innerHTML='<div class="panel"><div class="empty">No project folders yet. Create your first folder to begin.</div></div>';return}box.innerHTML=projects.map(function(p){return '<button type="button" class="project" data-project-page-id="'+esc(p.id)+'"><b>'+esc(p.name)+'</b><span>'+esc(p.client_name||"No client")+' • '+Number(p.file_count||0)+' files • '+fmt(p.total_bytes||0)+'</span></button>'}).join("");box.querySelectorAll("[data-project-page-id]").forEach(function(b){b.onclick=function(){openProject(b.dataset.projectPageId)}})}
-function showPortalView(name){const id={dashboard:"portalDashboardView",projects:"portalProjectsView",files:"portalFilesView",shared:"portalSharedView",favorites:"portalFavoritesView",recent:"portalRecentView",trash:"portalTrashView",billing:"portalBillingView",project:"portalProjectView"}[name]||"portalDashboardView";document.querySelectorAll(".portal-view").forEach(function(v){v.classList.toggle("active",v.id===id)});document.querySelectorAll("[data-portal-nav]").forEach(function(b){b.classList.toggle("active",b.dataset.portalNav===name)})}
-async function selectPortalNav(name){if(name==="settings"){openCreativeSettings();return}showPortalView(name);if(name==="billing"){await loadBilling()}else if(name==="files"){await renderLibraryView("all",$("#myFilesSearch")?.value.trim()||"")}else if(name==="shared"){await loadSharedProjects()}else if(name==="favorites"){await renderLibraryView("favorites")}else if(name==="recent"){await renderLibraryView("recent")}else if(name==="trash"){await renderLibraryView("trash")}else if(name==="projects"){renderProjectsPage()}else if(name==="dashboard"){renderDashboardSummary();updatePortalTopStorage()}}
+function showPortalView(name){const id={dashboard:"portalDashboardView",projects:"portalProjectsView",files:"portalFilesView",shared:"portalSharedView",favorites:"portalFavoritesView",recent:"portalRecentView",trash:"portalTrashView",billing:"portalBillingView",team:"portalTeamView",support:"portalSupportView",project:"portalProjectView"}[name]||"portalDashboardView";document.querySelectorAll(".portal-view").forEach(function(v){v.classList.toggle("active",v.id===id)});document.querySelectorAll("[data-portal-nav]").forEach(function(b){b.classList.toggle("active",b.dataset.portalNav===name)})}
+async function selectPortalNav(name){if(name==="settings"){openCreativeSettings();return}showPortalView(name);if(name==="billing"){await loadBilling()}else if(name==="files"){await renderLibraryView("all",$("#myFilesSearch")?.value.trim()||"")}else if(name==="shared"){await loadSharedProjects()}else if(name==="favorites"){await renderLibraryView("favorites")}else if(name==="recent"){await renderLibraryView("recent")}else if(name==="trash"){await renderLibraryView("trash")}else if(name==="team"){await loadTeamWorkspace()}else if(name==="support"){await loadSupportTickets()}else if(name==="projects"){renderProjectsPage()}else if(name==="dashboard"){renderDashboardSummary();updatePortalTopStorage()}}
 function billingDate(v){
   if(!v)return"";
   try{return new Date(v).toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"})}catch{return String(v)}
