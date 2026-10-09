@@ -2192,7 +2192,7 @@ app.delete("/api/portal/files/:id/permanent",portalUser,async(req,res)=>{
 });
 app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
+  const q=await pool.query("SELECT f.*,p.owner_id,p.workspace_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2 OR EXISTS(SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active' AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()))",[req.params.id,req.portalUser.id]);
   if(!q.rowCount)return res.status(404).send("File not found.");
   const f=q.rows[0];
   const width=Math.max(160,Math.min(640,Number(req.query.w||360))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
