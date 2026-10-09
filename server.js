@@ -2101,6 +2101,7 @@ app.post("/api/portal/projects",portalUser,async(req,res)=>{
   const ownerId=entitlement.isWorkspace?entitlement.billingUserId:req.portalUser.id;
   const workspaceId=entitlement.isWorkspace?entitlement.workspaceId:null;
   const r=await pool.query("INSERT INTO projects(id,owner_id,workspace_id,name,client_name,client_email,note,share_token,expires_at,shared) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *",[id,ownerId,workspaceId,name,String(req.body.client_name||"").trim(),String(req.body.client_email||"").trim(),defaultNote,shareToken,expires,autoShare]);
+  await recordPortalActivity(req.portalUser.id,id,"project_created",{client_name:String(req.body.client_name||"").trim()});
   res.json({project:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not create project."})}
 });
