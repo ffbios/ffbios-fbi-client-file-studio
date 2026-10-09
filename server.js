@@ -1797,6 +1797,109 @@ app.delete("/api/portal/team/members/:userId",portalUser,async(req,res)=>{
  }catch(e){console.error(e);res.status(500).json({error:"Could not remove the team member."})}
 });
 
+function creatorSupportPriority(planId,active){
+  if(!active)return "standard";
+  return ({studio:"studio",professional:"high",creator:"priority"})[String(planId||"")]||"standard";
+}
+async function currentCreatorSupportContext(userId){
+  const q=await creatorQuota(userId);
+  return {planId:String(q.subscription?.plan_id||"trial"),priority:creatorSupportPriority(q.subscription?.plan_id,q.active),workspaceId:q.workspaceId||null,active:q.active};
+}
+app.get("/api/portal/support/tickets",portalUser,async(req,res)=>{
+ try{
+  const r=await pool.query(
+    `SELECT t.*,(SELECT m.message FROM support_ticket_messages m WHERE m.ticket_id=t.id ORDER BY m.created_at DESC LIMIT 1) last_message
+     FROM support_tickets t WHERE t.user_id=$1
+     ORDER BY CASE t.priority WHEN 'studio' THEN 0 WHEN 'high' THEN 1 WHEN 'priority' THEN 2 ELSE 3 END,t.updated_at DESC LIMIT 100`,
+    [req.portalUser.id]
+  );
+  res.json({tickets:r.rows});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load your support requests."})}
+});
+app.post("/api/portal/support/tickets",portalUser,async(req,res)=>{
+ try{
+  const subject=String(req.body.subject||"").trim().slice(0,160);
+  const message=String(req.body.message||"").trim().slice(0,6000);
+  const allowedCategories=["uploads","client_sharing","billing","account_access","file_management","other"];
+  const category=allowedCategories.includes(String(req.body.category||""))?String(req.body.category):"other";
+  if(subject.length<4)return res.status(400).json({error:"Enter a short subject for your request."});
+  if(message.length<8)return res.status(400).json({error:"Please describe the issue in a little more detail."});
+  const context=await currentCreatorSupportContext(req.portalUser.id);
+  const user=(await pool.query("SELECT full_name FROM users WHERE id=$1",[req.portalUser.id])).rows[0]||{};
+  const id=uid();
+  await pool.query("INSERT INTO support_tickets(id,user_id,workspace_id,subscription_plan_id,priority,category,subject,status) VALUES($1,$2,$3,$4,$5,$6,$7,'open')",[id,req.portalUser.id,context.workspaceId,context.planId,context.priority,category,subject]);
+  await pool.query("INSERT INTO support_ticket_messages(id,ticket_id,sender_user_id,sender_type,sender_name,message) VALUES($1,$2,$3,'customer',$4,$5)",[uid(),id,req.portalUser.id,String(user.full_name||req.portalUser.email||"Customer"),message]);
+  const ticket=(await pool.query("SELECT * FROM support_tickets WHERE id=$1",[id])).rows[0];
+  res.json({ok:true,ticket});
+ }catch(e){console.error("Support ticket creation failed:",e);res.status(500).json({error:"Could not submit your support request."})}
+});
+app.get("/api/portal/support/tickets/:id",portalUser,async(req,res)=>{
+ try{
+  const ticket=(await pool.query("SELECT * FROM support_tickets WHERE id=$1 AND user_id=$2 LIMIT 1",[req.params.id,req.portalUser.id])).rows[0];
+  if(!ticket)return res.status(404).json({error:"Support request not found."});
+  const messages=(await pool.query("SELECT id,sender_type,sender_name,message,created_at FROM support_ticket_messages WHERE ticket_id=$1 ORDER BY created_at ASC",[ticket.id])).rows;
+  res.json({ticket,messages});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not open the support request."})}
+});
+app.post("/api/portal/support/tickets/:id/messages",portalUser,async(req,res)=>{
+ try{
+  const message=String(req.body.message||"").trim().slice(0,6000);
+  if(message.length<2)return res.status(400).json({error:"Enter a reply before sending."});
+  const ticket=(await pool.query("SELECT * FROM support_tickets WHERE id=$1 AND user_id=$2 LIMIT 1",[req.params.id,req.portalUser.id])).rows[0];
+  if(!ticket)return res.status(404).json({error:"Support request not found."});
+  const user=(await pool.query("SELECT full_name FROM users WHERE id=$1",[req.portalUser.id])).rows[0]||{};
+  await pool.query("INSERT INTO support_ticket_messages(id,ticket_id,sender_user_id,sender_type,sender_name,message) VALUES($1,$2,$3,'customer',$4,$5)",[uid(),ticket.id,req.portalUser.id,String(user.full_name||req.portalUser.email||"Customer"),message]);
+  await pool.query("UPDATE support_tickets SET status=CASE WHEN status='resolved' OR status='waiting_on_customer' THEN 'open' ELSE status END,closed_at=NULL,updated_at=now() WHERE id=$1",[ticket.id]);
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not send your reply."})}
+});
+app.get("/api/admin/support/tickets",admin,async(req,res)=>{
+ try{
+  const status=String(req.query.status||"").trim(),allowed=["open","in_progress","waiting_on_customer","resolved"],values=[];
+  let filter="";
+  if(allowed.includes(status)){values.push(status);filter="WHERE t.status=$1";}
+  const r=await pool.query(
+    `SELECT t.*,u.email user_email,u.full_name user_name,
+       (SELECT count(*)::int FROM support_ticket_messages m WHERE m.ticket_id=t.id) message_count,
+       (SELECT m.message FROM support_ticket_messages m WHERE m.ticket_id=t.id ORDER BY m.created_at DESC LIMIT 1) last_message
+     FROM support_tickets t JOIN users u ON u.id=t.user_id ${filter}
+     ORDER BY CASE t.priority WHEN 'studio' THEN 0 WHEN 'high' THEN 1 WHEN 'priority' THEN 2 ELSE 3 END,
+       CASE t.status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'waiting_on_customer' THEN 2 ELSE 3 END,
+       t.updated_at DESC LIMIT 300`,
+    values
+  );
+  res.json({tickets:r.rows});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load support queue."})}
+});
+app.get("/api/admin/support/tickets/:id",admin,async(req,res)=>{
+ try{
+  const ticket=(await pool.query("SELECT t.*,u.email user_email,u.full_name user_name FROM support_tickets t JOIN users u ON u.id=t.user_id WHERE t.id=$1 LIMIT 1",[req.params.id])).rows[0];
+  if(!ticket)return res.status(404).json({error:"Support request not found."});
+  const messages=(await pool.query("SELECT id,sender_type,sender_name,message,created_at FROM support_ticket_messages WHERE ticket_id=$1 ORDER BY created_at ASC",[ticket.id])).rows;
+  res.json({ticket,messages});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not open support request."})}
+});
+app.post("/api/admin/support/tickets/:id/reply",admin,async(req,res)=>{
+ try{
+  const message=String(req.body.message||"").trim().slice(0,6000);
+  if(message.length<2)return res.status(400).json({error:"Enter a reply before sending."});
+  const ticket=(await pool.query("SELECT id FROM support_tickets WHERE id=$1 LIMIT 1",[req.params.id])).rows[0];
+  if(!ticket)return res.status(404).json({error:"Support request not found."});
+  await pool.query("INSERT INTO support_ticket_messages(id,ticket_id,sender_user_id,sender_type,sender_name,message) VALUES($1,$2,NULL,'admin',$3,$4)",[uid(),ticket.id,ADMIN_EMAIL,message]);
+  await pool.query("UPDATE support_tickets SET status=CASE WHEN status='resolved' THEN 'open' ELSE 'waiting_on_customer' END,closed_at=NULL,assigned_to=$2,updated_at=now() WHERE id=$1",[ticket.id,ADMIN_EMAIL]);
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not send the support reply."})}
+});
+app.patch("/api/admin/support/tickets/:id",admin,async(req,res)=>{
+ try{
+  const status=String(req.body.status||"").trim();
+  if(!["open","in_progress","waiting_on_customer","resolved"].includes(status))return res.status(400).json({error:"Select a valid ticket status."});
+  const r=await pool.query("UPDATE support_tickets SET status=$2,closed_at=CASE WHEN $2='resolved' THEN now() ELSE NULL END,assigned_to=$3,updated_at=now() WHERE id=$1 RETURNING *",[req.params.id,status,ADMIN_EMAIL]);
+  if(!r.rowCount)return res.status(404).json({error:"Support request not found."});
+  res.json({ok:true,ticket:r.rows[0]});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not update the support request."})}
+});
+
 app.get("/api/portal/billing",portalUser,async(req,res)=>{
  try{
   const sub=await getCreatorSubscription(req.portalUser.id);
