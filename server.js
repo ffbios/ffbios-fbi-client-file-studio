@@ -2158,6 +2158,7 @@ app.post("/api/portal/projects/:id/share",portalUser,async(req,res)=>{
   const p=await portalProjectWritable(req.portalUser.id,req.params.id);
   if(!p)return res.status(404).json({error:"Project not found or read-only."});
   const r=await pool.query("UPDATE projects SET share_token=$1,shared=true,updated_at=now() WHERE id=$2 AND owner_id=$3 RETURNING *",[token(),p.id,p.owner_id]);
+  await recordPortalActivity(req.portalUser.id,p.id,"client_share_link_created",{});
   res.json({project:r.rows[0],share_url:(req.protocol+"://"+req.get("host"))+"/share/"+r.rows[0].share_token});
  }catch(e){console.error(e);res.status(500).json({error:"Could not create client share link."})}
 });
@@ -2219,6 +2220,7 @@ app.patch("/api/portal/files/:id/favorite",portalUser,async(req,res)=>{
   const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f)return res.status(404).json({error:"File not found."});
   const favorite=Boolean(req.body&&req.body.favorite);
   const r=await pool.query("UPDATE files SET favorite=$1 WHERE id=$2 RETURNING *",[favorite,f.id]);
+  await recordPortalActivity(req.portalUser.id,f.project_id,favorite?"file_favorited":"file_unfavorited",{file_name:f.original_name||""});
   res.json({file:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not update favorite."})}
 });
