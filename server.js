@@ -3933,7 +3933,7 @@ app.post("/api/portal/uploads/:id/complete",portalUser,async(req,res)=>{
 });
 app.post("/api/portal/uploads/:id/abort",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  const q=await portalUploadSessionAccessible(req.portalUser.id,req.params.id);
   if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
   const u=q.rows[0];
   if(u.mode==="multipart"&&u.multipart_upload_id)await s3.send(new AbortMultipartUploadCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id})).catch(function(){});
