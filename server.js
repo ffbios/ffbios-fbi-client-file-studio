@@ -2236,20 +2236,20 @@ app.delete("/api/portal/projects/:id",portalUser,async(req,res)=>{
 });
 app.get("/api/portal/media/:id",portalUser,async(req,res)=>{
   try{
-    const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
+    const r=await pool.query("SELECT f.*,p.owner_id,p.workspace_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2 OR EXISTS(SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active' AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()))",[req.params.id,req.portalUser.id]);
     if(!r.rowCount)return res.status(404).send("File not found.");
     await streamStoredObject(req,res,r.rows[0]);
   }catch(e){console.error("Portal media stream failed:",e?.stack||e);res.status(500).send("Unable to stream file.")}
 });
 app.head("/api/portal/media/:id",portalUser,async(req,res)=>{
   try{
-    const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
+    const r=await pool.query("SELECT f.*,p.owner_id,p.workspace_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2 OR EXISTS(SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active' AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()))",[req.params.id,req.portalUser.id]);
     if(!r.rowCount)return res.status(404).end();
     await streamStoredObject(req,res,r.rows[0]);
   }catch(e){console.error("Portal media HEAD failed:",e?.stack||e);res.status(500).end()}
 });
 app.get("/api/portal/file/:id",portalUser,async(req,res)=>{
- try{const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);if(!r.rowCount)return res.status(404).send("File not found.");const f=r.rows[0];const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:900});res.redirect(url);}
+ try{const r=await pool.query("SELECT f.*,p.owner_id,p.workspace_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2 OR EXISTS(SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active' AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()))",[req.params.id,req.portalUser.id]);if(!r.rowCount)return res.status(404).send("File not found.");const f=r.rows[0];const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:900});res.redirect(url);}
  catch(e){console.error(e);res.status(500).send("Unable to serve file.")}
 });
 app.get("/api/projects",admin,async(req,res)=>{
