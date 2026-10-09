@@ -3870,7 +3870,7 @@ app.post("/api/portal/uploads/:id/part-fallback",portalUser,express.raw({type:"a
 });
 app.post("/api/portal/uploads/:id/parts",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  const q=await portalUploadSessionAccessible(req.portalUser.id,req.params.id);
   if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
   const u=q.rows[0];
   await pool.query("UPDATE upload_sessions SET updated_at=now() WHERE id=$1 AND status='active'",[u.id]);
