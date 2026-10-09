@@ -3761,10 +3761,10 @@ app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
  try{
   if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
   const projectId=String(req.body.projectId||""),originalName=String(req.body.name||"").trim(),relativePath=safeRelativePath(req.body.relativePath,originalName),size=Number(req.body.size||0),mimeType=String(req.body.mimeType||"application/octet-stream"),fingerprint=String(req.body.fingerprint||"").trim().slice(0,128),fingerprintType=String(req.body.fingerprintType||"full").trim().toLowerCase();
-  const project=await portalProjectOwned(req.portalUser.id,projectId);
-  if(!project)return res.status(404).json({error:"Project not found."});
+  const project=await portalProjectWritable(req.portalUser.id,projectId);
+  if(!project)return res.status(404).json({error:"Project not found or read-only."});
   if(!originalName||!Number.isFinite(size)||size<0||size>MAX_FILE_SIZE)return res.status(400).json({error:"Invalid file."});
-  const entitlement=await creatorQuota(req.portalUser.id);
+  const entitlement=await creatorQuota(req.portalUser.id,projectId);
   if(!entitlement.active)return res.status(402).json({error:"Your storage trial or subscription is not active. Open Billing to choose a plan.",code:"SUBSCRIPTION_REQUIRED",storage:{quota_bytes:entitlement.quotaBytes,used_bytes:entitlement.usedBytes,reserved_bytes:entitlement.reservedBytes,available_bytes:entitlement.availableBytes}});
   // Sample-based large-file identity is only for resumable session binding,
   // not strong enough for duplicate detection.
@@ -3788,7 +3788,7 @@ app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
     await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
   }
   let quotaForNewUpload;
-  try{quotaForNewUpload=await assertCreatorQuotaForUpload(req.portalUser.id,null,size)}
+  try{quotaForNewUpload=await assertCreatorQuotaForUpload(req.portalUser.id,null,size,projectId)}
   catch(e){
     const status=e.code==="STORAGE_QUOTA_EXCEEDED"?413:e.code==="SUBSCRIPTION_REQUIRED"?402:500;
     return res.status(status).json({error:e.message,code:e.code||"UPLOAD_QUOTA_ERROR",storage:e.quota?{quota_bytes:e.quota.quotaBytes,used_bytes:e.quota.usedBytes,reserved_bytes:e.quota.reservedBytes,available_bytes:e.quota.availableBytes,projected_bytes:e.quota.projectedBytes}:undefined});
