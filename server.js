@@ -2120,6 +2120,7 @@ app.post("/api/portal/projects/:id/move-to-workspace",portalUser,async(req,res)=
     const updated=await client.query("UPDATE projects SET workspace_id=$1,owner_id=$2,updated_at=now() WHERE id=$3 AND owner_id=$2 AND workspace_id IS NULL RETURNING id,name,workspace_id",[ws.id,req.portalUser.id,project.id]);
     if(!updated.rowCount){await client.query("ROLLBACK");return res.status(409).json({error:"The project changed while being moved. Refresh and try again."});}
     await client.query("COMMIT");
+    await recordPortalActivity(req.portalUser.id,project.id,"project_added_to_workspace",{workspace_name:ws.name});
     res.json({ok:true,project:updated.rows[0],workspace_name:ws.name});
   }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e}
   finally{client.release()}
