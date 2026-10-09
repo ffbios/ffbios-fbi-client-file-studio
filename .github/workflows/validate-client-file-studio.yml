@@ -1,0 +1,40 @@
+name: Validate Client File Studio
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check server and standalone scripts
+        run: |
+          node --check server.js
+          node --check site/team-support.js
+          node --check site/portal-support.js
+      - name: Parse embedded browser scripts
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const vm = require('node:vm');
+          for (const file of ['site/portal.html', 'site/admin-support.html']) {
+            const html = fs.readFileSync(file, 'utf8');
+            const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
+            let parsed = 0;
+            scripts.forEach((match, index) => {
+              if (!match[1].trim()) return;
+              new vm.Script(match[1], { filename: file + '#script-' + index });
+              parsed += 1;
+            });
+            console.log(file + ': parsed ' + parsed + ' embedded script(s)');
+          }
+          NODE
