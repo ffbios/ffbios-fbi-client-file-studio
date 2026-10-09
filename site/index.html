@@ -432,6 +432,9 @@
 .fbi-gallery-card:hover .fbi-gallery-media img{transform:scale(1.035);filter:saturate(1.02)}
 .fbi-gallery-overlay{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:space-between;padding:13px;background:linear-gradient(180deg,transparent 50%,rgba(0,0,0,.52) 100%);opacity:0;transition:opacity .24s ease}
 .fbi-gallery-card:hover .fbi-gallery-overlay,.fbi-gallery-card:focus-within .fbi-gallery-overlay{opacity:1}
+@media(hover:none){.fbi-gallery-overlay{opacity:1;background:linear-gradient(180deg,transparent 65%,rgba(0,0,0,.45) 100%)}.fbi-gallery-filetitle{display:none}}
+.fbi-lightbox-loading{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:rgba(255,255,255,.75);font-size:12px;pointer-events:none}
+.fbi-gallery-toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:200;padding:10px 16px;border-radius:999px;background:#fff;color:#171717;font-size:12px;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.35);display:none}
 .fbi-gallery-filetitle{max-width:70%;color:#fff;font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fbi-gallery-cardtools{display:flex;gap:7px}
 .fbi-gallery-iconbtn{width:34px;height:34px;border:1px solid rgba(255,255,255,.38);border-radius:50%;background:rgba(18,18,17,.5);color:#fff;display:grid;place-items:center;cursor:pointer;backdrop-filter:blur(10px)}
@@ -450,12 +453,12 @@
 .fbi-lightbox.show{display:flex}
 .fbi-lightbox img{max-width:92vw;max-height:86vh;object-fit:contain}
 .fbi-lightbox video{max-width:92vw;max-height:86vh;background:#000}
-.fbi-lightbox-top{position:absolute;top:0;left:0;right:0;padding:16px 22px;display:flex;align-items:center;justify-content:space-between;color:#fff}
+.fbi-lightbox-top{position:absolute;top:0;left:0;right:0;z-index:20;padding:16px 22px;display:flex;align-items:center;justify-content:space-between;color:#fff}
 .fbi-lightbox-title{font-size:11px;opacity:.92;max-width:58vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fbi-lightbox-tools{display:flex;gap:8px}
 .fbi-lightbox-btn{border:1px solid rgba(255,255,255,.23);background:rgba(255,255,255,.07);color:#fff;border-radius:999px;padding:9px 12px;font-size:10px;cursor:pointer}
 .fbi-lightbox-btn.primary{background:#fff;color:#171717;border-color:#fff}
-.fbi-lightbox-arrow{position:absolute;top:50%;transform:translateY(-50%);width:52px;height:52px;border-radius:50%;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#fff;font-size:27px;display:grid;place-items:center;cursor:pointer}
+.fbi-lightbox-arrow{position:absolute;z-index:20;top:50%;transform:translateY(-50%);width:52px;height:52px;border-radius:50%;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#fff;font-size:27px;display:grid;place-items:center;cursor:pointer}
 .fbi-lightbox-arrow.prev{left:20px}.fbi-lightbox-arrow.next{right:20px}
 .fbi-lightbox-stage{width:min(1240px,94vw);height:88vh;display:grid;place-items:center}.fbi-zoom-tools{position:absolute;right:22px;bottom:22px;z-index:8;display:flex;gap:6px;padding:5px;border:1px solid rgba(255,255,255,.14);border-radius:999px;background:rgba(18,18,20,.86);backdrop-filter:blur(10px);box-shadow:0 10px 30px rgba(0,0,0,.35)}.fbi-zoom-tools button{min-width:34px;height:31px;border:1px solid rgba(255,255,255,.14);border-radius:8px;background:#202024;color:#fff;cursor:pointer;font-size:15px}.fbi-zoom-tools button:hover{background:#2a2a2f}.fbi-zoom-stage{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none;cursor:grab}.fbi-zoom-stage.dragging{cursor:grabbing}.fbi-zoomable{max-width:92vw;max-height:86vh;object-fit:contain;transform-origin:center center;transition:transform .16s ease;user-select:none;-webkit-user-drag:none}.fbi-zoomable.zoom-dragging{transition:none}.admin-zoom-stage{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none;cursor:grab}.admin-zoom-stage img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:center center;transition:transform .16s ease;user-select:none;-webkit-user-drag:none}.admin-zoom-stage.dragging img{transition:none}
 @media(max-width:1250px){.fbi-gallery-grid{column-count:3}}
@@ -2087,7 +2090,7 @@ async function clientView(token){
         '<div class="fbi-gallery-footer">FILM BEYOND IMAGINATION • SECURE CLIENT DELIVERY</div>'+
       '</main>'+
       '<div id="favoriteBar" class="fbi-gallery-sticky"><strong id="favoriteLabel">0 favorites</strong><button id="downloadFavorites">Download Favorites</button></div>'+
-      '<div id="clientLightbox" class="fbi-lightbox"><div class="fbi-lightbox-top"><div class="fbi-lightbox-title" id="lightTitle"></div><div class="fbi-lightbox-tools"><button class="fbi-lightbox-btn" id="lightFav">♡ Favorite</button><button class="fbi-lightbox-btn primary" id="lightDownload">Download</button><button class="fbi-lightbox-btn" id="lightClose">Close</button></div></div><button class="fbi-lightbox-arrow prev" id="lightPrev">‹</button><div class="fbi-lightbox-stage" id="lightStage"></div><button class="fbi-lightbox-arrow next" id="lightNext">›</button></div>'+
+      '<div id="clientLightbox" class="fbi-lightbox"><div class="fbi-lightbox-top"><div class="fbi-lightbox-title" id="lightTitle"></div><div class="fbi-lightbox-tools"><button class="fbi-lightbox-btn" id="lightFav">♡ Favorite</button><button class="fbi-lightbox-btn primary" id="lightDownload">Download</button><button class="fbi-lightbox-btn" id="lightClose">Close</button></div></div><button type="button" class="fbi-lightbox-arrow prev" id="lightPrev" aria-label="Previous">‹</button><div class="fbi-lightbox-stage" id="lightStage"></div><button type="button" class="fbi-lightbox-arrow next" id="lightNext" aria-label="Next">›</button></div>'+
     '</div>';
 
   const selectedFilter={value:'all'}, sortBy={value:'natural'}, favoritesOnly={value:false};
@@ -2300,8 +2303,19 @@ async function clientView(token){
     if(t==='image'){
       // Show the fast thumbnail immediately, then upgrade it silently in the
       // background when the higher-resolution preview is ready.
-      stage.innerHTML='<div class="fbi-lightbox-image-wrap fbi-zoom-stage"><img class="fbi-lightbox-image fbi-zoomable" src="'+quickSrc+'" alt="" decoding="async" fetchpriority="high"></div>';
+      stage.innerHTML='<div class="fbi-lightbox-image-wrap fbi-zoom-stage"><div class="fbi-lightbox-loading">Loading photo…</div><img class="fbi-lightbox-image fbi-zoomable" alt="'+esc(f.original_name)+'" decoding="async" fetchpriority="high"></div>';
       const img=stage.querySelector('.fbi-lightbox-image');
+      const loadingEl=stage.querySelector('.fbi-lightbox-loading');
+      // If the quick thumbnail fails, fall back to the large preview and then
+      // the original file so the client always sees the photo.
+      const fallbacks=[highSrc,'/api/public/media/'+mediaId+'?token='+encodeURIComponent(token)];
+      img.onload=function(){if(loadingEl)loadingEl.remove()};
+      img.onerror=function(){
+        const nextSrc=fallbacks.shift();
+        if(nextSrc&&stage.contains(img)){img.src=nextSrc}
+        else if(loadingEl){loadingEl.textContent='This photo could not be previewed. You can still download it.'}
+      };
+      img.src=quickSrc;
       setupDeliveryImageZoom(stage.querySelector('.fbi-zoom-stage'),img);
 
       const high=new Image();
@@ -2341,12 +2355,32 @@ async function clientView(token){
     if(list.length>1){
       if(!confirm('Start '+list.length+' individual downloads? Your browser may ask for permission to download multiple files.'))return;
     }
+    galleryToast(list.length===1?'Preparing your download…':'Starting '+list.length+' downloads…');
     for(let i=0;i<list.length;i++){
-      const a=document.createElement('a');
-      a.href=fileDownload(list[i]);a.target='_blank';a.rel='noreferrer';a.download='';
-      document.body.appendChild(a);a.click();a.remove();
-      if(i<list.length-1)await new Promise(r=>setTimeout(r,220));
+      const url=fileDownload(list[i]);
+      if(list.length===1){
+        // The server answers with "Content-Disposition: attachment", so a
+        // same-tab link downloads the file without leaving the gallery and
+        // without being stopped by pop-up blockers.
+        const a=document.createElement('a');
+        a.href=url;a.rel='noreferrer';a.setAttribute('download',list[i].original_name||'');
+        document.body.appendChild(a);a.click();a.remove();
+      }else{
+        // Several files: one hidden frame per file so each download starts
+        // without replacing the page.
+        const frame=document.createElement('iframe');
+        frame.style.display='none';frame.src=url;
+        document.body.appendChild(frame);
+        setTimeout(function(){frame.remove()},120000);
+      }
+      if(i<list.length-1)await new Promise(r=>setTimeout(r,600));
     }
+  }
+  function galleryToast(msg){
+    let t=document.querySelector('#galleryToast');
+    if(!t){t=document.createElement('div');t.id='galleryToast';t.className='fbi-gallery-toast';t.setAttribute('role','status');document.body.appendChild(t)}
+    t.textContent=msg;t.style.display='block';
+    clearTimeout(window.__fbiGalleryToast);window.__fbiGalleryToast=setTimeout(function(){t.style.display='none'},3200);
   }
   function startSlideshow(){
     const list=files.filter(canPreview);
