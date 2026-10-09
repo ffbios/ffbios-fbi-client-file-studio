@@ -950,6 +950,7 @@ const DEFAULT_CREATIVE_SETTINGS={business_name:"",portal_title:"Private Client G
 const CREATOR_TRIAL_BYTES=10*1000*1000*1000;
 const CREATOR_BILLING_CURRENCY=String(process.env.MOOLRE_CURRENCY||"GHS").trim().toUpperCase()||"GHS";
 const CREATOR_PLAN_IDS=["starter","creator","professional","studio"];
+const CREATOR_STUDIO_TEAM_SEATS=3;
 
 function moolreBaseUrl(){return String(process.env.MOOLRE_API_BASE||"https://api.moolre.com").replace(/\/+$/,"");}
 function moolreConfigured(){return Boolean(String(process.env.MOOLRE_API_USER||"").trim()&&String(process.env.MOOLRE_API_PUBKEY||"").trim()&&String(process.env.MOOLRE_ACCOUNT_NUMBER||"").trim());}
