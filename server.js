@@ -2063,6 +2063,10 @@ app.post("/api/portal/projects",portalUser,async(req,res)=>{
   const name=String(req.body.name||"").trim();if(!name)return res.status(400).json({error:"Project name is required."});
   const id=uid(),shareToken=token(),settings=await loadSettings(),creative=await loadCreativeSettings(req.portalUser.id);
   const entitlement=await creatorQuota(req.portalUser.id);
+  if(entitlement.isWorkspace&&entitlement.billingUserId!==req.portalUser.id){
+    const member=(await pool.query("SELECT role FROM creator_workspace_members WHERE workspace_id=$1 AND user_id=$2 AND status='active' LIMIT 1",[entitlement.workspaceId,req.portalUser.id])).rows[0];
+    if(!member||!["owner","admin","editor"].includes(member.role))return res.status(403).json({error:"Your workspace role is read-only. Ask the owner for Editor access to create projects."});
+  }
   const defaultNote=String(req.body.note||"").trim()||settings.default_client_note||"";
   const days=settingInt(creative.preferences?.default_expiry_days,settingInt(settings.default_expiry_days,30));
   const expires=days?new Date(Date.now()+days*86400000):null;
@@ -2072,6 +2076,26 @@ app.post("/api/portal/projects",portalUser,async(req,res)=>{
   const r=await pool.query("INSERT INTO projects(id,owner_id,workspace_id,name,client_name,client_email,note,share_token,expires_at,shared) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *",[id,ownerId,workspaceId,name,String(req.body.client_name||"").trim(),String(req.body.client_email||"").trim(),defaultNote,shareToken,expires,autoShare]);
   res.json({project:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not create project."})}
+});
+app.post("/api/portal/projects/:id/move-to-workspace",portalUser,async(req,res)=>{
+ try{
+  const ws=await studioWorkspaceForOwner(req.portalUser.id);
+  if(!ws)return res.status(403).json({error:"Only the owner of an active Studio subscription can move projects into the team workspace."});
+  const project=await portalProjectOwned(req.portalUser.id,req.params.id);
+  if(!project)return res.status(404).json({error:"Project not found."});
+  if(project.workspace_id===ws.id)return res.json({ok:true,already_shared:true});
+  if(project.workspace_id)return res.status(409).json({error:"This project already belongs to another workspace."});
+  const client=await pool.connect();
+  try{
+    await client.query("BEGIN");
+    await client.query("DELETE FROM project_collaborators WHERE project_id=$1",[project.id]);
+    const updated=await client.query("UPDATE projects SET workspace_id=$1,owner_id=$2,updated_at=now() WHERE id=$3 AND owner_id=$2 AND workspace_id IS NULL RETURNING id,name,workspace_id",[ws.id,req.portalUser.id,project.id]);
+    if(!updated.rowCount){await client.query("ROLLBACK");return res.status(409).json({error:"The project changed while being moved. Refresh and try again."});}
+    await client.query("COMMIT");
+    res.json({ok:true,project:updated.rows[0],workspace_name:ws.name});
+  }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e}
+  finally{client.release()}
+ }catch(e){console.error("Studio project migration failed:",e);res.status(500).json({error:"Could not move the project to the team workspace."})}
 });
 app.get("/api/portal/projects/:id",portalUser,async(req,res)=>{
  try{
