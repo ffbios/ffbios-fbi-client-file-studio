@@ -469,6 +469,8 @@
 .fbi-gallery-hero-bg{transition:opacity .5s ease,filter .5s ease}
 .fbi-gallery-hero-bg.is-loading{opacity:.25}
 .fbi-gallery-hero-bg.is-ready{opacity:1}
+.fbi-gallery-hero-bg.fbi-cover-next{opacity:0;transition:opacity 1.2s ease}
+.fbi-gallery-hero-bg.fbi-cover-next.is-in{opacity:1}
 .fbi-gallery-hero:after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 38%,rgba(255,255,255,.03),transparent 42%)}
 /* Friendlier client gallery: larger type, softer cards, guidance and an ending */
 .fbi-gallery-page{font-size:15px;-webkit-font-smoothing:antialiased}
@@ -2519,55 +2521,106 @@ async function clientView(token){
     if(e.key==='ArrowRight')moveLight(1);
   },{once:false});
 
+  // ---- Cover photo: sharp, smart and rotating ----
+  // Candidates are scored once (exposure, contrast, orientation, size); the
+  // cover then rotates to the next good photo each time the client scrolls
+  // into the gallery and comes back up to the top.
+  let coverQueue=[],coverPos=0,coverBusy=false;
+  function coverSrc(f){
+    const wide=window.innerWidth>=window.innerHeight;
+    // Large preview (not the 720px thumbnail) so the cover stays sharp on
+    // big and high-density screens.
+    return '/api/public/preview/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+(wide?'&w=2400&h=1600':'&w=1400&h=2400');
+  }
+  function showCover(f){
+    return new Promise(function(resolve){
+      const heroEl=document.querySelector('.fbi-gallery-hero');
+      const oldBg=heroEl&&heroEl.querySelector('.fbi-gallery-hero-bg');
+      if(!heroEl||!oldBg||!f)return resolve(false);
+      const src=coverSrc(f);
+      const pre=new Image();
+      pre.decoding='async';
+      pre.onload=function(){
+        const layer=document.createElement('div');
+        layer.className='fbi-gallery-hero-bg fbi-cover-next';
+        layer.style.backgroundImage='url("'+src+'")';
+        oldBg.after(layer);
+        requestAnimationFrame(function(){requestAnimationFrame(function(){layer.classList.add('is-in')})});
+        setTimeout(function(){
+          heroEl.querySelectorAll('.fbi-gallery-hero-bg').forEach(function(el){if(el!==layer)el.remove()});
+          layer.classList.remove('fbi-cover-next','is-in');layer.classList.add('is-ready');
+          resolve(true);
+        },1300);
+      };
+      pre.onerror=function(){resolve(false)};
+      pre.src=src;
+    });
+  }
+  async function nextCover(){
+    if(coverBusy||coverQueue.length<2)return;
+    coverBusy=true;
+    for(let tries=0;tries<coverQueue.length-1;tries++){
+      coverPos=(coverPos+1)%coverQueue.length;
+      if(await showCover(coverQueue[coverPos]))break;
+    }
+    coverBusy=false;
+  }
   async function selectBestCover(){
     if(!heroCandidates.length)return;
-    const testCandidates=heroCandidates.slice(0,12);
+    const tall=window.innerHeight>window.innerWidth;
+    const testCandidates=heroCandidates.slice(0,16);
     const scored=[];
-    for(const f of testCandidates){
+    await Promise.all(testCandidates.map(async function(f){
       try{
         const src='/api/public/thumb/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w=520&h=420';
         const img=await new Promise((resolve,reject)=>{
           const im=new Image();im.onload=()=>resolve(im);im.onerror=reject;im.src=src;
         });
         const w=img.naturalWidth||1,h=img.naturalHeight||1,ratio=w/h;
-        let score=Math.min(1.25,Number(f.size_bytes||0)/Math.max(1,heroCandidates[0].size_bytes||1));
-        // Favor hero-friendly frames, while allowing good square images.
-        score+=ratio>=1.05?0.38:ratio>=0.9?0.22:0.05;
-        score+=Math.min(0.25,Math.abs(Math.log(Math.max(.25,ratio)))*.04);
-        const canvas=document.createElement('canvas');canvas.width=32;canvas.height=24;
+        let score=Math.min(1.25,Number(f.size_bytes||0)/Math.max(1,heroCandidates[0].size_bytes||1))*.5;
+        // Landscape photos suit wide screens; portrait photos suit phones.
+        if(tall)score+=ratio<=.9?.4:ratio<=1.1?.25:.1;
+        else score+=ratio>=1.2?.45:ratio>=.95?.25:.05;
+        const canvas=document.createElement('canvas');canvas.width=48;canvas.height=36;
         const ctx=canvas.getContext('2d',{willReadFrequently:true});
         if(ctx){
-          ctx.drawImage(img,0,0,32,24);
-          const data=ctx.getImageData(0,0,32,24).data;
-          let sum=0,sum2=0,count=0;
-          for(let i=0;i<data.length;i+=4){
-            const r=data[i],g=data[i+1],b=data[i+2],lum=.2126*r+.7152*g+.0722*b;
-            sum+=lum;sum2+=lum*lum;count++;
-          }
-          const mean=sum/count,variance=Math.max(0,sum2/count-mean*mean);
-          // Avoid extremely dark or blown-out covers and reward reasonable tonal range.
-          const exposure=Math.max(0,1-Math.abs(mean-132)/132);
-          score+=exposure*.34+Math.min(.36,Math.sqrt(variance)/120);
+          ctx.drawImage(img,0,0,48,36);
+          const data=ctx.getImageData(0,0,48,36).data;
+          const lum=[];let sum=0,sum2=0;
+          for(let i=0;i<data.length;i+=4){const l=.2126*data[i]+.7152*data[i+1]+.0722*data[i+2];lum.push(l);sum+=l;sum2+=l*l}
+          const n=lum.length,mean=sum/n,variance=Math.max(0,sum2/n-mean*mean);
+          // Edge energy approximates sharpness/detail, so soft or blurry frames rank lower.
+          let edge=0;
+          for(let y=0;y<36;y++)for(let x=1;x<48;x++)edge+=Math.abs(lum[y*48+x]-lum[y*48+x-1]);
+          for(let y=1;y<36;y++)for(let x=0;x<48;x++)edge+=Math.abs(lum[y*48+x]-lum[(y-1)*48+x]);
+          edge/=n*2;
+          const exposure=Math.max(0,1-Math.abs(mean-128)/128);
+          score+=exposure*.4+Math.min(.35,Math.sqrt(variance)/120)+Math.min(.5,edge/18);
         }
         scored.push({f,score});
       }catch{}
-    }
+    }));
     if(!scored.length)return;
     scored.sort((a,b)=>b.score-a.score);
-    hero=scored[0].f;
-    const cover='/api/public/thumb/'+encodeURIComponent(hero.id)+'?token='+encodeURIComponent(token)+'&w=1800&h=1100';
+    // Keep the strongest photos for rotation (at least 1, up to 8).
+    coverQueue=scored.slice(0,Math.max(1,Math.min(8,Math.ceil(scored.length*.6)))).map(x=>x.f);
+    // Start on one of the top few so repeat visits feel fresh.
+    coverPos=Math.floor(Math.random()*Math.min(3,coverQueue.length));
+    hero=coverQueue[coverPos];
     const bg=document.querySelector('.fbi-gallery-hero-bg');
-    if(bg){
-      bg.classList.add('is-loading');
-      const preload=new Image();
-      preload.onload=function(){
-        bg.style.backgroundImage='url("'+cover+'")';
-        bg.classList.remove('is-loading');bg.classList.add('is-ready');
-      };
-      preload.src=cover;
+    if(bg)bg.classList.add('is-loading');
+    if(!(await showCover(hero))&&bg){bg.classList.remove('is-loading');bg.classList.add('is-ready')}
+    // Rotate when the client returns to the top after browsing the gallery.
+    const heroEl=document.querySelector('.fbi-gallery-hero');
+    if(heroEl&&'IntersectionObserver' in window&&coverQueue.length>1){
+      let leftHero=false;
+      new IntersectionObserver(function(entries){
+        entries.forEach(function(e){
+          if(!e.isIntersecting||e.intersectionRatio<.15){leftHero=true;return}
+          if(leftHero&&e.intersectionRatio>.35){leftHero=false;nextCover()}
+        });
+      },{threshold:[0,.15,.35]}).observe(heroEl);
     }
-    const hint=document.querySelector('#coverHint');
-    if(hint)hint.textContent='Cover photo selected from this gallery';
   }
 
   updateFavoritesUi();renderGrid();
