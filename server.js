@@ -395,6 +395,45 @@ async function portalFileAccessible(userId,fileId){
   );
   return r.rows[0]||null;
 }
+async function portalProjectWritable(userId,projectId){
+  const r=await pool.query(
+    `SELECT p.* FROM projects p WHERE p.id=$1 AND (p.owner_id=$2 OR EXISTS(
+       SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id
+       JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id
+       WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active'
+         AND wm.role IN ('owner','admin','editor')
+         AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()
+     ))`,
+    [projectId,userId]
+  );
+  return r.rows[0]||null;
+}
+async function portalProjectManageable(userId,projectId){
+  const r=await pool.query(
+    `SELECT p.* FROM projects p WHERE p.id=$1 AND (p.owner_id=$2 OR EXISTS(
+       SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id
+       JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id
+       WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active'
+         AND wm.role IN ('owner','admin')
+         AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()
+     ))`,
+    [projectId,userId]
+  );
+  return r.rows[0]||null;
+}
+async function portalUploadSessionAccessible(userId,uploadId){
+  return pool.query(
+    `SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id
+     WHERE u.id=$1 AND (p.owner_id=$2 OR EXISTS(
+       SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id
+       JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id
+       WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active'
+         AND wm.role IN ('owner','admin','editor')
+         AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()
+     ))`,
+    [uploadId,userId]
+  );
+}
 
 function clientIp(req){return String(req.headers["x-forwarded-for"]||req.socket.remoteAddress||"").split(",")[0].trim().slice(0,120)}
 function s3Ready(){return Boolean(process.env.S3_BUCKET&&process.env.S3_ENDPOINT&&process.env.S3_ACCESS_KEY_ID&&process.env.S3_SECRET_ACCESS_KEY&&process.env.S3_REGION)}
