@@ -3893,12 +3893,12 @@ app.post("/api/portal/uploads/:id/parts",portalUser,async(req,res)=>{
 });
 app.post("/api/portal/uploads/:id/complete",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  const q=await portalUploadSessionAccessible(req.portalUser.id,req.params.id);
   if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
   const u=q.rows[0];
 
   try{
-    try{await assertCreatorQuotaForUpload(req.portalUser.id,u.id,Number(u.size_bytes||0));}
+    try{await assertCreatorQuotaForUpload(req.portalUser.id,u.id,Number(u.size_bytes||0),u.project_id);}
     catch(e){
       const status=e.code==="STORAGE_QUOTA_EXCEEDED"?413:e.code==="SUBSCRIPTION_REQUIRED"?402:500;
       return res.status(status).json({error:e.message,code:e.code||"UPLOAD_QUOTA_ERROR"});
