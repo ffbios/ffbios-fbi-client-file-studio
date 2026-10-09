@@ -3815,7 +3815,7 @@ app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
 });
 app.get("/api/portal/uploads/:id/state",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  const q=await portalUploadSessionAccessible(req.portalUser.id,req.params.id);
   if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
   const u=q.rows[0];
   if(u.mode!=="multipart")return res.json({uploadId:u.id,mode:u.mode,status:u.status,parts:[]});
