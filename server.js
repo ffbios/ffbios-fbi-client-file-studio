@@ -2166,7 +2166,8 @@ app.patch("/api/portal/files/:id/favorite",portalUser,async(req,res)=>{
 });
 app.delete("/api/portal/files/:id",portalUser,async(req,res)=>{
  try{
-  const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f||f.owner_id!==req.portalUser.id)return res.status(404).json({error:"File not found."});
+  const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f)return res.status(404).json({error:"File not found."});
+  const writable=await portalProjectWritable(req.portalUser.id,f.project_id);if(!writable)return res.status(404).json({error:"File not found or read-only."});
   await pool.query("UPDATE files SET trashed_at=now(),updated_at=now() WHERE id=$1",[f.id]).catch(async()=>{
     await pool.query("UPDATE files SET trashed_at=now() WHERE id=$1",[f.id]);
   });
