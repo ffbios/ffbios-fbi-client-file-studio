@@ -1068,43 +1068,81 @@ async function ensureCreatorSubscription(userId){
 async function getCreatorSubscription(userId){
   return ensureCreatorSubscription(userId);
 }
-async function creatorStorageUsage(userId){
+function creatorSubscriptionActive(sub){
+  return !!sub&&["trialing","active"].includes(String(sub.status||""))&&new Date(sub.current_period_end||0).getTime()>Date.now();
+}
+async function ensureCreatorWorkspace(userId){
+  const sub=await getCreatorSubscription(userId);
+  let existing=(await pool.query("SELECT * FROM creator_workspaces WHERE owner_user_id=$1 LIMIT 1",[userId])).rows[0]||null;
+  if(!existing){
+    if(String(sub?.plan_id||"")!=="studio"||!creatorSubscriptionActive(sub))return null;
+    const user=(await pool.query("SELECT u.full_name,u.email,cs.business_name FROM users u LEFT JOIN creative_settings cs ON cs.user_id=u.id WHERE u.id=$1 LIMIT 1",[userId])).rows[0]||{};
+    const displayName=String(user.business_name||user.full_name||String(user.email||"").split("@")[0]||"Creative").trim().slice(0,140);
+    existing=(await pool.query("INSERT INTO creator_workspaces(id,owner_user_id,name) VALUES($1,$2,$3) ON CONFLICT(owner_user_id) DO UPDATE SET updated_at=now() RETURNING *",[uid(),userId,(displayName+" Studio").slice(0,160)])).rows[0]||null;
+  }
+  if(existing)await pool.query("INSERT INTO creator_workspace_members(id,workspace_id,user_id,role,status) VALUES($1,$2,$3,'owner','active') ON CONFLICT(workspace_id,user_id) DO UPDATE SET role='owner',status='active',updated_at=now()",[uid(),existing.id,userId]);
+  return existing;
+}
+async function findWorkspaceForUser(userId,{includeInactive=true}={}){
+  await ensureCreatorWorkspace(userId);
+  const activeFilter=includeInactive?"":"AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()";
+  const r=await pool.query(
+    `SELECT w.*,wm.role,wm.status member_status,u.email owner_email,u.full_name owner_name,
+       cs.plan_id,cs.status subscription_status,cs.storage_bytes subscription_storage_bytes,
+       cs.monthly_price_ghs subscription_price_ghs,cs.current_period_end subscription_period_end
+     FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id
+     JOIN users u ON u.id=w.owner_user_id JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id
+     WHERE wm.user_id=$1 AND wm.status='active' ${activeFilter}
+     ORDER BY (w.owner_user_id=$1) DESC,w.created_at ASC LIMIT 1`,
+    [userId]
+  );
+  return r.rows[0]||null;
+}
+async function creatorStorageUsage(userId,workspaceId=null){
+  const where=workspaceId?"(p.owner_id=$1 OR p.workspace_id=$2)":"p.owner_id=$1";
+  const params=workspaceId?[userId,workspaceId]:[userId];
   const [used,reserved]=await Promise.all([
-    pool.query("SELECT COALESCE(SUM(f.size_bytes),0) bytes FROM files f JOIN projects p ON p.id=f.project_id WHERE p.owner_id=$1",[userId]),
-    pool.query("SELECT COALESCE(SUM(u.size_bytes),0) bytes FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE p.owner_id=$1 AND u.status='active'",[userId])
+    pool.query("SELECT COALESCE(SUM(f.size_bytes),0) bytes FROM files f JOIN projects p ON p.id=f.project_id WHERE "+where,params),
+    pool.query("SELECT COALESCE(SUM(u.size_bytes),0) bytes FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE "+where+" AND u.status='active'",params)
   ]);
   return {usedBytes:Number(used.rows[0]?.bytes||0),reservedBytes:Number(reserved.rows[0]?.bytes||0)};
 }
-async function creatorQuota(userId){
-  const sub=await getCreatorSubscription(userId);
-  const now=new Date();
-  const active=!!sub&&["trialing","active"].includes(String(sub.status))&&new Date(sub.current_period_end).getTime()>now.getTime();
-  const quota=active?Number(sub.storage_bytes||0):0;
-  const usage=await creatorStorageUsage(userId);
+async function creatorQuota(userId,projectId=null){
+  const personalSub=await getCreatorSubscription(userId);
+  let billingUserId=userId,workspaceId=null,sub=personalSub,isWorkspace=false,canManageBilling=true;
+  if(projectId){
+    const project=(await pool.query("SELECT workspace_id FROM projects WHERE id=$1 LIMIT 1",[projectId])).rows[0];
+    if(project?.workspace_id){
+      const ws=(await pool.query("SELECT id,owner_user_id FROM creator_workspaces WHERE id=$1 LIMIT 1",[project.workspace_id])).rows[0];
+      if(ws){workspaceId=ws.id;billingUserId=ws.owner_user_id;sub=await getCreatorSubscription(billingUserId);isWorkspace=true;canManageBilling=billingUserId===userId;}
+    }
+  }
+  if(!workspaceId&&String(personalSub?.plan_id||"")==="studio"){
+    const ws=await ensureCreatorWorkspace(userId);
+    const old=ws||((await pool.query("SELECT id FROM creator_workspaces WHERE owner_user_id=$1 LIMIT 1",[userId])).rows[0]||null);
+    if(old){workspaceId=old.id;billingUserId=userId;sub=personalSub;isWorkspace=true;canManageBilling=true;}
+  }
+  if(!workspaceId&&!projectId){
+    const memberWorkspace=await findWorkspaceForUser(userId,{includeInactive:true});
+    if(memberWorkspace){workspaceId=memberWorkspace.id;billingUserId=memberWorkspace.owner_user_id;sub=await getCreatorSubscription(billingUserId);isWorkspace=true;canManageBilling=billingUserId===userId;}
+  }
+  const active=creatorSubscriptionActive(sub),quota=active?Number(sub.storage_bytes||0):0;
+  const usage=await creatorStorageUsage(billingUserId,workspaceId);
   const available=Math.max(0,quota-usage.usedBytes-usage.reservedBytes);
-  return {subscription:sub,active,quotaBytes:quota,usedBytes:usage.usedBytes,reservedBytes:usage.reservedBytes,availableBytes:available};
+  return {subscription:sub,active,quotaBytes:quota,usedBytes:usage.usedBytes,reservedBytes:usage.reservedBytes,availableBytes:available,billingUserId,workspaceId,isWorkspace,canManageBilling};
 }
-async function assertCreatorQuotaForUpload(userId,uploadId,sizeBytes){
-  const q=await creatorQuota(userId);
-  if(!q.active) {
-    const err=new Error("Your storage plan is not active. Please subscribe to continue uploading.");
-    err.code="SUBSCRIPTION_REQUIRED";
-    err.quota=q;
-    throw err;
-  }
-  const otherReserved=await pool.query(
-    "SELECT COALESCE(SUM(u.size_bytes),0) bytes FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE p.owner_id=$1 AND u.status='active' AND u.id<>$2",
-    [userId,uploadId||"00000000-0000-0000-0000-000000000000"]
-  );
+async function assertCreatorQuotaForUpload(userId,uploadId,sizeBytes,projectId=null){
+  const q=await creatorQuota(userId,projectId);
+  if(!q.active){const err=new Error("Your storage plan is not active. Please subscribe to continue uploading.");err.code="SUBSCRIPTION_REQUIRED";err.quota=q;throw err;}
+  const where=q.workspaceId?"(p.owner_id=$1 OR p.workspace_id=$2)":"p.owner_id=$1";
+  const values=q.workspaceId?[q.billingUserId,q.workspaceId,uploadId||"00000000-0000-0000-0000-000000000000"]:[q.billingUserId,uploadId||"00000000-0000-0000-0000-000000000000"];
+  const exclude=q.workspaceId?"$3":"$2";
+  const otherReserved=await pool.query("SELECT COALESCE(SUM(u.size_bytes),0) bytes FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE "+where+" AND u.status='active' AND u.id<>"+exclude,values);
   const projected=q.usedBytes+Number(otherReserved.rows[0]?.bytes||0)+Number(sizeBytes||0);
-  if(projected>q.quotaBytes){
-    const err=new Error("This upload would exceed your current storage plan. Upgrade your plan to continue.");
-    err.code="STORAGE_QUOTA_EXCEEDED";
-    err.quota={...q,otherReservedBytes:Number(otherReserved.rows[0]?.bytes||0),projectedBytes:projected};
-    throw err;
-  }
+  if(projected>q.quotaBytes){const err=new Error("This upload would exceed your current storage plan. Upgrade your plan to continue.");err.code="STORAGE_QUOTA_EXCEEDED";err.quota={...q,otherReservedBytes:Number(otherReserved.rows[0]?.bytes||0),projectedBytes:projected};throw err;}
   return q;
 }
+
 async function fetchMoolre(pathname,body){
   if(!moolreConfigured()){
     const err=new Error("Moolre payment is not configured. Add MOOLRE_API_USER, MOOLRE_API_PUBKEY and MOOLRE_ACCOUNT_NUMBER in Railway.");
