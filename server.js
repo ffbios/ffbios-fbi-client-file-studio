@@ -1267,8 +1267,6 @@ function ensureStreamAudioMeter(row){
   return state;
 }
 
-// Exactly one service must own stream status transitions and FFmpeg recordings.
-const IS_LIVE_RECORDING_OWNER=process.env.FBI_LIVE_STANDALONE==="1";
 const activeStreamRecordings=new Map();
 const streamRecordingStarts=new Map();
 const streamStatusRefreshes=new Map();
@@ -1419,9 +1417,6 @@ async function checkStreamLive(row){
   }catch{return false;}
 }
 async function refreshStreamStatus(row){
-  // The main Client File Studio shares the streams database, but must not run
-  // a second status monitor or recorder against the dedicated Live service.
-  if(!IS_LIVE_RECORDING_OWNER)return row;
   if(!row?.id)return row;
   const inFlight=streamStatusRefreshes.get(row.id);
   if(inFlight)return inFlight;
@@ -1474,13 +1469,13 @@ async function streamRows(){
   const out=[];for(const row of r.rows)out.push(await refreshStreamStatus(row));
   return out;
 }
-const streamMonitor=IS_LIVE_RECORDING_OWNER?setInterval(async()=>{
+const streamMonitor=setInterval(async()=>{
   try{
     const r=await pool.query("SELECT * FROM streams WHERE enabled=true");
     for(const row of r.rows)await refreshStreamStatus(row);
   }catch(e){console.error("Stream monitor error:",e.message||e);}
-},5000):null;
-if(streamMonitor&&streamMonitor.unref)streamMonitor.unref();
+},5000);
+if(streamMonitor.unref)streamMonitor.unref();
 
 app.use(express.json({limit:"2mb"}));
 app.use(express.urlencoded({extended:true}));
