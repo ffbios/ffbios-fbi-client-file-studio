@@ -1268,7 +1268,21 @@ function ensureStreamAudioMeter(row){
 }
 
 const activeStreamRecordings=new Map();
+const streamRecordingStarts=new Map();
+const streamStatusRefreshes=new Map();
+const streamOfflineSince=new Map();
+const STREAM_OFFLINE_GRACE_MS=15000;
+
 async function startStreamRecording(row){
+  if(!row?.id||activeStreamRecordings.has(row.id)||!row.record_enabled||!ffmpegPath||!s3Ready())return;
+  const inFlight=streamRecordingStarts.get(row.id);
+  if(inFlight)return inFlight;
+  const task=startStreamRecordingImpl(row);
+  streamRecordingStarts.set(row.id,task);
+  try{return await task}
+  finally{if(streamRecordingStarts.get(row.id)===task)streamRecordingStarts.delete(row.id)}
+}
+async function startStreamRecordingImpl(row){
   if(activeStreamRecordings.has(row.id)||!row.record_enabled||!ffmpegPath||!s3Ready())return;
   const inputBase=streamInputHlsUrl(row);
   const input=inputBase&&inputBase.startsWith("http")?inputBase+"/index.m3u8":streamInputRtmpUrl(row);
@@ -1312,6 +1326,9 @@ async function startStreamRecording(row){
       try{await uploadDone}catch(uploadErr){
         status="failed";
         errorText=String(uploadErr?.message||uploadErr);
+        console.error("Stream recording object upload failed:",JSON.stringify({
+          streamId:row.id,recordingId:id,bytes,error:errorText
+        }));
       }
       try{
         await pool.query(
@@ -1336,13 +1353,19 @@ async function startStreamRecording(row){
     await finalize("failed",String(err?.message||err));
   });
 
-  proc.on("close",async code=>{
+  proc.on("close",async(code,signal)=>{
     try{if(!proc.stdout.readableEnded)pass.end()}catch{}
     // FFmpeg commonly exits non-zero when it is deliberately interrupted to
     // close a live MP4. Preserve valid bytes from an intentional stop.
     const normalStop=active.stopRequested;
     const status=bytes>0&&(code===0||normalStop)?"completed":"failed";
-    await finalize(status,status==="failed"?(stderr||("FFmpeg exited with code "+String(code))):"");
+    const failure=status==="failed"
+      ?(stderr||((code===null?"FFmpeg was terminated by signal "+String(signal||"unknown"):"FFmpeg exited with code "+String(code))+"; bytes captured: "+bytes))
+      :"";
+    if(status==="failed")console.error("Stream recording FFmpeg failure:",JSON.stringify({
+      streamId:row.id,recordingId:id,code,signal,bytes,stderr:stderr.slice(-3000)
+    }));
+    await finalize(status,failure);
   });
 }
 
@@ -1354,12 +1377,12 @@ async function stopStreamRecording(streamId){
   try{active.proc.kill("SIGINT")}catch{}
   await new Promise(r=>setTimeout(r,5000));
 
-  if(activeStreamRecordings.has(streamId)){
+  if(activeStreamRecordings.has(streamId)&&active.proc.exitCode===null&&active.proc.signalCode===null){
     try{active.proc.kill("SIGTERM")}catch{}
     await new Promise(r=>setTimeout(r,4000));
   }
 
-  if(activeStreamRecordings.has(streamId)){
+  if(activeStreamRecordings.has(streamId)&&active.proc.exitCode===null&&active.proc.signalCode===null){
     try{active.proc.kill("SIGKILL")}catch{}
     await new Promise(r=>setTimeout(r,1000));
   }
@@ -1394,10 +1417,36 @@ async function checkStreamLive(row){
   }catch{return false;}
 }
 async function refreshStreamStatus(row){
-  const live=await checkStreamLive(row);
+  if(!row?.id)return row;
+  const inFlight=streamStatusRefreshes.get(row.id);
+  if(inFlight)return inFlight;
+  const task=refreshStreamStatusImpl(row);
+  streamStatusRefreshes.set(row.id,task);
+  try{return await task}
+  finally{if(streamStatusRefreshes.get(row.id)===task)streamStatusRefreshes.delete(row.id)}
+}
+async function refreshStreamStatusImpl(row){
+  const liveCheck=await checkStreamLive(row);
+  let live=liveCheck;
+  const now=Date.now();
+
+  if(liveCheck){
+    streamOfflineSince.delete(row.id);
+  }else if(row.status==="live"){
+    // Public/control-room polls can briefly miss an HLS playlist while a live
+    // source is reconnecting. Do not kill a valid recording on one failed probe.
+    const since=streamOfflineSince.get(row.id)??now;
+    streamOfflineSince.set(row.id,since);
+    if(now-since<STREAM_OFFLINE_GRACE_MS){
+      return {...row,status:"live"};
+    }
+  }
+
+  if(!live)streamOfflineSince.delete(row.id);
   const status=live?"live":"offline";
   if(!live)stopStreamAudioMeter(row?.id);
   else ensureStreamAudioMeter({...row,status:"live"});
+
   if(status!==row.status){
     if(live){
       await pool.query("UPDATE streams SET status='live',started_at=COALESCE(started_at,now()),updated_at=now() WHERE id=$1",[row.id]);
