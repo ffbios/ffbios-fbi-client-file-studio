@@ -1821,6 +1821,21 @@ async function currentCreatorSupportContext(userId){
   const q=await creatorQuota(userId);
   return {planId:String(q.subscription?.plan_id||"trial"),priority:creatorSupportPriority(q.subscription?.plan_id,q.active),workspaceId:q.workspaceId||null,active:q.active};
 }
+app.get("/api/portal/activity",portalUser,async(req,res)=>{
+ try{
+  const raw=Number(req.query.limit||100),limit=Math.max(1,Math.min(200,Number.isFinite(raw)?Math.floor(raw):100));
+  const ws=await findWorkspaceForUser(req.portalUser.id,{includeInactive:true});
+  let result;
+  if(ws&&ws.owner_user_id!==req.portalUser.id){
+    result=await pool.query("SELECT e.id,e.actor_user_id,e.actor_email,e.workspace_id,e.project_id,e.action,e.details,e.created_at FROM creator_activity_events e WHERE e.workspace_id=$1 ORDER BY e.created_at DESC LIMIT $2",[ws.id,limit]);
+  }else if(ws){
+    result=await pool.query("SELECT e.id,e.actor_user_id,e.actor_email,e.workspace_id,e.project_id,e.action,e.details,e.created_at FROM creator_activity_events e WHERE e.workspace_id=$1 OR (e.workspace_id IS NULL AND e.actor_user_id=$2) ORDER BY e.created_at DESC LIMIT $3",[ws.id,req.portalUser.id,limit]);
+  }else{
+    result=await pool.query("SELECT e.id,e.actor_user_id,e.actor_email,e.workspace_id,e.project_id,e.action,e.details,e.created_at FROM creator_activity_events e WHERE e.workspace_id IS NULL AND e.actor_user_id=$1 ORDER BY e.created_at DESC LIMIT $2",[req.portalUser.id,limit]);
+  }
+  res.json({events:result.rows,workspace:ws?{id:ws.id,name:ws.name,is_owner:ws.owner_user_id===req.portalUser.id}:null});
+ }catch(e){console.error("Portal activity list failed:",e);res.status(500).json({error:"Could not load activity history."})}
+});
 app.get("/api/portal/support/tickets",portalUser,async(req,res)=>{
  try{
   const r=await pool.query(
