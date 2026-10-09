@@ -2047,9 +2047,11 @@ app.delete("/api/portal/settings/logo",portalUser,async(req,res)=>{try{const cur
 app.get("/api/portal/settings/logo",portalUser,async(req,res)=>{try{const cur=await loadCreativeSettings(req.portalUser.id);if(!cur.logo_key||!s3Ready())return res.status(404).end();const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:cur.logo_key}));res.type("png").set("Cache-Control","private, max-age=300");if(got.Body?.pipe)return got.Body.pipe(res);res.end(Buffer.from(await got.Body.transformToByteArray()))}catch(e){res.status(404).end()}});
 app.get("/api/portal/projects",portalUser,async(req,res)=>{
  try{
-  const q=String(req.query.q||"").trim();
-  const sql=q ? "SELECT p.*,COALESCE((SELECT count(*) FROM files f WHERE f.project_id=p.id),0)::int file_count,COALESCE((SELECT sum(size_bytes) FROM files f WHERE f.project_id=p.id),0) total_bytes FROM projects p WHERE p.owner_id=$1 AND (p.name ILIKE $2 OR p.client_name ILIKE $2) ORDER BY p.updated_at DESC" : "SELECT p.*,COALESCE((SELECT count(*) FROM files f WHERE f.project_id=p.id),0)::int file_count,COALESCE((SELECT sum(size_bytes) FROM files f WHERE f.project_id=p.id),0) total_bytes FROM projects p WHERE p.owner_id=$1 ORDER BY p.updated_at DESC";
-  const vals=q?[req.portalUser.id,"%"+q+"%"]:[req.portalUser.id];
+  const search=String(req.query.q||"").trim();
+  const ws=await findWorkspaceForUser(req.portalUser.id,{includeInactive:false});
+  const base="SELECT p.*,COALESCE((SELECT count(*) FROM files f WHERE f.project_id=p.id AND f.trashed_at IS NULL),0)::int file_count,COALESCE((SELECT sum(f.size_bytes) FROM files f WHERE f.project_id=p.id AND f.trashed_at IS NULL),0) total_bytes FROM projects p WHERE (p.owner_id=$1 OR p.workspace_id=$2)";
+  const sql=search?base+" AND (p.name ILIKE $3 OR p.client_name ILIKE $3) ORDER BY p.updated_at DESC":base+" ORDER BY p.updated_at DESC";
+  const vals=search?[req.portalUser.id,ws?.id||null,"%"+search+"%"]:[req.portalUser.id,ws?.id||null];
   const r=await pool.query(sql,vals);res.json({projects:r.rows});
  }catch(e){console.error(e);res.status(500).json({error:"Could not load your projects."})}
 });
@@ -2057,25 +2059,50 @@ app.post("/api/portal/projects",portalUser,async(req,res)=>{
  try{
   const name=String(req.body.name||"").trim();if(!name)return res.status(400).json({error:"Project name is required."});
   const id=uid(),shareToken=token(),settings=await loadSettings(),creative=await loadCreativeSettings(req.portalUser.id);
+  const entitlement=await creatorQuota(req.portalUser.id);
   const defaultNote=String(req.body.note||"").trim()||settings.default_client_note||"";
   const days=settingInt(creative.preferences?.default_expiry_days,settingInt(settings.default_expiry_days,30));
   const expires=days?new Date(Date.now()+days*86400000):null;
   const autoShare=creative.preferences?.auto_share===true;
-  const r=await pool.query("INSERT INTO projects(id,owner_id,name,client_name,client_email,note,share_token,expires_at,shared) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *",[id,req.portalUser.id,name,String(req.body.client_name||"").trim(),String(req.body.client_email||"").trim(),defaultNote,shareToken,expires,autoShare]);
+  const ownerId=entitlement.isWorkspace?entitlement.billingUserId:req.portalUser.id;
+  const workspaceId=entitlement.isWorkspace?entitlement.workspaceId:null;
+  const r=await pool.query("INSERT INTO projects(id,owner_id,workspace_id,name,client_name,client_email,note,share_token,expires_at,shared) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *",[id,ownerId,workspaceId,name,String(req.body.client_name||"").trim(),String(req.body.client_email||"").trim(),defaultNote,shareToken,expires,autoShare]);
   res.json({project:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not create project."})}
 });
 app.get("/api/portal/projects/:id",portalUser,async(req,res)=>{
- try{const p=await portalProjectAccessible(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const f=await pool.query("SELECT * FROM files WHERE project_id=$1 AND trashed_at IS NULL ORDER BY created_at DESC",[p.id]);res.json({project:p,files:f.rows,read_only:p.owner_id!==req.portalUser.id});}
- catch(e){console.error(e);res.status(500).json({error:"Could not load project."})}
+ try{
+  const p=await portalProjectAccessible(req.portalUser.id,req.params.id);
+  if(!p)return res.status(404).json({error:"Project not found."});
+  const f=await pool.query("SELECT * FROM files WHERE project_id=$1 AND trashed_at IS NULL ORDER BY created_at DESC",[p.id]);
+  const writable=await portalProjectWritable(req.portalUser.id,p.id);
+  res.json({project:p,files:f.rows,read_only:!writable});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load project."})}
 });
 app.patch("/api/portal/projects/:id",portalUser,async(req,res)=>{
- try{const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const fields=[],values=[];let n=1;for(const k of ["name","client_name","client_email","note","expires_at","shared","archived"])if(Object.prototype.hasOwnProperty.call(req.body,k)){fields.push(k+"=$"+n++);values.push(k==="shared"||k==="archived"?Boolean(req.body[k]):req.body[k]===null?null:String(req.body[k]).trim())}if(!fields.length)return res.status(400).json({error:"Nothing to update."});fields.push("updated_at=now()");values.push(p.id,req.portalUser.id);const r=await pool.query("UPDATE projects SET "+fields.join(",")+" WHERE id=$"+n+" AND owner_id=$"+(n+1)+" RETURNING *",values);if(!r.rowCount)return res.status(404).json({error:"Project not found."});res.json({project:r.rows[0]});}
- catch(e){console.error(e);res.status(500).json({error:"Could not update project."})}
+ try{
+  const p=await portalProjectWritable(req.portalUser.id,req.params.id);
+  if(!p)return res.status(404).json({error:"Project not found or read-only."});
+  const fields=[],values=[];let n=1;
+  for(const k of ["name","client_name","client_email","note","expires_at","shared","archived"])if(Object.prototype.hasOwnProperty.call(req.body,k)){
+    fields.push(k+"=$"+n++);
+    values.push(k==="shared"||k==="archived"?Boolean(req.body[k]):req.body[k]===null?null:String(req.body[k]).trim());
+  }
+  if(!fields.length)return res.status(400).json({error:"Nothing to update."});
+  fields.push("updated_at=now()");
+  values.push(p.id,p.owner_id);
+  const r=await pool.query("UPDATE projects SET "+fields.join(",")+" WHERE id=$"+n+" AND owner_id=$"+(n+1)+" RETURNING *",values);
+  if(!r.rowCount)return res.status(404).json({error:"Project not found."});
+  res.json({project:r.rows[0]});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not update project."})}
 });
 app.post("/api/portal/projects/:id/share",portalUser,async(req,res)=>{
- try{const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const r=await pool.query("UPDATE projects SET share_token=$1,shared=true,updated_at=now() WHERE id=$2 AND owner_id=$3 RETURNING *",[token(),p.id,req.portalUser.id]);res.json({project:r.rows[0],share_url:(req.protocol+"://"+req.get("host"))+"/share/"+r.rows[0].share_token});}
- catch(e){console.error(e);res.status(500).json({error:"Could not create client share link."})}
+ try{
+  const p=await portalProjectWritable(req.portalUser.id,req.params.id);
+  if(!p)return res.status(404).json({error:"Project not found or read-only."});
+  const r=await pool.query("UPDATE projects SET share_token=$1,shared=true,updated_at=now() WHERE id=$2 AND owner_id=$3 RETURNING *",[token(),p.id,p.owner_id]);
+  res.json({project:r.rows[0],share_url:(req.protocol+"://"+req.get("host"))+"/share/"+r.rows[0].share_token});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not create client share link."})}
 });
 app.get("/api/portal/projects/:id/collaborators",portalUser,async(req,res)=>{
  try{
