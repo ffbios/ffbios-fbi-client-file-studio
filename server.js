@@ -1235,6 +1235,7 @@ async function activateSubscriptionFromPayment(payment,providerPayload){
     "UPDATE creator_subscriptions SET plan_id=$2,status='active',storage_bytes=$3,monthly_price_ghs=$4,current_period_start=$5,current_period_end=$6,canceled_at=NULL,updated_at=now() WHERE user_id=$1",
     [payment.user_id,plan.id,Number(plan.storage_bytes),Number(plan.monthly_price_ghs),now,addOneMonth(now)]
   );
+  if(plan.id==="studio"){try{await ensureCreatorWorkspace(payment.user_id)}catch(e){console.error("Studio workspace initialization failed after payment activation:",e?.message||e)}}
   return (await pool.query("SELECT * FROM creator_subscriptions WHERE user_id=$1 LIMIT 1",[payment.user_id])).rows[0];
 }
 async function processMoolreWebhookPayload(body){
@@ -1902,13 +1903,15 @@ app.patch("/api/admin/support/tickets/:id",admin,async(req,res)=>{
 
 app.get("/api/portal/billing",portalUser,async(req,res)=>{
  try{
-  const sub=await getCreatorSubscription(req.portalUser.id);
   const q=await creatorQuota(req.portalUser.id);
+  const sub=q.subscription||await getCreatorSubscription(req.portalUser.id);
   const plans=(await pool.query("SELECT id,name,storage_bytes,monthly_price_ghs FROM subscription_plans WHERE active=true AND id<>$1 ORDER BY monthly_price_ghs ASC",["trial"])).rows;
-  const payments=(await pool.query("SELECT id,plan_id,amount_ghs,currency,provider,external_ref,provider_ref,status,authorization_url,created_at,paid_at FROM payment_transactions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 8",[req.portalUser.id])).rows;
+  const payments=q.canManageBilling?(await pool.query("SELECT id,plan_id,amount_ghs,currency,provider,external_ref,provider_ref,status,authorization_url,created_at,paid_at FROM payment_transactions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 8",[q.billingUserId||req.portalUser.id])).rows:[];
   const plan=(await pool.query("SELECT id,name,storage_bytes,monthly_price_ghs FROM subscription_plans WHERE id=$1",[sub?.plan_id||"trial"])).rows[0]||null;
   res.json({
     plans:plans.map(p=>({id:p.id,name:p.name,storage_bytes:Number(p.storage_bytes),monthly_price_ghs:Number(p.monthly_price_ghs)})),
+    can_manage_billing:!!q.canManageBilling,
+    workspace:q.workspaceId?{id:q.workspaceId,shared_storage:true,owner_user_id:q.billingUserId}:null,
     current:sub?{...sub,storage_bytes:Number(sub.storage_bytes),monthly_price_ghs:Number(sub.monthly_price_ghs),plan:plan?{id:plan.id,name:plan.name,storage_bytes:Number(plan.storage_bytes),monthly_price_ghs:Number(plan.monthly_price_ghs)}:null}:null,
     usage:{quota_bytes:q.quotaBytes,used_bytes:q.usedBytes,reserved_bytes:q.reservedBytes,available_bytes:q.availableBytes,usage_percent:q.quotaBytes?Math.min(100,(q.usedBytes+q.reservedBytes)/q.quotaBytes*100):0},
     moolre:{configured:moolreConfigured(),checkout_available:moolreConfigured(),currency:CREATOR_BILLING_CURRENCY}
@@ -1917,6 +1920,8 @@ app.get("/api/portal/billing",portalUser,async(req,res)=>{
 });
 app.post("/api/portal/billing/checkout",portalUser,async(req,res)=>{
  try{
+  const context=await creatorQuota(req.portalUser.id);
+  if(context.isWorkspace&&!context.canManageBilling)return res.status(403).json({error:"The Studio workspace owner manages this subscription and its payments."});
   const planId=String(req.body.plan_id||"").trim();
   if(!CREATOR_PLAN_IDS.includes(planId))return res.status(400).json({error:"Select a valid storage plan."});
   const planQ=await pool.query("SELECT * FROM subscription_plans WHERE id=$1 AND active=true",[planId]);
