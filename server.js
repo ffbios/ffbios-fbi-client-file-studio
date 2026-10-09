@@ -2231,6 +2231,7 @@ app.delete("/api/portal/files/:id",portalUser,async(req,res)=>{
   await pool.query("UPDATE files SET trashed_at=now(),updated_at=now() WHERE id=$1",[f.id]).catch(async()=>{
     await pool.query("UPDATE files SET trashed_at=now() WHERE id=$1",[f.id]);
   });
+  await recordPortalActivity(req.portalUser.id,f.project_id,"file_trashed",{file_name:f.original_name||""});
   res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not move file to trash."})}
 });
@@ -2238,7 +2239,8 @@ app.post("/api/portal/files/:id/restore",portalUser,async(req,res)=>{
  try{
   const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f)return res.status(404).json({error:"File not found."});
   const writable=await portalProjectWritable(req.portalUser.id,f.project_id);if(!writable)return res.status(404).json({error:"File not found or read-only."});
-  await pool.query("UPDATE files SET trashed_at=NULL WHERE id=$1",[f.id]);res.json({ok:true});
+  await pool.query("UPDATE files SET trashed_at=NULL WHERE id=$1",[f.id]);
+  await recordPortalActivity(req.portalUser.id,f.project_id,"file_restored",{file_name:f.original_name||""});res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not restore file."})}
 });
 app.delete("/api/portal/files/:id/permanent",portalUser,async(req,res)=>{
@@ -2247,6 +2249,7 @@ app.delete("/api/portal/files/:id/permanent",portalUser,async(req,res)=>{
   const manageable=await portalProjectManageable(req.portalUser.id,f.project_id);if(!manageable)return res.status(404).json({error:"File not found or permanent deletion is restricted."});
   if(!f.trashed_at)return res.status(400).json({error:"Move the file to Trash before permanent deletion."});
   if(s3Ready()&&f.storage_path)await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:f.storage_path})).catch(()=>{});
+  await recordPortalActivity(req.portalUser.id,f.project_id,"file_permanently_deleted",{file_name:f.original_name||""});
   await pool.query("DELETE FROM files WHERE id=$1",[f.id]);res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not permanently delete the file."})}
 });
