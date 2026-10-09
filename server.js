@@ -2117,6 +2117,7 @@ app.get("/api/portal/projects/:id/collaborators",portalUser,async(req,res)=>{
 app.post("/api/portal/projects/:id/collaborators",portalUser,async(req,res)=>{
  try{
   const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});
+  if(p.workspace_id)return res.status(403).json({error:"Use Team Workspace to add members to a Studio team. The Studio plan includes three named accounts total."});
   const email=String(req.body.email||"").trim().toLowerCase();if(!email)return res.status(400).json({error:"Enter the collaborator's account email."});
   if(email===String(req.portalUser.email||"").trim().toLowerCase())return res.status(400).json({error:"You already own this project."});
   const u=await pool.query("SELECT id,full_name,email FROM users WHERE lower(email)=lower($1) LIMIT 1",[email]);
