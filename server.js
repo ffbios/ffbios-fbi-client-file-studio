@@ -856,6 +856,73 @@ async function initDb(){
     );
     CREATE INDEX IF NOT EXISTS idx_creator_subscriptions_status ON creator_subscriptions(status,current_period_end);
 
+    CREATE TABLE IF NOT EXISTS creator_workspaces(
+      id uuid PRIMARY KEY,
+      owner_user_id uuid NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      name text NOT NULL DEFAULT '',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS creator_workspace_members(
+      id uuid PRIMARY KEY,
+      workspace_id uuid NOT NULL REFERENCES creator_workspaces(id) ON DELETE CASCADE,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role text NOT NULL DEFAULT 'editor' CHECK(role IN ('owner','admin','editor','viewer')),
+      status text NOT NULL DEFAULT 'active' CHECK(status IN ('active','revoked')),
+      invited_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE(workspace_id,user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_creator_workspace_members_user ON creator_workspace_members(user_id,status);
+    CREATE INDEX IF NOT EXISTS idx_creator_workspace_members_workspace ON creator_workspace_members(workspace_id,status);
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS workspace_id uuid REFERENCES creator_workspaces(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS idx_projects_workspace ON projects(workspace_id,updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS creator_workspace_invitations(
+      id uuid PRIMARY KEY,
+      workspace_id uuid NOT NULL REFERENCES creator_workspaces(id) ON DELETE CASCADE,
+      email text NOT NULL,
+      role text NOT NULL DEFAULT 'editor' CHECK(role IN ('editor','viewer')),
+      token_hash text UNIQUE NOT NULL,
+      status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','cancelled','expired')),
+      invited_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      accepted_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+      expires_at timestamptz NOT NULL,
+      accepted_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_workspace_invites_email ON creator_workspace_invitations(lower(email),status);
+    CREATE INDEX IF NOT EXISTS idx_workspace_invites_workspace ON creator_workspace_invitations(workspace_id,status,expires_at);
+
+    CREATE TABLE IF NOT EXISTS support_tickets(
+      id uuid PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      workspace_id uuid REFERENCES creator_workspaces(id) ON DELETE SET NULL,
+      subscription_plan_id text NOT NULL DEFAULT 'trial',
+      priority text NOT NULL DEFAULT 'standard' CHECK(priority IN ('standard','priority','high','studio')),
+      category text NOT NULL DEFAULT 'other',
+      subject text NOT NULL,
+      status text NOT NULL DEFAULT 'open' CHECK(status IN ('open','in_progress','waiting_on_customer','resolved')),
+      assigned_to text NOT NULL DEFAULT '',
+      closed_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_support_tickets_queue ON support_tickets(status,priority,created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id,created_at DESC);
+    CREATE TABLE IF NOT EXISTS support_ticket_messages(
+      id uuid PRIMARY KEY,
+      ticket_id uuid NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+      sender_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+      sender_type text NOT NULL CHECK(sender_type IN ('customer','admin')),
+      sender_name text NOT NULL DEFAULT '',
+      message text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_support_ticket_messages_ticket ON support_ticket_messages(ticket_id,created_at ASC);
+
     CREATE TABLE IF NOT EXISTS payment_transactions(
       id uuid PRIMARY KEY,
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
