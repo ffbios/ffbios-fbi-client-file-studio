@@ -133,7 +133,7 @@ async function acceptWorkspaceInvitationIfPresent() {
     window.history.replaceState({}, "", location.pathname + (search ? "?" + search : "") + location.hash);
     toastPortal("You joined " + (result.workspace_name || "the Studio workspace") + ".");
     await loadProjects();
-    await loadTeamWorkspace();
+    await selectPortalNav("team");
   } catch (error) {
     toastPortal(error.message || "Could not accept this invitation.");
   }
