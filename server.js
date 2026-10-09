@@ -4364,6 +4364,13 @@ app.get("/api/public/file/:id",async(req,res)=>{
     const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}));const input=await bodyToBuffer(obj.Body);const wm=await applyCreativeWatermark(input,creative);
     if(wm.applied){let bytes=wm.buffer;const ct=/png/i.test(out.f.mime_type)?"image/png":/webp/i.test(out.f.mime_type)?"image/webp":"image/jpeg";if(ct==="image/jpeg")bytes=await sharp(bytes).jpeg({quality:92}).toBuffer();else if(ct==="image/png")bytes=await sharp(bytes).png().toBuffer();else bytes=await sharp(bytes).webp({quality:92}).toBuffer();return res.status(200).set("Content-Type",ct).set("Content-Disposition",(req.query.download==="1"?"attachment":"inline")+"; filename*=UTF-8''"+encodeURIComponent(out.f.original_name)).set("Cache-Control","private, no-store").send(bytes);}
   }
+  if(req.query.download==="1"){
+    // Stream the file through this server with "attachment" so the browser
+    // always saves it. Redirecting to the storage provider relied on it
+    // honouring response-content-disposition, which it does not, so the
+    // photo just opened full size instead of downloading.
+    return streamStoredObject(req,res,out.f);
+  }
   const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}),{expiresIn:900,responseContentDisposition:req.query.download==="1"?`attachment; filename*=UTF-8''${encodeURIComponent(out.f.original_name)}`:`inline; filename*=UTF-8''${encodeURIComponent(out.f.original_name)}`});
   res.redirect(url);
  }catch(e){console.error(e);res.status(500).send("Unable to serve file")}
