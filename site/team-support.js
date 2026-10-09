@@ -61,7 +61,13 @@ function renderTeamWorkspace() {
     '<div class="panel" style="margin-top:14px"><div class="panelhead"><h3>Team Members</h3><p>Adjust access roles or remove a teammate.</p></div><div class="panelbody">' + (memberRows || '<div class="empty">No members yet.</div>') + '</div></div>' +
     (isOwner
       ? '<div class="panel" style="margin-top:14px"><div class="panelhead"><h3>Invite a Teammate</h3><p>Three accounts total: you plus up to two teammates.</p></div><div class="panelbody"><form id="teamInviteForm"><div class="settinggrid"><div class="field"><label for="teamInviteEmail">Teammate email</label><input id="teamInviteEmail" type="email" required placeholder="editor@example.com"></div><div class="field"><label for="teamInviteRole">Access role</label><select id="teamInviteRole" class="inputlike"><option value="editor">Editor • Upload and manage team projects</option><option value="viewer">Viewer • Read-only project access</option></select></div></div><div id="teamInviteStatus" class="billing-muted" style="margin-bottom:9px"></div><button type="submit" class="btn primary" ' + (!isActive || usedSeats >= totalSeats ? "disabled" : "") + '>Create Invitation</button></form></div></div><div class="panel" style="margin-top:14px"><div class="panelhead"><h3>Pending Invitations</h3></div><div class="panelbody">' + (invitationRows || '<div class="empty">No pending invitations.</div>') + '</div></div>'
-      : '<div class="billing-notice"><strong>Workspace membership</strong>Only the workspace owner can invite or remove teammates and manage the subscription.</div>');
+      : '<div class="billing-notice"><strong>Workspace membership</strong>Only the workspace owner can invite or remove teammates and manage the subscription.</div>') +
+    (isOwner ? '<div class="panel" style="margin-top:14px"><div class="panelhead"><h3>Move Existing Projects into the Team Workspace</h3><p>Choose which existing private projects should become visible to your team.</p></div><div class="panelbody" id="teamPrivateProjects"><div class="empty">Loading your private projects…</div></div></div>' : '');
+
+  if (isOwner) loadPrivateProjectsForWorkspace().catch(error => {
+    const host = document.querySelector("#teamPrivateProjects");
+    if (host) host.innerHTML = '<div class="empty-action">' + esc(error.message || "Could not load private projects.") + '</div>';
+  });
 
   box.querySelectorAll("[data-member-role]").forEach(select => {
     select.addEventListener("change", async () => {
@@ -120,6 +126,38 @@ function renderTeamWorkspace() {
       button.disabled = false;
     }
   });
+}
+
+async function loadPrivateProjectsForWorkspace() {
+  const host = document.querySelector("#teamPrivateProjects");
+  if (!host) return;
+  const data = await api("/api/portal/projects");
+  const rows = Array.isArray(data.projects) ? data.projects : [];
+  const privateProjects = rows.filter(project => !project.workspace_id);
+  if (!privateProjects.length) {
+    host.innerHTML = '<div class="empty">No private projects need moving. New projects created from this Studio account are already added to the team workspace.</div>';
+    return;
+  }
+  host.innerHTML = '<div class="billing-notice"><strong>Review before moving</strong>Team members will gain access to files in a moved project. Existing named project collaborators are removed from the project when it is converted, so they cannot bypass the Studio three-account limit. Public client delivery links remain as configured.</div>' +
+    privateProjects.map(project => '<div class="billing-history-row" style="grid-template-columns:minmax(0,1fr) auto;gap:8px"><div><b>' + esc(project.name) + '</b><span>' + esc(project.client_name || "No client") + ' • ' + Number(project.file_count || 0) + ' files • ' + fmt(project.total_bytes || 0) + '</span></div><div><button type="button" class="btn primary" data-move-project="' + esc(project.id) + '">Move to Team</button></div></div>').join("");
+  host.querySelectorAll("[data-move-project]").forEach(button => button.addEventListener("click", async () => {
+    const project = privateProjects.find(item => item.id === button.dataset.moveProject);
+    if (!project) return;
+    const confirmed = confirm('Move "' + project.name + '" into the shared Studio workspace? Your teammates will gain access to its files. Existing named collaborators will be removed from this project; its public client delivery links will remain.');
+    if (!confirmed) return;
+    button.disabled = true;
+    button.textContent = "Moving…";
+    try {
+      await api("/api/portal/projects/" + encodeURIComponent(project.id) + "/move-to-workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      toastPortal("Project moved into the Team Workspace.");
+      await loadProjects();
+      await loadTeamWorkspace();
+    } catch (error) {
+      toastPortal(error.message || "Could not move the project.");
+      button.disabled = false;
+      button.textContent = "Move to Team";
+    }
+  }));
 }
 
 async function acceptWorkspaceInvitationIfPresent() {
