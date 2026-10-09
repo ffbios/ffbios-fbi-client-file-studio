@@ -2176,7 +2176,8 @@ app.delete("/api/portal/files/:id",portalUser,async(req,res)=>{
 });
 app.post("/api/portal/files/:id/restore",portalUser,async(req,res)=>{
  try{
-  const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f||f.owner_id!==req.portalUser.id)return res.status(404).json({error:"File not found."});
+  const f=await portalFileAccessible(req.portalUser.id,req.params.id);if(!f)return res.status(404).json({error:"File not found."});
+  const writable=await portalProjectWritable(req.portalUser.id,f.project_id);if(!writable)return res.status(404).json({error:"File not found or read-only."});
   await pool.query("UPDATE files SET trashed_at=NULL WHERE id=$1",[f.id]);res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not restore file."})}
 });
