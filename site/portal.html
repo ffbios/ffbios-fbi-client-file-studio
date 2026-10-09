@@ -102,7 +102,7 @@ linear-gradient(140deg,#273025,#10161a 48%,#40311b);border:1px solid rgba(255,25
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,400,0,1;0,9..144,500,0,1;0,9..144,600,0,1;1,9..144,400,0,1;1,9..144,500,0,1&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
 <style id="fbi-creative-studio-dashboard">
 body.creative-studio{
@@ -341,6 +341,9 @@ body.creative-studio .modal-card .btn.primary{background:var(--studio-gold);colo
 body.creative-studio .modal-card .creative-tabs{gap:6px;flex-wrap:wrap}
 body.creative-studio .modal-card .creative-tab{min-height:40px;border-radius:999px;font-size:12px}
 body.creative-studio a:focus-visible,body.creative-studio button:focus-visible,body.creative-studio input:focus-visible,body.creative-studio select:focus-visible,body.creative-studio textarea:focus-visible{outline:2px solid var(--studio-gold);outline-offset:2px}
+body.creative-studio .studio-empty-projects{grid-column:1/-1;min-height:160px;display:flex;flex-direction:column;justify-content:center;gap:7px;padding:24px;border:1px solid var(--studio-border);border-radius:18px;background:#17150F;color:var(--studio-text)}
+body.creative-studio .studio-empty-projects b{font-size:14px;font-weight:800}
+body.creative-studio .studio-empty-projects span{color:var(--studio-muted);font-size:12px;line-height:1.6}
 @media(max-width:1250px){
   body.creative-studio .studio-quick-grid{grid-template-columns:repeat(2,minmax(200px,1fr))}
   body.creative-studio .studio-workspace-grid{grid-template-columns:minmax(0,1fr) 280px;gap:16px}
@@ -1009,7 +1012,7 @@ function renderStudioDashboard(){
   const freeCopy=$("#studioStorageFreeCopy");if(freeCopy)freeCopy.textContent=quota?freeGb+" GB free for new shoots and client deliveries.":"No active storage allowance is available.";
   const room=$("#studioStorageRoom");if(room)room.textContent=!quota?"Storage plan needed":pct>=90?"Storage nearly full":pct>=70?"Room is getting tight":"Plenty of room";
   const trialEye=$("#studioTrialEyebrow");if(trialEye)trialEye.textContent=trial?(active?"Free trial · "+days+" days left":"Free trial ended"):(active?"Your plan · active":billingPlanLabel(c.plan_id));
-  const trialCopy=$("#studioTrialCopy");if(trialCopy)trialCopy.textContent=trial?"10 GB included now. Pick a plan whenever you are ready.":(active?"Your current storage plan is active. Explore plans whenever your projects need more room.":"Choose a storage plan to keep uploading and sharing your work.");
+  const trialCopy=$("#studioTrialCopy");if(trialCopy)trialCopy.textContent=trial?(quota?quotaGb+" GB included now. Pick a plan whenever you are ready.":"Storage is included with your trial plan. Pick a plan whenever you are ready."):(active?"Your current storage plan is active. Explore plans whenever your projects need more room.":"Choose a storage plan to keep uploading and sharing your work.");
   renderStudioProjects();renderStudioChecklist();
 }
 async function loadStudioDashboardFiles(force){
@@ -1134,14 +1137,13 @@ function setupStudioDashboardUi(){
   $("#studioDropZone")?.addEventListener("dragenter",function(e){e.preventDefault();this.classList.add("is-dragging")});
   ["dragleave","drop"].forEach(function(ev){$("#studioDropZone")?.addEventListener(ev,function(e){e.preventDefault();this.classList.remove("is-dragging")})});
   $("#studioDropZone")?.addEventListener("drop",function(e){studioDroppedFiles(e.dataTransfer)});
-  document.querySelectorAll("[data-studio-action]").forEach(function(b){
-    b.addEventListener("click",function(){
-      const action=b.dataset.studioAction;
-      if(action==="new"){$("#newProjectBtn")?.click()}
-      else if(action==="upload"){$("#studioBrowseFiles")?.click()}
-      else if(action==="share")studioTriggerShare();
-      else if(action==="client"){$("#newProjectBtn")?.click();setTimeout(function(){$("#pClient")?.focus()},100)}
-    });
+  document.addEventListener("click",function(e){
+    const b=e.target.closest("[data-studio-action]");if(!b)return;
+    const action=b.dataset.studioAction;
+    if(action==="new"){$("#newProjectBtn")?.click()}
+    else if(action==="upload"){$("#studioBrowseFiles")?.click()}
+    else if(action==="share")studioTriggerShare();
+    else if(action==="client"){$("#newProjectBtn")?.click();setTimeout(function(){$("#pClient")?.focus()},100)}
   });
   document.querySelectorAll("[data-studio-filter]").forEach(function(b){
     b.addEventListener("click",function(){
