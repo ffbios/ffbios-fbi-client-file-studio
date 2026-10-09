@@ -50,8 +50,7 @@ function renderTeamWorkspace() {
   }).join("");
 
   const invitationRows = invitations.map(invite => {
-    const url = location.origin + "/portal?invite=" + encodeURIComponent(invite.token || "");
-    return '<div class="billing-history-row" style="grid-template-columns:minmax(0,1fr) auto auto;gap:8px"><div><b>' + esc(invite.email) + '</b><span>Pending invitation • expires ' + esc(new Date(invite.expires_at).toLocaleDateString()) + '</span></div><div><span class="billing-pill">' + esc(invite.role) + '</span></div><div><button type="button" class="btn" data-copy-invite="' + esc(invite.id) + '" data-invite-url="' + esc(url) + '">Copy link</button><button type="button" class="btn danger" data-cancel-invite="' + esc(invite.id) + '">Cancel</button></div></div>';
+    return '<div class="billing-history-row" style="grid-template-columns:minmax(0,1fr) auto;gap:8px"><div><b>' + esc(invite.email) + '</b><span>Pending invitation • expires ' + esc(new Date(invite.expires_at).toLocaleDateString()) + '</span></div><div><span class="billing-pill">' + esc(invite.role) + '</span> <button type="button" class="btn danger" data-cancel-invite="' + esc(invite.id) + '">Cancel</button></div></div>';
   }).join("");
 
   const totalSeats = Number(data.seat_limit || 3);
@@ -109,16 +108,11 @@ function renderTeamWorkspace() {
     try {
       const result = await api("/api/portal/team/invitations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: document.querySelector("#teamInviteEmail").value.trim(), role: document.querySelector("#teamInviteRole").value }) });
       if (result.invitation_url) {
-        status.textContent = "Invitation created. Copy the link and send it to the teammate.";
-        const copy = document.createElement("button");
-        copy.type = "button"; copy.className = "btn"; copy.textContent = "Copy invitation link";
-        copy.addEventListener("click", () => copyTeamInvitation(result.invitation_url));
-        status.appendChild(document.createTextNode(" "));
-        status.appendChild(copy);
+        copyTeamInvitation(result.invitation_url);
+        toastPortal("Invitation link copied. Send it to " + result.email + ".");
       } else {
-        status.textContent = "The existing account has been added to the workspace.";
+        toastPortal("The existing account has been added to the workspace.");
       }
-      toastPortal("Workspace membership updated.");
       await loadTeamWorkspace();
     } catch (error) {
       status.textContent = error.message || "Could not create the invitation.";
