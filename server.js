@@ -2134,7 +2134,7 @@ app.get("/api/portal/files",portalUser,async(req,res)=>{
  try{
   const view=String(req.query.view||"all").toLowerCase();
   const q=String(req.query.q||"").trim();
-  const conditions=["p.owner_id=$1","f.trashed_at IS NULL"],vals=[req.portalUser.id];
+  const conditions=["(p.owner_id=$1 OR EXISTS(SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$1 AND wm.status='active' AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()))","f.trashed_at IS NULL"],vals=[req.portalUser.id];
   if(view==="favorites")conditions.push("f.favorite=true");
   if(view==="recent"){}
   if(q){vals.push("%"+q+"%");conditions.push("(f.original_name ILIKE $"+vals.length+" OR p.name ILIKE $"+vals.length+")");}
