@@ -435,6 +435,14 @@ async function portalUploadSessionAccessible(userId,uploadId){
   );
 }
 
+async function recordPortalActivity(userId,projectId,action,details={}){
+ try{
+  const project=(await pool.query("SELECT id,name,workspace_id FROM projects WHERE id=$1 LIMIT 1",[projectId])).rows[0];
+  if(!project)return;
+  const user=(await pool.query("SELECT email FROM users WHERE id=$1 LIMIT 1",[userId])).rows[0]||{};
+  await pool.query("INSERT INTO creator_activity_events(id,actor_user_id,actor_email,workspace_id,project_id,action,details) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)",[uid(),userId,String(user.email||""),project.workspace_id||null,project.id,String(action||"activity").slice(0,80),JSON.stringify({project_name:project.name||"",...(details||{})})]);
+ }catch(e){console.warn("Could not record creative activity:",e?.message||e)}
+}
 function clientIp(req){return String(req.headers["x-forwarded-for"]||req.socket.remoteAddress||"").split(",")[0].trim().slice(0,120)}
 function s3Ready(){return Boolean(process.env.S3_BUCKET&&process.env.S3_ENDPOINT&&process.env.S3_ACCESS_KEY_ID&&process.env.S3_SECRET_ACCESS_KEY&&process.env.S3_REGION)}
 const s3=s3Ready()?new S3Client({
