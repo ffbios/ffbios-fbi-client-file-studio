@@ -368,14 +368,29 @@ async function portalProjectOwned(userId,projectId){
 }
 async function portalProjectAccessible(userId,projectId){
   const r=await pool.query(
-    "SELECT p.* FROM projects p LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE p.id=$1 AND (p.owner_id=$2 OR pc.user_id=$2)",
+    `SELECT p.* FROM projects p
+     LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2
+     WHERE p.id=$1 AND (p.owner_id=$2 OR pc.user_id=$2 OR EXISTS(
+       SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id
+       JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id
+       WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active'
+         AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()
+     ))`,
     [projectId,userId]
   );
   return r.rows[0]||null;
 }
 async function portalFileAccessible(userId,fileId){
   const r=await pool.query(
-    "SELECT f.*,p.name project_name,p.client_name,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND (p.owner_id=$2 OR pc.user_id=$2)",
+    `SELECT f.*,p.name project_name,p.client_name,p.owner_id,p.workspace_id
+     FROM files f JOIN projects p ON p.id=f.project_id
+     LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2
+     WHERE f.id=$1 AND (p.owner_id=$2 OR pc.user_id=$2 OR EXISTS(
+       SELECT 1 FROM creator_workspace_members wm JOIN creator_workspaces w ON w.id=wm.workspace_id
+       JOIN creator_subscriptions cs ON cs.user_id=w.owner_user_id
+       WHERE wm.workspace_id=p.workspace_id AND wm.user_id=$2 AND wm.status='active'
+         AND cs.plan_id='studio' AND cs.status='active' AND cs.current_period_end>now()
+     ))`,
     [fileId,userId]
   );
   return r.rows[0]||null;
