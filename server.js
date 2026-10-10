@@ -1860,7 +1860,7 @@ app.get("/api/portal/media/:id",portalUser,async(req,res)=>{
   try{
     const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
     if(!r.rowCount)return res.status(404).send("File not found.");
-    if(!isTransportStreamVideo(r.rows[0])&&s3Ready())return redirectToBucket(res,r.rows[0].storage_path);
+    if(!isTransportStreamVideo(r.rows[0])&&s3Ready())return redirectToBucket(res,r.rows[0].storage_path,"private, no-store");
     await streamStoredObject(req,res,r.rows[0]);
   }catch(e){console.error("Portal media stream failed:",e?.stack||e);res.status(500).send("Unable to stream file.")}
 });
@@ -4104,7 +4104,7 @@ app.get("/api/admin/media/:id",admin,async(req,res)=>{
   try{
     const q=await pool.query("SELECT * FROM files WHERE id=$1",[req.params.id]);
     if(!q.rowCount)return res.status(404).send("File not found");
-    if(!isTransportStreamVideo(q.rows[0])&&s3Ready())return redirectToBucket(res,q.rows[0].storage_path);
+    if(!isTransportStreamVideo(q.rows[0])&&s3Ready())return redirectToBucket(res,q.rows[0].storage_path,"private, no-store");
     await streamStoredObject(req,res,q.rows[0]);
   }catch(e){console.error("Admin media stream failed:",e?.stack||e);res.status(500).send("Unable to stream file")}
 });
@@ -4313,10 +4313,11 @@ async function presignedGet(key){
 async function storedObjectExists(key){
   try{const h=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:key}));return Number(h.ContentLength||0)>0}catch(_e){return false}
 }
-async function redirectToBucket(res,key){
+async function redirectToBucket(res,key,cacheControl="private, max-age=3600"){
   const url=await presignedGet(key);
-  // Short cache on the redirect itself: always well inside the URL's validity.
-  res.set("Cache-Control","private, max-age=3600");
+  // Public media redirects may be cached briefly. Authenticated media passes
+  // "private, no-store" so a different signed-in user cannot reuse a cached redirect.
+  res.set("Cache-Control",cacheControl);
   return res.redirect(302,url);
 }
 function thumbObjectKey(f,width,height){
