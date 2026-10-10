@@ -2257,6 +2257,22 @@ function editorEffectFilters(eff){
   return f.length?(","+f.join(",")):"";
 }
 
+// Procedural particle / light overlays — generated from ffmpeg sources, composited with screen/add.
+function overlayGenerator(preset,W,H,dur){
+  var s=W+"x"+H,d=Math.max(0.2,dur).toFixed(3);
+  switch(String(preset||"")){
+    case"lightleak":return "gradients=s="+s+":c0=0xff6a00:c1=0x000000:c2=0xffcc33:c3=0x101010:nb_colors=4:speed=0.018:d="+d+":r=30,gblur=sigma=42";
+    case"filmburn":return "gradients=s="+s+":c0=0xff3300:c1=0x000000:c2=0xffaa00:c3=0x000000:nb_colors=4:speed=0.05:d="+d+":r=30,gblur=sigma=30";
+    case"rays":return "gradients=s="+s+":c0=0xfff2cc:c1=0x000000:x0=0:y0=0:x1="+W+":y1="+H+":nb_colors=2:speed=0.01:d="+d+":r=30,gblur=sigma=60";
+    case"dust":return "color=c=black:s="+s+":r=30:d="+d+",noise=alls=90:allf=t,format=gray,lutyuv=y='if(gt(val,232),255,0)'";
+    case"bokeh":return "color=c=black:s="+s+":r=30:d="+d+",noise=alls=96:allf=t,format=gray,lutyuv=y='if(gt(val,243),255,0)',gblur=sigma=7";
+    case"snow":return "color=c=black:s="+s+":r=30:d="+d+",noise=alls=75:allf=t,format=gray,lutyuv=y='if(gt(val,236),255,0)',gblur=sigma=1.3";
+    case"embers":return "color=c=black:s="+s+":r=30:d="+d+",noise=alls=92:allf=t,format=gray,lutyuv=y='if(gt(val,236),255,0)',gblur=sigma=2,format=yuv420p,colorbalance=rh=0.4:gh=0.15:bh=-0.3";
+    case"grain":return "color=c=gray:s="+s+":r=30:d="+d+",noise=alls=24:allf=t+u";
+    default:return "color=c=black@0.0:s="+s+":r=30:d="+d;
+  }
+}
+
 // Shape mask — cuts the clip's alpha to a rectangle or feathered ellipse (Fusion mask).
 function maskFilter(mask,W,H){
   if(!mask||!mask.type||mask.type==="none")return "";
@@ -2381,7 +2397,7 @@ async function runEditorRender(jobId,projectId,state,settings){
     var videoClips=clips.filter(function(x){return !isAudioClip(x)});
     var audioClips=clips.filter(isAudioClip);
     if(!videoClips.length)throw new Error("A render needs at least one video, image or title clip on a video track.");
-    videoClips.concat(audioClips).forEach(function(x){if(x.type!=="title"&&!fileMap.has(String(x.fileId)))throw new Error("A timeline clip refers to a missing project file.")});
+    videoClips.concat(audioClips).forEach(function(x){if(x.type!=="title"&&x.type!=="overlay"&&!fileMap.has(String(x.fileId)))throw new Error("A timeline clip refers to a missing project file.")});
     videoClips.sort(function(a,b){var d=trackOrder(a.track)-trackOrder(b.track);return d||(Number(a.start||0)-Number(b.start||0));});
 
     var totalDuration=0.5;
@@ -2405,6 +2421,7 @@ async function runEditorRender(jobId,projectId,state,settings){
     for(var i=0;i<videoClips.length;i++){
       var c=videoClips[i];
       if(c.type==="title"){vitems.push({clip:c,index:null,image:false,title:true});continue;}
+      if(c.type==="overlay"){vitems.push({clip:c,index:null,image:false,overlay:true});continue;}
       var f=fileMap.get(String(c.fileId));
       var signed=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:21600});
       var image=thumbKind(f)==="image";
@@ -2432,7 +2449,7 @@ async function runEditorRender(jobId,projectId,state,settings){
     for(var k=0;k<vitems.length;k++){
       var it=vitems[k],cc=it.clip;
       var realStart=Math.max(0,Number(cc.start)||0);
-      var dur2=it.title?Math.max(0.2,Number(cc.duration)||3):it.dur;
+      var dur2=(it.title||it.overlay)?Math.max(0.2,Number(cc.duration)||3):it.dur;
       var tr=(cc.transition&&cc.transition.type&&Number(cc.transition.duration)>0)?{type:String(cc.transition.type),dur:Math.min(Number(cc.transition.duration),dur2-0.05)}:null;
       var effStart=realStart;
       if(tr&&tr.type==="dissolve")effStart=Math.max(0,realStart-tr.dur);
@@ -2441,6 +2458,8 @@ async function runEditorRender(jobId,projectId,state,settings){
       if(it.title){
         chain="color=c=black@0.0:s="+W+"x"+H+":r=30:d="+dur2.toFixed(3)+",format=yuva420p";
         if(FONT){var txt=String(cc.text||"Title").replace(/[\\':%]/g," ").slice(0,120);var fsz=Math.round(Math.max(2,Math.min(30,Number(cc.fontSize)||7))/100*H);chain+=",drawtext=fontfile='"+FONT+"':text='"+txt+"':fontcolor="+(/^#?[0-9a-zA-Z]+$/.test(String(cc.fontColor||""))?cc.fontColor:"white")+":fontsize="+fsz+":x=(w-text_w)/2:y=(h-text_h)/2:shadowcolor=black@0.6:shadowx=2:shadowy=2";}
+      }else if(it.overlay){
+        chain=overlayGenerator(cc.preset,W,H,dur2);
       }else if(it.image){
         chain="["+it.index+":v]setpts=PTS-STARTPTS,scale="+W+":"+H+":force_original_aspect_ratio=decrease";
       }else{
@@ -2450,7 +2469,7 @@ async function runEditorRender(jobId,projectId,state,settings){
       if(cl||crr||ct||cb)chain+=",crop=iw*"+(1-cl-crr).toFixed(3)+":ih*"+(1-ct-cb).toFixed(3)+":iw*"+cl.toFixed(3)+":ih*"+ct.toFixed(3);
       var zoom=Math.max(10,Math.min(500,Number(cc.scale)||100))/100;
       if(Math.abs(zoom-1)>0.001)chain+=",scale=iw*"+zoom.toFixed(3)+":ih*"+zoom.toFixed(3);
-      if(!it.title){chain+=editorEffectFilters(Object.assign({},effect,cc.grade||{}));chain+=colorNodeFilters(cc.colorNodes);}
+      if(!it.title&&!it.overlay){chain+=editorEffectFilters(Object.assign({},effect,cc.grade||{}));chain+=colorNodeFilters(cc.colorNodes);}
       // Fusion effect nodes (may introduce split/blend sub-graphs)
       filter.push(chain+"[fxin"+k+"]");
       var fxr=applyFxNodes("[fxin"+k+"]",cc.fxNodes,"fx"+k+"_");
@@ -2472,6 +2491,7 @@ async function runEditorRender(jobId,projectId,state,settings){
       var en="enable='between(t,"+effStart.toFixed(3)+","+endT.toFixed(3)+")'";
       var out="bgv"+(++bi);
       var mode=String(cc.blend||"normal");
+      if(it.overlay&&mode==="normal")mode="screen";
       if(mode!=="normal"&&/^(screen|addition|lighten|multiply|darken|overlay|softlight)$/.test(mode)){
         var idc=(mode==="multiply"||mode==="darken")?"white":"black";
         var cvl="bld"+bi;

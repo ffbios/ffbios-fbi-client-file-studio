@@ -451,11 +451,12 @@ function renderTimeline(){
 function makeClipEl(c){
   const el=document.createElement("div");
   const locked=(state.trackState[c.track]||{}).lock;
-  el.className="clip"+(c.type==="audio"?" audio":"")+(c.type==="title"?" title":"")+(selSet.has(c.id)?" sel":"")+(locked?" locked":"");
+  el.className="clip"+(c.type==="audio"?" audio":"")+((c.type==="title"||c.type==="overlay")?" title":"")+(selSet.has(c.id)?" sel":"")+(locked?" locked":"");
   el.dataset.id=c.id;el.style.left=((c.start||0)*pps)+"px";el.style.width=Math.max(16,(c.duration||0)*pps)+"px";
   if(c.type==="image")el.innerHTML+=`<div class="thumbs" style="background-image:url('/api/admin/file/${c.fileId}')"></div>`;
-  const meta=c.type==="title"?"title":`${(c.duration||0).toFixed(1)}s${c.speed&&c.speed!==1?" · "+Math.round(c.speed*100)+"%":""}${c.mute?" · muted":""}`;
-  el.innerHTML+=`<div class="cname">${(c.type==="title"?("T "+(c.text||"Title")):(c.name||"clip")).replace(/</g,"&lt;").slice(0,60)}</div><div class="cmeta">${meta}</div><div class="edge l"></div><div class="edge r"></div>`;
+  const meta=c.type==="title"?"title":(c.type==="overlay"?(c.blend||"screen"):`${(c.duration||0).toFixed(1)}s${c.speed&&c.speed!==1?" · "+Math.round(c.speed*100)+"%":""}${c.mute?" · muted":""}`);
+  const cn=c.type==="title"?("T "+(c.text||"Title")):(c.type==="overlay"?("✦ "+(c.name||"Overlay")):(c.name||"clip"));
+  el.innerHTML+=`<div class="cname">${cn.replace(/</g,"&lt;").slice(0,60)}</div><div class="cmeta">${meta}</div><div class="edge l"></div><div class="edge r"></div>`;
   if(c.fadeIn)el.innerHTML+=`<div class="fade l"></div>`;
   if(c.fadeOut)el.innerHTML+=`<div class="fade r"></div>`;
   if(c.transition)el.innerHTML+=`<div class="trans" title="${c.transition.type==='dipblack'?'Dip to Black':'Cross Dissolve'}">⧓</div>`;
@@ -565,7 +566,7 @@ function bindRulerScrub(){
 
 /* ---------- preview ---------- */
 function trackVisible(tr){if(tr[0]!=="V")return true;return !(state.trackState[tr]||{}).hide;}
-function topVideoClip(t){for(const tr of VTRACKS){if(!trackVisible(tr))continue;const c=state.clips.find(c=>c.track===tr&&t>=c.start-0.001&&t<c.start+c.duration-0.001);if(c)return c;}return null;}
+function topVideoClip(t){for(const tr of VTRACKS){if(!trackVisible(tr))continue;const c=state.clips.find(c=>c.track===tr&&(c.type==="video"||c.type==="image")&&t>=c.start-0.001&&t<c.start+c.duration-0.001);if(c)return c;}return null;}
 function gradeFilterCss(g){g=g||{};const b=1+((g.exposure||0)/100)*0.5,con=(g.contrast==null?100:g.contrast)/100,sat=(g.saturate==null?100:g.saturate)/100,gray=(g.grayscale||0)/100,sep=(g.sepia||0)/100,blur=(g.blur||0);return `brightness(${b.toFixed(3)}) contrast(${con.toFixed(3)}) saturate(${sat.toFixed(3)}) grayscale(${gray.toFixed(2)}) sepia(${sep.toFixed(2)}) blur(${blur}px)`;}
 function applyTransformCss(c){const s=(c&&c.scale!=null?c.scale:100)/100,tx=(c&&c.tx||0),ty=(c&&c.ty||0),rot=(c&&c.rotate||0),op=(c&&c.opacity==null?100:c.opacity)/100;
   const cp=c?maskClipPath(c):"none";
@@ -653,12 +654,16 @@ function renderInspector(){
       <div class="ctl"><div class="row"><label>Color</label></div><input type="color" id="fontColor" value="${c.fontColor||'#ffffff'}" style="width:100%;height:30px;border:1px solid var(--edge2);border-radius:6px;background:none"></div></div>
       ${sld("tdur","Duration",1,30,Math.round(c.duration||4),"s")}</div>`;
   }
-  if(showClip&&!isTitle){
+  if(c.type==="overlay"&&showClip){
+    html+=`<div class="section"><div class="lbl">Overlay · ${(c.name||"Overlay").replace(/</g,"&lt;")}</div>
+      ${sld("tdur","Duration",1,30,Math.round(c.duration||4),"s")}
+      <div class="ai-note">Procedural overlay — set its blend (Screen / Add work best) and opacity in Composite below. Renders on export.</div></div>`;
+  }
+  if(showClip&&!isTitle&&c.type!=="overlay"){
     html+=`<div class="section"><div class="lbl">Clip</div>
-      ${sld("speed","Speed",25,400,Math.round((c.speed||1)*100),"%")}
-      ${!isAudio?"":""}
-      ${c.type!=="image"?sld("volume","Volume",0,200,(c.volume==null?100:c.volume),"%"):""}
-      ${c.type!=="image"?`<div class="pill"><button class="toggle ${c.mute?"on":""}" id="muteT">${c.mute?"● Muted":"Mute"}</button></div>`:""}
+      ${(c.type==="video"||c.type==="image")?sld("speed","Speed",25,400,Math.round((c.speed||1)*100),"%"):""}
+      ${(c.type==="video"||c.type==="audio")?sld("volume","Volume",0,200,(c.volume==null?100:c.volume),"%"):""}
+      ${(c.type==="video"||c.type==="audio")?`<div class="pill"><button class="toggle ${c.mute?"on":""}" id="muteT">${c.mute?"● Muted":"Mute"}</button></div>`:""}
     </div>`;
   }
   if(showTransform){
@@ -951,11 +956,21 @@ function renderEffects(){
     cat("Audio Transitions",row("afadein","Audio Fade In","♪")+row("afadeout","Audio Fade Out","♪")+row("acrossfade","Audio Crossfade","♫"))+
     cat("Titles",row("title","Text / Title","T")+row("lowerthird","Lower Third","▭"))+
     cat("Generators",row("solid","Solid Color","■"))+
+    cat("Particles &amp; Overlays",row("ov:lightleak","Light Leak","✦")+row("ov:filmburn","Film Burn","✦")+row("ov:rays","Light Rays","✧")+row("ov:bokeh","Bokeh","◍")+row("ov:dust","Dust Specks","∴")+row("ov:snow","Snow","❄")+row("ov:embers","Embers","✶")+row("ov:grain","Grain Overlay","▦"))+
     cat("Effects",FX_LOOKS.map(k=>row(k,(k==="bw"?"Black &amp; White":k[0].toUpperCase()+k.slice(1)),"◑")).join("")+row("vignette","Vignette","◍")+row("grain","Film Grain","▦")+row("blur","Blur","◌"));
   box.querySelectorAll(".fxcat>.h").forEach(h=>h.onclick=()=>h.parentElement.classList.toggle("collapsed"));
   box.querySelectorAll("[data-fx]").forEach(el=>{el.onclick=()=>applyEffectToClip(el.dataset.fx,cmdTarget());el.ondragstart=e=>e.dataTransfer.setData("text/effect",el.dataset.fx);});
 }
+const OV_NAMES={lightleak:"Light Leak",filmburn:"Film Burn",rays:"Light Rays",bokeh:"Bokeh",dust:"Dust Specks",snow:"Snow",embers:"Embers",grain:"Grain Overlay"};
+function addOverlay(preset){
+  const track="V2";
+  const clip={id:uid(),type:"overlay",preset,name:OV_NAMES[preset]||"Overlay",track,start:Math.max(0,playhead),duration:4,
+    blend:(preset==="grain"?"overlay":"screen"),opacity:100,scale:100,tx:0,ty:0,rotate:0,fadeIn:0.4,fadeOut:0.4,
+    crop:{l:0,r:0,t:0,b:0},colorNodes:[],fxNodes:[],mask:{type:"none",cx:0.5,cy:0.5,rx:0.4,ry:0.4,feather:0.05,l:0.15,r:0.15,t:0.15,b:0.15,invert:false}};
+  state.clips.push(clip);setSel(clip.id);renderTimeline();renderInspector();fitTimeline();renderPreview();scheduleSave();toast((OV_NAMES[preset]||"Overlay")+" added to V2 — composites over the track below");
+}
 function applyEffectToClip(kind,c){
+  if(kind&&kind.indexOf("ov:")===0){addOverlay(kind.slice(3));return;}
   if(kind==="title"||kind==="lowerthird"){addTitle();if(kind==="lowerthird"){const t=state.clips.find(x=>x.id===selId);if(t){t.ty=32;t.fontSize=5;t.text="Lower Third";}renderTimeline();renderInspector();}return;}
   if(kind==="solid"){const clip={id:uid(),type:"title",name:"Solid",track:"V1",start:Math.max(0,playhead),duration:4,text:" ",fontSize:2,fontColor:"#000000",scale:100,tx:0,ty:0,rotate:0,opacity:100,crop:{l:0,r:0,t:0,b:0}};state.clips.push(clip);setSel(clip.id);renderTimeline();renderInspector();scheduleSave();toast("Solid added");return;}
   if(!c){toast("Select a clip first",true);return;}
