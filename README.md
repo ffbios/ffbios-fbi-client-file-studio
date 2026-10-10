@@ -1,51 +1,75 @@
 # FBI Client File Studio
 
-Cloud client-delivery system for Film Beyond Imagination (FBI).
+Cloud client-delivery platform for photographers, videographers and creative studios.
 
-## Live application
+## Production portal
 
-The frontend is deployed from the `site/` directory with GitHub Pages.
+**Client / creative portal:** https://files.fbigh.com/portal
 
-Expected URL:
-
-`https://ffbios.github.io/ffbios-fbi-client-file-studio/`
+The current application is a Node.js/Express service deployed on Railway. This repository's legacy GitHub Pages/Supabase setup notes were outdated and should not be used to configure production.
 
 ## Architecture
 
-- GitHub Pages hosts the studio frontend.
-- Supabase Auth handles studio login.
-- Supabase Postgres stores projects, file records, share links and download records.
-- Supabase Storage holds the private client-file bucket.
-- A Supabase Edge Function validates public share tokens and returns temporary signed URLs.
+- **Application/API:** Node.js 22+ and Express (server.js).
+- **Database:** PostgreSQL using Railway's DATABASE_URL.
+- **File storage:** private S3-compatible Railway Bucket. Large uploads use resumable/multipart support.
+- **Hosting and deployments:** Railway, connected to this repository.
+- **Billing:** Moolre checkout, server-verified payment status and webhook processing.
+- **Portal UI:** site/portal.html; public client galleries use tokenized share links.
 
-## One-time Supabase setup
+The platform is designed to retain original uploaded files. Thumbnails and preview images are derived assets; they are not replacements for the original media.
 
-1. Open your Supabase project.
-2. Run `supabase/file-studio-supabase-setup.sql` in the SQL Editor.
-3. Deploy `supabase/functions/client-delivery/index.ts` as an Edge Function named `client-delivery`.
-4. Keep the service-role/secret key only in Supabase server-side secrets. Never place it in `site/index.html`.
-5. Use only the Supabase publishable key in the browser.
+## Local development
 
-## Using the studio
+Requirements: Node.js 22 or newer and access to a configured PostgreSQL database and S3-compatible bucket.
 
-1. Open the live GitHub Pages URL.
-2. Enter the Supabase Project URL and Publishable Key.
-3. Create or sign in to your cloud account.
-4. Create a client project.
-5. Upload photos, videos or other deliverables.
-6. Create a share link.
-7. Send that link to the client.
+    npm install
+    npm start
 
-The client can open the link without a Supabase account. The delivery function validates the token and creates a temporary signed URL for the requested file.
+The service listens on the port provided by PORT. For a functioning application, configure the runtime variables below through your deployment environment, not by committing secrets.
 
-## Large media
+## Runtime configuration
 
-The studio uses resumable uploads for larger media and standard uploads for smaller files.
+The primary Railway variables include:
 
-## Deployment
+- DATABASE_URL
+- SESSION_SECRET
+- S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY
+- PUBLIC_BASE_URL
+- MOOLRE_API_USER, MOOLRE_API_PUBKEY, MOOLRE_ACCOUNT_NUMBER
+- Optional Moolre settings: MOOLRE_API_BASE, MOOLRE_BUSINESS_EMAIL, MOOLRE_CURRENCY, MOOLRE_WEBHOOK_SECRET, MOOLRE_VERIFY_WEBHOOK
+- Admin access settings: ADMIN_EMAIL and ADMIN_PASSWORD where applicable.
 
-Every push to `main` triggers GitHub Actions and publishes the `site/` directory to GitHub Pages.
+Never commit secret values or send them to a client/browser. Keep database and bucket credentials server-side. Use a stable, high-entropy SESSION_SECRET; changing it invalidates existing sessions.
 
-Workflow: `.github/workflows/deploy-pages.yml`
+## Security and operational notes
 
-<!-- Pages deployment configured for GitHub Actions. -->
+- Authentication sessions use signed, HTTP-only, secure cookies.
+- Login and registration throttles have been added in the CEO launch-hardening branch. They use an in-process store, so move rate limiting to a shared store before scaling the application to multiple replicas.
+- A public gallery share link acts as a bearer credential. Do not distribute a sensitive gallery link publicly. The email entered on the gallery access screen is not verified and is no longer allowed to overwrite the owner's saved client-contact email.
+- A password-recovery/email-verification workflow is not documented as available yet; do not promise either until implemented and tested.
+- Test both a paid Moolre transaction and webhook/status reconciliation with a real low-value payment before relying on subscription revenue. Do not activate a subscription on a browser redirect alone.
+- Confirm automated PostgreSQL backups and complete a restore test. Also confirm that original media can be recovered from object storage before onboarding large client archives.
+- Do not change the public storage plan prices or quotas without checking current subscriber entitlements and communicating renewal terms.
+
+## Current storage prices
+
+Current configured prices are seeded in server.js and synchronized to the subscription_plans table at app startup:
+
+| Plan | Storage quota | Monthly price |
+|---|---:|---:|
+| Starter | 100 GB | GH₵50 |
+| Creator | 500 GB | GH₵80 |
+| Professional | 1 TB | GH₵120 |
+| Studio | 2 TB | GH₵180 |
+
+The proposed price review is documented in docs/CEO-launch-readiness.md. The recommended prices there are proposals only and are **not live**.
+
+## Release checklist
+
+1. Verify production health and sign-in on desktop and mobile.
+2. Test upload, resume, preview, download, and client sharing using a non-critical test project.
+3. Verify Moolre checkout, webhook verification, pending-payment reconciliation, and subscription activation end to end.
+4. Check object-storage and PostgreSQL backup/restore procedures.
+5. Inspect Railway resource usage and failed HTTP requests after a release.
+6. Before horizontal scaling, replace the in-process rate-limit store with a shared implementation.
