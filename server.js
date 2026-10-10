@@ -2257,6 +2257,25 @@ function editorEffectFilters(eff){
   return f.length?(","+f.join(",")):"";
 }
 
+// Shape mask — cuts the clip's alpha to a rectangle or feathered ellipse (Fusion mask).
+function maskFilter(mask,W,H){
+  if(!mask||!mask.type||mask.type==="none")return "";
+  var E="\\,"; // escaped comma inside geq expressions
+  if(mask.type==="ellipse"){
+    var cx=((mask.cx==null?0.5:Number(mask.cx)))*W,cy=((mask.cy==null?0.5:Number(mask.cy)))*H;
+    var rx=Math.max(6,((mask.rx==null?0.4:Number(mask.rx)))*W),ry=Math.max(6,((mask.ry==null?0.4:Number(mask.ry)))*H);
+    var fe=Math.max(0.01,Math.min(1,Number(mask.feather)||0.02));
+    var fac="clip((1+"+fe.toFixed(3)+"-hypot((X-"+cx.toFixed(1)+")/"+rx.toFixed(1)+E+"(Y-"+cy.toFixed(1)+")/"+ry.toFixed(1)+"))/"+fe.toFixed(3)+E+"0"+E+"1)";
+    if(mask.invert)fac="(1-"+fac+")";
+    return ",format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*"+fac+"',format=yuva420p";
+  }
+  // rectangle
+  var x1=((mask.l==null?0.15:Number(mask.l)))*W,x2=(1-((mask.r==null?0.15:Number(mask.r))))*W,y1=((mask.t==null?0.15:Number(mask.t)))*H,y2=(1-((mask.b==null?0.15:Number(mask.b))))*H;
+  var box="between(X"+E+x1.toFixed(1)+E+x2.toFixed(1)+")*between(Y"+E+y1.toFixed(1)+E+y2.toFixed(1)+")";
+  if(mask.invert)box="(1-"+box+")";
+  return ",format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*"+box+"',format=yuva420p";
+}
+
 // Fusion effect nodes — a linear filter chain (MediaIn -> nodes -> MediaOut), with a
 // proper split/blend glow. Returns {entries:[graph strings], out:"[label]"}.
 function fxLinearFilter(t,p){
@@ -2441,6 +2460,7 @@ async function runEditorRender(jobId,projectId,state,settings){
       if(Math.abs(rot)>0.01){var ra=(rot*Math.PI/180).toFixed(5);chain2+=",rotate="+ra+":c=none:ow=rotw("+ra+"):oh=roth("+ra+")";}
       var op=Math.max(0,Math.min(1,(Number(cc.opacity==null?100:cc.opacity))/100));
       if(op<0.999)chain2+=",colorchannelmixer=aa="+op.toFixed(3);
+      chain2+=maskFilter(cc.mask,W,H);
       var fi=Math.max(0,Math.min(dur2/2,Number(cc.fadeIn)||0));if(tr)fi=Math.max(fi,tr.dur);
       var fo=Math.max(0,Math.min(dur2/2,Math.max(Number(cc.fadeOut)||0,extraFadeOut[cc.id]||0)));
       if(fi>0)chain2+=",fade=t=in:st=0:d="+fi.toFixed(3)+":alpha=1";
@@ -2448,8 +2468,19 @@ async function runEditorRender(jobId,projectId,state,settings){
       chain2+=",setpts=PTS+"+effStart.toFixed(3)+"/TB["+lab+"]";
       filter.push(chain2);
       var txp=(Number(cc.tx)||0)/100,typ=(Number(cc.ty)||0)/100;
+      var ox="(main_w-overlay_w)/2+("+txp.toFixed(4)+")*main_w",oy="(main_h-overlay_h)/2+("+typ.toFixed(4)+")*main_h";
+      var en="enable='between(t,"+effStart.toFixed(3)+","+endT.toFixed(3)+")'";
       var out="bgv"+(++bi);
-      filter.push(acc+"["+lab+"]overlay=x='(main_w-overlay_w)/2+("+txp.toFixed(4)+")*main_w':y='(main_h-overlay_h)/2+("+typ.toFixed(4)+")*main_h':enable='between(t,"+effStart.toFixed(3)+","+endT.toFixed(3)+")':eof_action=pass:repeatlast=0:format=auto["+out+"]");
+      var mode=String(cc.blend||"normal");
+      if(mode!=="normal"&&/^(screen|addition|lighten|multiply|darken|overlay|softlight)$/.test(mode)){
+        var idc=(mode==="multiply"||mode==="darken")?"white":"black";
+        var cvl="bld"+bi;
+        filter.push("color=c="+idc+":s="+W+"x"+H+":r=30:d="+totalDuration.toFixed(3)+",format=yuv420p[bgc"+bi+"]");
+        filter.push("[bgc"+bi+"]["+lab+"]overlay=x='"+ox+"':y='"+oy+"':"+en+":eof_action=pass:repeatlast=0:format=auto["+cvl+"]");
+        filter.push(acc+"["+cvl+"]blend=all_mode="+mode+"["+out+"]");
+      }else{
+        filter.push(acc+"["+lab+"]overlay=x='"+ox+"':y='"+oy+"':"+en+":eof_action=pass:repeatlast=0:format=auto["+out+"]");
+      }
       acc="["+out+"]";
     }
     filter.push(acc+"format=yuv420p[vout]");
