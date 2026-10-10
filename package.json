@@ -18,6 +18,7 @@
     "pg": "^8.16.3",
     "multer": "^2.0.2",
     "sharp": "^0.34.3",
+    "web-push": "^3.6.7",
     "ffmpeg-static": "^5.2.0",
     "ws": "^8.18.3",
     "lightdrift-libraw": "1.0.0"

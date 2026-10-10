@@ -541,6 +541,7 @@ body.creative-studio .studio-empty-projects span{color:var(--studio-muted);font-
   <div class="spacer"></div>
   <div id="userBox" class="userbox"></div>
   <div id="portalTopStorage" class="portal-top-storage" style="display:none"><div class="portal-top-storage-main"><div class="portal-top-storage-row"><b id="topStorageLabel">Storage</b><span id="topStorageValue">—</span></div><div class="portal-top-storage-bar"><i id="topStorageBar"></i></div><small id="topStorageMeta">Loading plan…</small></div></div>
+  <button id="whatsNewBtn" class="top-settings-btn" type="button" aria-label="What's New" title="What's New" style="position:relative;display:none"><span class="settings-orb"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span><span class="settings-label">Updates</span><span id="whatsNewBadge" style="display:none;position:absolute;top:-6px;right:-6px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:#fb7185;color:#1a0b0e;font-size:9px;font-weight:900;line-height:17px;text-align:center"></span></button>
   <button id="installAppBtn" class="install-app-btn" type="button" aria-label="Install FBI Client File Studio" title="Install FBI Client File Studio"><span class="install-app-icon">↓</span><span>Install App</span></button>
   <button id="creativeSettingsBtn" class="top-settings-btn" type="button" aria-label="Open Creative Settings" title="Creative Settings"><span class="settings-orb">⚙</span><span class="settings-label">Settings</span></button>
   <button id="logoutBtn" class="btn" style="display:none" type="button">Sign Out</button>
@@ -1052,6 +1053,7 @@ async function enterPortal(user){
   renderPortalCurrent();
   try{await loadBilling()}catch{}
   selectPortalNav("dashboard");
+  try{if(typeof initWhatsNew==="function")initWhatsNew()}catch(e){console.warn("What's New init failed",e)}
 }
 
 function uploadRender(){
@@ -1900,6 +1902,164 @@ function pump(){
   if([...uploadItems.values()].some(x=>x.status==="queued"))setTimeout(pump,250);
 }
 
+</script>
+<script>
+/* ---- What's New: product updates + web push (end-user notifications) ---- */
+let wnState={isAdmin:false,pushEnabled:false,vapidPublicKey:"",items:[],loaded:false};
+let wnEls=null;
+function wnMd(s){return esc(s).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/\n/g,"<br>");}
+function wnDate(d){try{return new Date(d).toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})}catch(e){return ""}}
+function wnCatStyle(c){const m={"new":["#1f2b1f","#6ee7a0","New"],"fix":["#2a2412","#f4d56d","Fix"],"improvement":["#15202b","#7cc5ff","Improved"],"update":["#201b12","#e8be55","Update"]};return m[c]||m.update;}
+function wnUrlB64(base64){const pad="=".repeat((4-base64.length%4)%4);const b=(base64+pad).replace(/-/g,"+").replace(/_/g,"/");const raw=atob(b);const out=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)out[i]=raw.charCodeAt(i);return out;}
+function wnInjectCss(){
+  if(document.getElementById("wnCss"))return;
+  const st=document.createElement("style");st.id="wnCss";
+  st.textContent=`
+  #wnOverlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:120;display:none}
+  #wnOverlay.show{display:block}
+  #wnPanel{position:fixed;top:0;right:0;height:100%;width:400px;max-width:92vw;background:#121214;border-left:1px solid #2a2a30;z-index:121;transform:translateX(100%);transition:transform .25s ease;display:flex;flex-direction:column;box-shadow:-20px 0 60px rgba(0,0,0,.5)}
+  #wnPanel.show{transform:none}
+  .wn-head{display:flex;align-items:center;justify-content:space-between;padding:18px 18px 14px;border-bottom:1px solid #26262b}
+  .wn-head b{font-size:15px;color:#f6f6f7}
+  .wn-head small{display:block;color:#9b9ba4;font-size:11px;margin-top:2px}
+  .wn-x{background:transparent;border:0;color:#9b9ba4;font-size:20px;cursor:pointer;line-height:1}
+  .wn-body{flex:1;overflow-y:auto;padding:14px 16px 24px}
+  .wn-push{display:flex;align-items:center;gap:10px;justify-content:space-between;background:#16140b;border:1px solid #3a3320;border-radius:12px;padding:12px 14px;margin-bottom:14px}
+  .wn-push span{font-size:12px;color:#e9e3cf}
+  .wn-btn{border:1px solid #d1ac3a;background:linear-gradient(135deg,#f4d56d,#e8be55);color:#1a1509;font-weight:800;font-size:12px;padding:8px 12px;border-radius:9px;cursor:pointer}
+  .wn-btn.ghost{background:#1a1a1e;color:#e9e8e4;border-color:#34343c;font-weight:700}
+  .wn-item{border:1px solid #26262b;background:#161619;border-radius:14px;padding:14px 15px;margin-bottom:12px}
+  .wn-item.unread{border-color:#3a3320;box-shadow:inset 3px 0 0 #e8be55}
+  .wn-tag{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:999px;margin-bottom:8px}
+  .wn-item h4{margin:0 0 6px;font-size:14px;color:#f6f6f7}
+  .wn-item p{margin:0;font-size:12.5px;line-height:1.5;color:#c3c3cc}
+  .wn-item .wn-meta{display:flex;align-items:center;justify-content:space-between;margin-top:10px}
+  .wn-item .wn-meta small{color:#8a8a93;font-size:10px}
+  .wn-del{background:transparent;border:0;color:#8a8a93;font-size:11px;cursor:pointer}
+  .wn-del:hover{color:#fb7185}
+  .wn-empty{text-align:center;color:#8a8a93;font-size:12px;padding:40px 10px}
+  .wn-compose{border:1px dashed #3a3320;border-radius:14px;padding:14px;margin-bottom:16px;background:#131210}
+  .wn-compose input,.wn-compose textarea,.wn-compose select{width:100%;box-sizing:border-box;background:#0d0d0f;border:1px solid #2a2a30;border-radius:9px;color:#f1f1f3;font-size:12px;padding:9px 10px;margin-bottom:8px;font-family:inherit}
+  .wn-compose textarea{min-height:76px;resize:vertical}
+  .wn-compose .wn-row{display:flex;gap:8px;align-items:center}
+  .wn-compose label{font-size:10px;color:#9b9ba4;font-weight:700;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px}
+  `;
+  document.head.appendChild(st);
+}
+function wnBuild(){
+  if(wnEls)return;
+  wnInjectCss();
+  const ov=document.createElement("div");ov.id="wnOverlay";
+  const panel=document.createElement("div");panel.id="wnPanel";
+  panel.innerHTML='<div class="wn-head"><div><b>What’s New</b><small>Updates to FBI Creative Portal</small></div><button class="wn-x" aria-label="Close">×</button></div><div class="wn-body" id="wnBody"></div>';
+  document.body.appendChild(ov);document.body.appendChild(panel);
+  ov.addEventListener("click",wnClose);
+  panel.querySelector(".wn-x").addEventListener("click",wnClose);
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"&&ov.classList.contains("show"))wnClose();});
+  wnEls={ov,panel,body:panel.querySelector("#wnBody")};
+}
+function wnBadge(){
+  const b=$("#whatsNewBadge");if(!b)return;
+  const n=wnState.items.filter(x=>!x.read).length;
+  if(n>0){b.textContent=String(n>9?"9+":n);b.style.display="block";}else b.style.display="none";
+}
+async function wnLoad(){
+  try{
+    const d=await api("/api/portal/announcements");
+    wnState.isAdmin=!!d.isAdmin;wnState.pushEnabled=!!d.pushEnabled;wnState.vapidPublicKey=d.vapidPublicKey||"";
+    wnState.items=Array.isArray(d.announcements)?d.announcements:[];wnState.loaded=true;
+    wnBadge();
+  }catch(e){console.warn("Updates load failed",e);}
+}
+async function wnPushState(){
+  if(!wnState.pushEnabled||!("serviceWorker"in navigator)||!("PushManager"in window))return {supported:false};
+  if(Notification.permission==="denied")return {supported:true,denied:true};
+  try{const reg=await navigator.serviceWorker.ready;const sub=await reg.pushManager.getSubscription();return {supported:true,subscribed:!!sub};}
+  catch(e){return {supported:true};}
+}
+async function wnEnablePush(){
+  try{
+    const perm=await Notification.requestPermission();
+    if(perm!=="granted"){toastPortal("Notifications were not allowed.");return;}
+    const reg=await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:wnUrlB64(wnState.vapidPublicKey)});
+    await api("/api/portal/push/subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({subscription:sub})});
+    toastPortal("Update notifications are on.");
+    wnRender();
+  }catch(e){console.warn(e);toastPortal(e.message||"Could not enable notifications.");}
+}
+async function wnRender(){
+  wnBuild();
+  const body=wnEls.body;const push=await wnPushState();
+  let html="";
+  if(wnState.isAdmin){
+    html+='<div class="wn-compose"><label>Post an update for your users</label>'+
+      '<input id="wnTitle" maxlength="160" placeholder="Title (e.g. Design files now preview)">'+
+      '<textarea id="wnBodyInput" maxlength="5000" placeholder="What changed, and what it means for them. **bold** supported."></textarea>'+
+      '<div class="wn-row"><select id="wnCat"><option value="new">New feature</option><option value="improvement">Improvement</option><option value="fix">Fix</option><option value="update" selected>Update</option></select>'+
+      '<button class="wn-btn" id="wnPostBtn" type="button">Publish</button></div>'+
+      '<small style="color:#8a8a93;font-size:10px">Publishing also sends a push notification to users who turned them on.</small></div>';
+  }
+  if(push.supported&&!push.subscribed&&!push.denied){
+    html+='<div class="wn-push"><span>Get notified when something new ships.</span><button class="wn-btn" id="wnEnablePush" type="button">Enable</button></div>';
+  }else if(push.subscribed){
+    html+='<div class="wn-push"><span>✓ Update notifications are on for this device.</span></div>';
+  }else if(push.denied){
+    html+='<div class="wn-push"><span>Notifications are blocked in your browser settings.</span></div>';
+  }
+  if(!wnState.items.length){
+    html+='<div class="wn-empty">No updates yet. Check back soon.</div>';
+  }else{
+    html+=wnState.items.map(function(a){
+      const cs=wnCatStyle(a.category);
+      return '<div class="wn-item'+(a.read?'':' unread')+'">'+
+        '<span class="wn-tag" style="background:'+cs[0]+';color:'+cs[1]+'">'+esc(cs[2])+'</span>'+
+        '<h4>'+esc(a.title)+'</h4>'+
+        (a.body_md?'<p>'+wnMd(a.body_md)+'</p>':'')+
+        '<div class="wn-meta"><small>'+wnDate(a.created_at)+'</small>'+
+        (wnState.isAdmin?'<button class="wn-del" data-del="'+esc(a.id)+'" type="button">Delete</button>':'')+
+        '</div></div>';
+    }).join("");
+  }
+  body.innerHTML=html;
+  const pb=body.querySelector("#wnEnablePush");if(pb)pb.addEventListener("click",wnEnablePush);
+  const post=body.querySelector("#wnPostBtn");if(post)post.addEventListener("click",wnPost);
+  body.querySelectorAll("[data-del]").forEach(function(btn){btn.addEventListener("click",function(){wnDelete(btn.dataset.del)})});
+}
+async function wnPost(){
+  const title=(wnEls.body.querySelector("#wnTitle").value||"").trim();
+  const bodyv=(wnEls.body.querySelector("#wnBodyInput").value||"").trim();
+  const cat=wnEls.body.querySelector("#wnCat").value||"update";
+  if(!title){toastPortal("Add a title first.");return;}
+  try{
+    const r=await api("/api/portal/announcements",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:title,body_md:bodyv,category:cat})});
+    toastPortal("Update published"+(r.push&&r.push.sent?(" · "+r.push.sent+" notified"):"")+".");
+    await wnLoad();await wnRender();
+  }catch(e){toastPortal(e.message||"Could not publish.");}
+}
+async function wnDelete(id){
+  try{await api("/api/portal/announcements/"+encodeURIComponent(id),{method:"DELETE"});await wnLoad();await wnRender();}
+  catch(e){toastPortal(e.message||"Could not delete.");}
+}
+async function wnOpen(){
+  wnBuild();
+  if(!wnState.loaded)await wnLoad();
+  await wnRender();
+  wnEls.ov.classList.add("show");wnEls.panel.classList.add("show");
+  // mark everything read
+  const hadUnread=wnState.items.some(x=>!x.read);
+  if(hadUnread){try{await api("/api/portal/announcements/read",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})});wnState.items.forEach(x=>x.read=true);wnBadge();}catch(e){}}
+}
+function wnClose(){if(wnEls){wnEls.ov.classList.remove("show");wnEls.panel.classList.remove("show");}}
+async function initWhatsNew(){
+  const bell=$("#whatsNewBtn");if(!bell)return;
+  bell.style.display="inline-flex";
+  bell.addEventListener("click",wnOpen,{once:false});
+  await wnLoad();
+  // deep link: /portal?whatsnew=<id> opens the panel
+  try{const q=new URLSearchParams(location.search);if(q.get("whatsnew"))wnOpen();}catch(e){}
+}
 </script>
 </body>
 </html>

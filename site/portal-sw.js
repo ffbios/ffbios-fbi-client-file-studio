@@ -19,6 +19,33 @@ self.addEventListener("activate",event=>{
   self.clients.claim();
 });
 
+self.addEventListener("push",event=>{
+  let data={};
+  try{data=event.data?event.data.json():{}}catch(e){data={title:"FBI Creative Portal",body:event.data?event.data.text():""}}
+  const title=data.title||"FBI Creative Portal";
+  const options={
+    body:data.body||"A new update is available.",
+    icon:"/official-logo.png?v=3",
+    badge:"/official-logo.png?v=3",
+    tag:data.tag||"fbi-update",
+    renotify:true,
+    data:{url:data.url||"/portal"}
+  };
+  event.waitUntil(self.registration.showNotification(title,options));
+});
+
+self.addEventListener("notificationclick",event=>{
+  event.notification.close();
+  const target=(event.notification.data&&event.notification.data.url)||"/portal";
+  event.waitUntil((async()=>{
+    const all=await clients.matchAll({type:"window",includeUncontrolled:true});
+    for(const c of all){
+      if(c.url.includes("/portal")&&"focus"in c){try{await c.navigate(target)}catch(e){}return c.focus();}
+    }
+    return clients.openWindow(target);
+  })());
+});
+
 self.addEventListener("fetch",event=>{
   const req=event.request;
   const url=new URL(req.url);

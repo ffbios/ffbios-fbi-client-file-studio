@@ -8,6 +8,7 @@ const fsp=fs.promises;
 const path=require("path");
 const {spawn}=require("child_process");
 let ffmpegPath="";try{ffmpegPath=require("ffmpeg-static")||""}catch(e){console.warn("ffmpeg-static is unavailable; video thumbnails will use fallback cards.")}
+let webpush=null;try{webpush=require("web-push")}catch(e){console.warn("web-push is unavailable; push notifications disabled.")}
 const {S3Client,PutObjectCommand,GetObjectCommand,DeleteObjectCommand,DeleteObjectsCommand,HeadObjectCommand,CreateMultipartUploadCommand,UploadPartCommand,CompleteMultipartUploadCommand,AbortMultipartUploadCommand,ListPartsCommand,PutBucketCorsCommand}=require("@aws-sdk/client-s3");
 const {Upload}=require("@aws-sdk/lib-storage");
 const {getSignedUrl}=require("@aws-sdk/s3-request-presigner");
@@ -322,6 +323,26 @@ const ROOT=path.join(__dirname,"site");
 const ADMIN_EMAIL=(process.env.ADMIN_EMAIL||"filmbyfbi@gmail.com").trim().toLowerCase();
 const ADMIN_PASSWORD=process.env.ADMIN_PASSWORD||"";
 const SESSION_SECRET=process.env.SESSION_SECRET||crypto.randomBytes(32).toString("hex");
+const VAPID_PUBLIC_KEY=(process.env.VAPID_PUBLIC_KEY||"").trim();
+const VAPID_PRIVATE_KEY=(process.env.VAPID_PRIVATE_KEY||"").trim();
+const VAPID_SUBJECT=(process.env.VAPID_SUBJECT||("mailto:"+ADMIN_EMAIL)).trim();
+let pushReady=false;
+if(webpush&&VAPID_PUBLIC_KEY&&VAPID_PRIVATE_KEY){
+  try{webpush.setVapidDetails(VAPID_SUBJECT,VAPID_PUBLIC_KEY,VAPID_PRIVATE_KEY);pushReady=true;}
+  catch(e){console.warn("VAPID configuration failed; push disabled:",e?.message||e)}
+}
+async function sendPushToAll(payloadObj){
+  if(!pushReady)return {sent:0,skipped:true};
+  let subs=[];
+  try{subs=(await pool.query("SELECT id,endpoint,p256dh,auth FROM push_subscriptions")).rows;}catch(e){return {sent:0,error:"no_table"};}
+  const data=JSON.stringify(payloadObj||{});
+  let sent=0;
+  await Promise.all(subs.map(async s=>{
+    try{await webpush.sendNotification({endpoint:s.endpoint,keys:{p256dh:s.p256dh,auth:s.auth}},data);sent++;}
+    catch(err){const code=err&&err.statusCode;if(code===404||code===410){await pool.query("DELETE FROM push_subscriptions WHERE id=$1",[s.id]).catch(()=>{});}}
+  }));
+  return {sent,total:subs.length};
+}
 const PUBLIC_BASE_URL=(process.env.PUBLIC_BASE_URL||"").replace(/\/+$/,"");
 const MAX_FILE_SIZE=5*1000*1000*1000*1000;
 const STORAGE_QUOTA_BYTES=Number(process.env.STORAGE_QUOTA_BYTES||100000000000000);
@@ -966,6 +987,34 @@ async function initDb(){
   // "Save for later" table. Kept in its own try/catch so that a problem here can
   // never stop the server from starting; it would only disable that feature.
   try{await pool.query(LV.SAVED_SCHEMA_SQL)}catch(e){console.error("Save-for-later schema failed:",e?.message||e)}
+  // What's New announcements + per-user read state + web-push subscriptions.
+  try{await pool.query(`
+    CREATE TABLE IF NOT EXISTS announcements(
+      id uuid PRIMARY KEY,
+      title text NOT NULL,
+      body_md text NOT NULL DEFAULT '',
+      category text NOT NULL DEFAULT 'update',
+      created_by text NOT NULL DEFAULT '',
+      published boolean NOT NULL DEFAULT true,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_announcements_created ON announcements(created_at DESC);
+    CREATE TABLE IF NOT EXISTS announcement_reads(
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      announcement_id uuid NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+      read_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY(user_id,announcement_id)
+    );
+    CREATE TABLE IF NOT EXISTS push_subscriptions(
+      id uuid PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      endpoint text UNIQUE NOT NULL,
+      p256dh text NOT NULL,
+      auth text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_sub_user ON push_subscriptions(user_id);
+  `)}catch(e){console.error("Announcements schema failed:",e?.message||e)}
 }
 
   ``;
@@ -1911,6 +1960,71 @@ app.delete("/api/portal/files/:id/permanent",portalUser,async(req,res)=>{
   if(s3Ready()&&f.storage_path)await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:f.storage_path})).catch(()=>{});
   await pool.query("DELETE FROM files WHERE id=$1",[f.id]);res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not permanently delete the file."})}
+});
+// ---- What's New: product-update announcements + web push ----
+function stripMd(s){return String(s||"").replace(/[#>*_`~\-]+/g," ").replace(/\[([^\]]*)\]\([^)]*\)/g,"$1").replace(/\s+/g," ").trim();}
+app.get("/api/portal/announcements",portalUser,async(req,res)=>{
+ try{
+  const rows=(await pool.query(
+    "SELECT a.id,a.title,a.body_md,a.category,a.created_at,(r.user_id IS NOT NULL) AS read "+
+    "FROM announcements a LEFT JOIN announcement_reads r ON r.announcement_id=a.id AND r.user_id=$1 "+
+    "WHERE a.published=true ORDER BY a.created_at DESC LIMIT 25",[req.portalUser.id])).rows;
+  res.json({
+    announcements:rows,
+    unread:rows.filter(x=>!x.read).length,
+    isAdmin:String(req.portalUser.email||"").toLowerCase()===ADMIN_EMAIL,
+    pushEnabled:pushReady,
+    vapidPublicKey:pushReady?VAPID_PUBLIC_KEY:""
+  });
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load updates."})}
+});
+app.post("/api/portal/announcements/read",portalUser,async(req,res)=>{
+ try{
+  const id=String(req.body?.id||"").trim();
+  if(id)await pool.query("INSERT INTO announcement_reads(user_id,announcement_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[req.portalUser.id,id]);
+  else await pool.query("INSERT INTO announcement_reads(user_id,announcement_id) SELECT $1,id FROM announcements WHERE published=true ON CONFLICT DO NOTHING",[req.portalUser.id]);
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not update."})}
+});
+app.post("/api/portal/announcements",portalUser,async(req,res)=>{
+ try{
+  if(String(req.portalUser.email||"").toLowerCase()!==ADMIN_EMAIL)return res.status(403).json({error:"Only the studio owner can post updates."});
+  const title=String(req.body?.title||"").trim().slice(0,160);
+  const body=String(req.body?.body_md??req.body?.body??"").trim().slice(0,5000);
+  const category=(String(req.body?.category||"update").trim().toLowerCase().slice(0,40))||"update";
+  if(!title)return res.status(400).json({error:"A title is required."});
+  const id=crypto.randomUUID();
+  await pool.query("INSERT INTO announcements(id,title,body_md,category,created_by,published) VALUES($1,$2,$3,$4,$5,true)",[id,title,body,category,String(req.portalUser.email||"").toLowerCase()]);
+  let push={sent:0};
+  try{push=await sendPushToAll({title:"FBI Creative Portal",body:(title+(body?" — "+stripMd(body):"")).slice(0,140),url:"/portal?whatsnew="+id,tag:"fbi-update"});}catch(e){console.warn("Push send failed:",e?.message||e)}
+  res.json({ok:true,id,push});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not post the update."})}
+});
+app.delete("/api/portal/announcements/:id",portalUser,async(req,res)=>{
+ try{
+  if(String(req.portalUser.email||"").toLowerCase()!==ADMIN_EMAIL)return res.status(403).json({error:"Only the studio owner can remove updates."});
+  await pool.query("DELETE FROM announcements WHERE id=$1",[req.params.id]);
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not remove the update."})}
+});
+app.post("/api/portal/push/subscribe",portalUser,async(req,res)=>{
+ try{
+  const sub=req.body?.subscription||req.body||{};
+  const ep=String(sub?.endpoint||""),p256dh=String(sub?.keys?.p256dh||""),auth=String(sub?.keys?.auth||"");
+  if(!ep||!p256dh||!auth)return res.status(400).json({error:"Invalid subscription."});
+  await pool.query(
+    "INSERT INTO push_subscriptions(id,user_id,endpoint,p256dh,auth) VALUES($1,$2,$3,$4,$5) "+
+    "ON CONFLICT(endpoint) DO UPDATE SET user_id=EXCLUDED.user_id,p256dh=EXCLUDED.p256dh,auth=EXCLUDED.auth",
+    [crypto.randomUUID(),req.portalUser.id,ep,p256dh,auth]);
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not enable notifications."})}
+});
+app.post("/api/portal/push/unsubscribe",portalUser,async(req,res)=>{
+ try{
+  const ep=String(req.body?.endpoint||"");
+  if(ep)await pool.query("DELETE FROM push_subscriptions WHERE endpoint=$1 AND user_id=$2",[ep,req.portalUser.id]);
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not turn off notifications."})}
 });
 app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
  try{
