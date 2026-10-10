@@ -3270,7 +3270,7 @@ app.post("/api/uploads/:id/finalize-pending",admin,async(req,res)=>{
 
 app.get("/api/dashboard",admin,async(req,res)=>{
   try{
-    const [counts,recentProjects,recentDownloads,typeRows]=await Promise.all([
+    const [counts,recentProjects,recentDownloads,typeRows,picksRows]=await Promise.all([
       pool.query(`SELECT
         (SELECT count(*) FROM projects WHERE archived=false) active_projects,
         (SELECT count(*) FROM projects WHERE archived=true) archived_projects,
@@ -3303,9 +3303,12 @@ app.get("/api/dashboard",admin,async(req,res)=>{
         END AS type,
         count(*)::int AS files,
         COALESCE(sum(size_bytes),0) AS bytes
-        FROM files GROUP BY 1 ORDER BY bytes DESC`)
+        FROM files GROUP BY 1 ORDER BY bytes DESC`),
+      pool.query(`SELECT s.id,s.project_id,p.name project_name,s.client_name,s.client_email,jsonb_array_length(s.file_ids) AS count,s.created_at
+        FROM client_selections s LEFT JOIN projects p ON p.id=s.project_id
+        ORDER BY s.created_at DESC LIMIT 6`).catch(()=>({rows:[]}))
     ]);
-    res.json({summary:counts.rows[0],recentProjects:recentProjects.rows,recentDownloads:recentDownloads.rows,types:typeRows.rows});
+    res.json({summary:counts.rows[0],recentProjects:recentProjects.rows,recentDownloads:recentDownloads.rows,types:typeRows.rows,recentPicks:picksRows.rows});
   }catch(e){console.error(e);res.status(500).json({error:"Could not load dashboard"})}
 });
 
