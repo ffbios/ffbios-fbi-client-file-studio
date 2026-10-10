@@ -2217,110 +2217,135 @@ async function runEditorRender(jobId,projectId,state,settings){
     if(!allowed[resKey])resKey="1920x1080";
     var dims=resKey.split("x"),W=Number(dims[0]),H=Number(dims[1]);
 
-    var clips=Array.isArray(state&&state.clips)?state.clips.map(function(x){return Object.assign({},x)}).filter(function(x){return x&&x.fileId}):[];
+    var clampf=function(v){v=Number(v)||0;return Math.max(0,Math.min(0.45,v));};
+    var FONT=["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf","/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf","/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf","/usr/share/fonts/TTF/DejaVuSans.ttf","/usr/share/fonts/dejavu/DejaVuSans.ttf"].find(function(p){try{return fs.existsSync(p)}catch(e){return false}})||null;
+
+    var clips=Array.isArray(state&&state.clips)?state.clips.map(function(x){return Object.assign({},x)}).filter(function(x){return x&&(x.fileId||x.type==="title")}):[];
     if(!clips.length)throw new Error("There is nothing on the timeline to render.");
 
     var dbFiles=(await pool.query("SELECT * FROM files WHERE project_id=$1",[projectId])).rows;
     var fileMap=new Map(dbFiles.map(function(f){return [String(f.id),f]}));
-    var videoClips=clips.filter(function(x){return x.type!=="audio"&&x.track!=="A1"}).sort(function(a,b){return Number(a.start||0)-Number(b.start||0)});
-    if(!videoClips.length)throw new Error("A render needs at least one video or image clip on V1.");
-    videoClips.forEach(function(x){if(!fileMap.has(String(x.fileId)))throw new Error("A timeline clip refers to a missing project file.")});
+    var isAudioClip=function(x){return x.type==="audio"||/^A/i.test(String(x.track||""));};
+    var trackOrder=function(t){var m=/^V(\d+)/i.exec(String(t||"V1"));return m?Number(m[1]):1;};
+
+    var videoClips=clips.filter(function(x){return !isAudioClip(x)});
+    var audioClips=clips.filter(isAudioClip);
+    if(!videoClips.length)throw new Error("A render needs at least one video, image or title clip on a video track.");
+    videoClips.concat(audioClips).forEach(function(x){if(x.type!=="title"&&!fileMap.has(String(x.fileId)))throw new Error("A timeline clip refers to a missing project file.")});
+    videoClips.sort(function(a,b){var d=trackOrder(a.track)-trackOrder(b.track);return d||(Number(a.start||0)-Number(b.start||0));});
+
+    var totalDuration=0.5;
+    clips.forEach(function(c){var s=Math.max(0,Number(c.start)||0),dr=Math.max(0.05,Number(c.duration)||0);totalDuration=Math.max(totalDuration,s+dr);});
+
+    var extraFadeOut={};
+    videoClips.forEach(function(c){
+      if(c.transition&&c.transition.type==="dipblack"&&Number(c.transition.duration)>0){
+        var prev=null;
+        videoClips.forEach(function(p){if(p!==c&&String(p.track)===String(c.track)&&(Number(p.start)||0)<(Number(c.start)||0)){if(!prev||(Number(p.start)||0)>(Number(prev.start)||0))prev=p;}});
+        if(prev)extraFadeOut[prev.id]=Math.max(extraFadeOut[prev.id]||0,Number(c.transition.duration));
+      }
+    });
 
     tmp=await fsp.mkdtemp(path.join(os.tmpdir(),"fbi-render-"));
     var args=["-hide_banner","-y","-loglevel","warning","-nostats","-progress","pipe:2"];
-    var inputs=[],videoMeta=[],audioMeta=[];
+    var effect=state.effect||{};
+    var trackGain=(state.trackGain&&typeof state.trackGain==="object")?state.trackGain:{};
+    var inputIndex=0,vitems=[],aitems=[];
 
     for(var i=0;i<videoClips.length;i++){
-      var clip=videoClips[i],f=fileMap.get(String(clip.fileId));
+      var c=videoClips[i];
+      if(c.type==="title"){vitems.push({clip:c,index:null,image:false,title:true});continue;}
+      var f=fileMap.get(String(c.fileId));
       var signed=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:21600});
       var image=thumbKind(f)==="image";
+      var speed=Math.max(0.25,Math.min(4,Number(c.speed)||1));
+      var trimIn=Math.max(0,Number(c.trimIn)||0);
+      var trimOut=Math.max(trimIn+0.01,Number(c.trimOut)||trimIn+Math.max(0.05,Number(c.duration)||1)*speed);
+      var dur=Math.max(0.05,(trimOut-trimIn)/speed);
+      if(image)args.push("-loop","1","-framerate","30","-t",String(dur+0.3),"-i",signed);
+      else args.push("-i",signed);
+      vitems.push({clip:c,index:inputIndex++,image:image,title:false,dur:dur,speed:speed,trimIn:trimIn,trimOut:trimOut,file:f});
+    }
+    for(var j=0;j<audioClips.length;j++){
+      var ac=audioClips[j];
+      if(ac.type==="title")continue;
+      var af=fileMap.get(String(ac.fileId));
+      if(thumbKind(af)==="image")continue;
+      var asigned=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:af.storage_path}),{expiresIn:21600});
+      args.push("-i",asigned);
+      aitems.push({clip:ac,index:inputIndex++,file:af});
+    }
+
+    var filter=[];
+    filter.push("color=c=black:s="+W+"x"+H+":r=30:d="+totalDuration.toFixed(3)+",format=yuv420p[bg0]");
+    var acc="[bg0]",bi=0;
+    for(var k=0;k<vitems.length;k++){
+      var it=vitems[k],cc=it.clip;
+      var realStart=Math.max(0,Number(cc.start)||0);
+      var dur2=it.title?Math.max(0.2,Number(cc.duration)||3):it.dur;
+      var tr=(cc.transition&&cc.transition.type&&Number(cc.transition.duration)>0)?{type:String(cc.transition.type),dur:Math.min(Number(cc.transition.duration),dur2-0.05)}:null;
+      var effStart=realStart;
+      if(tr&&tr.type==="dissolve")effStart=Math.max(0,realStart-tr.dur);
+      var endT=effStart+dur2;
+      var lab="cv"+k,chain;
+      if(it.title){
+        chain="color=c=black@0.0:s="+W+"x"+H+":r=30:d="+dur2.toFixed(3)+",format=yuva420p";
+        if(FONT){var txt=String(cc.text||"Title").replace(/[\\':%]/g," ").slice(0,120);var fsz=Math.round(Math.max(2,Math.min(30,Number(cc.fontSize)||7))/100*H);chain+=",drawtext=fontfile='"+FONT+"':text='"+txt+"':fontcolor="+(/^#?[0-9a-zA-Z]+$/.test(String(cc.fontColor||""))?cc.fontColor:"white")+":fontsize="+fsz+":x=(w-text_w)/2:y=(h-text_h)/2:shadowcolor=black@0.6:shadowx=2:shadowy=2";}
+      }else if(it.image){
+        chain="["+it.index+":v]setpts=PTS-STARTPTS,scale="+W+":"+H+":force_original_aspect_ratio=decrease";
+      }else{
+        chain="["+it.index+":v]trim=start="+it.trimIn+":end="+it.trimOut+",setpts=(PTS-STARTPTS)/"+it.speed+",scale="+W+":"+H+":force_original_aspect_ratio=decrease";
+      }
+      var cr=cc.crop||{},cl=clampf(cr.l),crr=clampf(cr.r),ct=clampf(cr.t),cb=clampf(cr.b);
+      if(cl||crr||ct||cb)chain+=",crop=iw*"+(1-cl-crr).toFixed(3)+":ih*"+(1-ct-cb).toFixed(3)+":iw*"+cl.toFixed(3)+":ih*"+ct.toFixed(3);
+      var zoom=Math.max(10,Math.min(500,Number(cc.scale)||100))/100;
+      if(Math.abs(zoom-1)>0.001)chain+=",scale=iw*"+zoom.toFixed(3)+":ih*"+zoom.toFixed(3);
+      if(!it.title)chain+=editorEffectFilters(Object.assign({},effect,cc.grade||{}));
+      chain+=",format=yuva420p";
+      var rot=Number(cc.rotate)||0;
+      if(Math.abs(rot)>0.01){var ra=(rot*Math.PI/180).toFixed(5);chain+=",rotate="+ra+":c=none:ow=rotw("+ra+"):oh=roth("+ra+")";}
+      var op=Math.max(0,Math.min(1,(Number(cc.opacity==null?100:cc.opacity))/100));
+      if(op<0.999)chain+=",colorchannelmixer=aa="+op.toFixed(3);
+      var fi=Math.max(0,Math.min(dur2/2,Number(cc.fadeIn)||0));if(tr)fi=Math.max(fi,tr.dur);
+      var fo=Math.max(0,Math.min(dur2/2,Math.max(Number(cc.fadeOut)||0,extraFadeOut[cc.id]||0)));
+      if(fi>0)chain+=",fade=t=in:st=0:d="+fi.toFixed(3)+":alpha=1";
+      if(fo>0)chain+=",fade=t=out:st="+(dur2-fo).toFixed(3)+":d="+fo.toFixed(3)+":alpha=1";
+      chain+=",setpts=PTS+"+effStart.toFixed(3)+"/TB["+lab+"]";
+      filter.push(chain);
+      var txp=(Number(cc.tx)||0)/100,typ=(Number(cc.ty)||0)/100;
+      var out="bgv"+(++bi);
+      filter.push(acc+"["+lab+"]overlay=x='(main_w-overlay_w)/2+("+txp.toFixed(4)+")*main_w':y='(main_h-overlay_h)/2+("+typ.toFixed(4)+")*main_h':enable='between(t,"+effStart.toFixed(3)+","+endT.toFixed(3)+")':eof_action=pass:repeatlast=0:format=auto["+out+"]");
+      acc="["+out+"]";
+    }
+    filter.push(acc+"format=yuv420p[vout]");
+    var vcat="vout";
+
+    var mixLabels=[];
+    var addAudio=function(clip,index){
       var speed=Math.max(0.25,Math.min(4,Number(clip.speed)||1));
       var trimIn=Math.max(0,Number(clip.trimIn)||0);
       var trimOut=Math.max(trimIn+0.01,Number(clip.trimOut)||trimIn+Math.max(0.05,Number(clip.duration)||1)*speed);
+      var start=Math.max(0,Number(clip.start)||0);
       var dur=Math.max(0.05,(trimOut-trimIn)/speed);
-      if(image)args.push("-loop","1","-framerate","30","-t",String(dur),"-i",signed);
-      else args.push("-i",signed);
-      inputs.push({clip:clip,file:f,index:i,image:image,dur:dur,speed:speed,trimIn:trimIn,trimOut:trimOut});
-    }
+      var gain=Math.max(0,Math.min(2,Number(trackGain[clip.track]==null?100:trackGain[clip.track])/100));
+      var vol=Math.max(0,Math.min(2,Number(clip.volume==null?100:clip.volume)/100))*gain;if(clip.mute)vol=0;
+      var lab="aud"+index;
+      var ch="["+index+":a]atrim=start="+trimIn+":end="+trimOut+",asetpts=PTS-STARTPTS,"+editorAtempo(speed)+",aresample=48000,volume="+vol.toFixed(4);
+      var fi=Math.max(0,Math.min(dur/2,Number(clip.fadeIn)||0));
+      var trd=(clip.transition&&Number(clip.transition.duration)>0)?Math.min(Number(clip.transition.duration),dur/2):0;if(trd)fi=Math.max(fi,trd);
+      var fo=Math.max(0,Math.min(dur/2,Math.max(Number(clip.fadeOut)||0,extraFadeOut[clip.id]||0)));
+      if(fi>0)ch+=",afade=t=in:st=0:d="+fi.toFixed(3);
+      if(fo>0)ch+=",afade=t=out:st="+(dur-fo).toFixed(3)+":d="+fo.toFixed(3);
+      ch+=",adelay="+Math.round(start*1000)+"|"+Math.round(start*1000)+"["+lab+"]";
+      filter.push(ch);mixLabels.push("["+lab+"]");
+    };
+    for(var vi=0;vi<vitems.length;vi++){var vt=vitems[vi];if(vt.title||vt.image||vt.index==null)continue;addAudio(vt.clip,vt.index);}
+    for(var ai=0;ai<aitems.length;ai++)addAudio(aitems[ai].clip,aitems[ai].index);
 
-    var audioOnly=clips.filter(function(x){return x.type==="audio"||x.track==="A1"}).sort(function(a,b){return Number(a.start||0)-Number(b.start||0)});
-    for(var j=0;j<audioOnly.length;j++){
-      var ac=audioOnly[j],af=fileMap.get(String(ac.fileId));
-      if(!af)throw new Error("An audio clip refers to a missing project file.");
-      var asigned=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:af.storage_path}),{expiresIn:21600});
-      args.push("-i",asigned);
-      audioMeta.push({clip:ac,file:af,index:videoClips.length+j,dur:Math.max(0.05,Number(ac.duration)||1),speed:Math.max(0.25,Math.min(4,Number(ac.speed)||1))});
-    }
-
-    var filter=[],ord=[],cursor=0,seg=0;
-    var effect=state.effect||{};
-    for(var k=0;k<inputs.length;k++){
-      var item=inputs[k],c=item.clip,start=Math.max(0,Number(c.start)||0);
-      if(start>cursor+0.02){
-        var gap=start-cursor,vb="vb"+seg,ab="ab"+seg;seg++;
-        filter.push("color=c=black:s="+W+"x"+H+":r=30:d="+gap.toFixed(3)+",format=yuv420p["+vb+"]");
-        filter.push("anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration="+gap.toFixed(3)+",asetpts=PTS-STARTPTS["+ab+"]");
-        ord.push({v:"["+vb+"]",a:"["+ab+"]",dur:gap,trans:null});
-      }
-      var vlab="vs"+seg,alab="as"+seg;seg++;
-      var vf;
-      if(item.image)vf="["+item.index+":v]setpts=PTS-STARTPTS";
-      else vf="["+item.index+":v]trim=start="+item.trimIn+":end="+item.trimOut+",setpts=PTS-STARTPTS,setpts=PTS/"+item.speed;
-      vf+=",scale="+W+":"+H+":force_original_aspect_ratio=decrease,pad="+W+":"+H+":(ow-iw)/2:(oh-ih)/2:color=black,fps=30,format=yuv420p";
-      vf+=editorEffectFilters(Object.assign({},effect,c.grade||{}));
-      var fi=Math.max(0,Math.min(item.dur/2,Number(c.fadeIn)||0)),fo=Math.max(0,Math.min(item.dur/2,Number(c.fadeOut)||0));
-      if(fi>0)vf+=",fade=t=in:st=0:d="+fi.toFixed(3);
-      if(fo>0)vf+=",fade=t=out:st="+(item.dur-fo).toFixed(3)+":d="+fo.toFixed(3);
-      vf+="["+vlab+"]";filter.push(vf);
-      var af;
-      if(item.image)af="anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration="+item.dur.toFixed(3)+",asetpts=PTS-STARTPTS";
-      else af="["+item.index+":a]atrim=start="+item.trimIn+":end="+item.trimOut+",asetpts=PTS-STARTPTS,"+editorAtempo(item.speed)+",aresample=48000";
-      var vol=Math.max(0,Math.min(2,Number(c.volume==null?100:c.volume)/100));
-      af+=",volume="+(c.mute?0:vol).toFixed(4);
-      if(fi>0)af+=",afade=t=in:st=0:d="+fi.toFixed(3);
-      if(fo>0)af+=",afade=t=out:st="+(item.dur-fo).toFixed(3)+":d="+fo.toFixed(3);
-      af+="["+alab+"]";filter.push(af);
-      var tr=null;
-      if(ord.length&&c.transition&&c.transition.type&&Number(c.transition.duration)>0)tr={type:String(c.transition.type),dur:Number(c.transition.duration)};
-      ord.push({v:"["+vlab+"]",a:"["+alab+"]",dur:item.dur,trans:tr});
-      cursor=Math.max(cursor,start+item.dur);
-    }
-    // Fold segments: cross-dissolve / dip-to-black via xfade+acrossfade where a transition is set; otherwise a hard cut (concat).
-    var accV=ord[0].v,accA=ord[0].a,accDur=ord[0].dur,xi=0;
-    for(var i=1;i<ord.length;i++){
-      var s=ord[i],d=0;
-      if(s.trans){d=Math.min(s.trans.dur,accDur-0.05,s.dur-0.05);if(d<0.05)d=0;}
-      xi++;var vo="vx"+xi,ao="ax"+xi;
-      if(d>0){
-        var xtype=(s.trans.type==="dipblack")?"fadeblack":"fade";
-        var off=Math.max(0,accDur-d);
-        filter.push(accV+s.v+"xfade=transition="+xtype+":duration="+d.toFixed(3)+":offset="+off.toFixed(3)+"["+vo+"]");
-        filter.push(accA+s.a+"acrossfade=d="+d.toFixed(3)+":c1=tri:c2=tri["+ao+"]");
-        accDur=accDur+s.dur-d;
-      }else{
-        filter.push(accV+s.v+"concat=n=2:v=1:a=0["+vo+"]");
-        filter.push(accA+s.a+"concat=n=2:v=0:a=1["+ao+"]");
-        accDur=accDur+s.dur;
-      }
-      accV="["+vo+"]";accA="["+ao+"]";
-    }
-    filter.push(accV+"null[vout]");filter.push(accA+"anull[aout]");
-    var vcat="vout",acat="aout",totalDuration=accDur;
-
-    var mixLabels=["["+acat+"]"];
-    for(var m=0;m<audioMeta.length;m++){
-      var am=audioMeta[m],x=am.clip,alabel="ax"+m;
-      var aTrimIn=Math.max(0,Number(x.trimIn)||0);
-      var aTrimOut=Math.max(aTrimIn+0.01,Number(x.trimOut)||aTrimIn+am.dur*am.speed);
-      var avol=Math.max(0,Math.min(2,Number(x.volume==null?100:x.volume)/100));
-      filter.push("["+am.index+":a]atrim=start="+aTrimIn+":end="+aTrimOut+",asetpts=PTS-STARTPTS,"+editorAtempo(am.speed)+",aresample=48000,adelay="+Math.round(Math.max(0,Number(x.start)||0)*1000)+"|"+Math.round(Math.max(0,Number(x.start)||0)*1000)+",volume="+(x.mute?0:avol).toFixed(4)+"["+alabel+"]");
-      mixLabels.push("["+alabel+"]");
-    }
-    var finalAudio;
-    if(mixLabels.length>1){
-      finalAudio="mixout";
-      filter.push(mixLabels.join("")+"amix=inputs="+mixLabels.length+":duration=first:normalize=0,aresample=48000["+finalAudio+"]");
-    }else finalAudio=acat;
+    var finalAudio="aout";
+    if(mixLabels.length===1)filter.push(mixLabels[0]+"aresample=48000[aout]");
+    else if(mixLabels.length>1)filter.push(mixLabels.join("")+"amix=inputs="+mixLabels.length+":duration=longest:normalize=0,aresample=48000[aout]");
+    else filter.push("anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration="+totalDuration.toFixed(3)+",asetpts=PTS-STARTPTS[aout]");
 
     var outPath=path.join(tmp,safeName((state.sequence||"edited-master")+"-"+Date.now()+".mp4"));
     args.push("-filter_complex",filter.join(";"),"-map","["+vcat+"]","-map","["+finalAudio+"]","-c:v","libx264","-preset","medium","-crf","18","-pix_fmt","yuv420p","-c:a","aac","-b:a","192k","-ar","48000","-ac","2","-movflags","+faststart","-metadata","title="+String(state.sequence||"FBI Edited Master").slice(0,180),outPath);
