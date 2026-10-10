@@ -56,6 +56,17 @@ input,select{font:inherit;color:inherit}
 .media .add{flex:none;width:26px;height:26px;border-radius:6px;background:#0c0c0e;color:var(--accent);display:grid;place-items:center;font-size:17px;border:1px solid var(--edge2)}
 .media .add:hover{background:var(--accent);color:#1a1405}
 .empty{color:var(--faint);text-align:center;font-size:12px;padding:30px 12px;line-height:1.6}
+.ltabs{display:flex;gap:4px}
+.ltab{font-size:11px;font-weight:700;color:var(--muted);padding:5px 10px;border-radius:6px}
+.ltab.active{background:var(--panel3);color:var(--text)}
+.fx-sec{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:700;margin:6px 2px 7px}
+.fx{display:flex;align-items:center;gap:9px;padding:9px 10px;border:1px solid var(--edge);border-radius:7px;background:var(--panel2);margin-bottom:6px;cursor:grab;font-size:12px;font-weight:600}
+.fx:hover{border-color:var(--accent);background:var(--panel3)}
+.fx .fxi{width:18px;text-align:center;color:var(--accent)}
+.clip .trans{position:absolute;left:0;top:0;bottom:0;width:15px;z-index:3;display:grid;place-items:center;font-size:9px;color:#1a1405;background:repeating-linear-gradient(45deg,var(--accent),var(--accent) 3px,rgba(0,0,0,.25) 3px,rgba(0,0,0,.25) 6px)}
+.clip .fade{position:absolute;top:0;bottom:0;z-index:2;pointer-events:none;background:linear-gradient(90deg,rgba(0,0,0,.55),transparent);width:26px}
+.clip .fade.r{right:0;background:linear-gradient(270deg,rgba(0,0,0,.55),transparent)}
+.clip .fade.l{left:0}
 /* monitor */
 .stage{display:flex;flex-direction:column;min-height:0;min-width:0;background:#0d0d0f}
 .screen{flex:1;display:grid;place-items:center;position:relative;overflow:hidden;padding:16px}
@@ -171,8 +182,9 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 
   <div class="mid">
     <div class="pane">
-      <div class="pane-h"><b>Media</b><button class="btn sm" id="refreshMedia" title="Refresh">↻</button></div>
+      <div class="pane-h" style="gap:8px"><div class="ltabs"><button class="ltab active" id="tabMedia">Media</button><button class="ltab" id="tabFx">Effects</button></div><button class="btn sm" id="refreshMedia" title="Refresh">↻</button></div>
       <div class="pane-b" id="mediaList"></div>
+      <div class="pane-b" id="effectsList" style="display:none"></div>
     </div>
 
     <div class="stage">
@@ -352,6 +364,11 @@ function makeClipEl(c){
   el.dataset.id=c.id;el.style.left=((c.start||0)*pps)+"px";el.style.width=Math.max(16,(c.duration||0)*pps)+"px";
   if(c.type==="image")el.innerHTML+=`<div class="thumbs" style="background-image:url('/api/admin/file/${c.fileId}')"></div>`;
   el.innerHTML+=`<div class="cname">${(c.name||"clip").replace(/</g,"&lt;")}</div><div class="cmeta">${(c.duration||0).toFixed(1)}s${c.speed&&c.speed!==1?" · "+Math.round(c.speed*100)+"%":""}${c.mute?" · muted":""}</div><div class="edge l"></div><div class="edge r"></div>`;
+  if(c.fadeIn)el.innerHTML+=`<div class="fade l"></div>`;
+  if(c.fadeOut)el.innerHTML+=`<div class="fade r"></div>`;
+  if(c.transition)el.innerHTML+=`<div class="trans" title="${c.transition.type==='dipblack'?'Dip to Black':'Cross Dissolve'}">⧓</div>`;
+  el.addEventListener("dragover",e=>{if((e.dataTransfer.types||[]).includes("text/effect"))e.preventDefault();});
+  el.addEventListener("drop",e=>{const fx=e.dataTransfer.getData("text/effect");if(fx){e.preventDefault();e.stopPropagation();applyEffectToClip(fx,c);}});
   bindClip(el,c);return el;
 }
 function selectClip(c,additive){
@@ -465,6 +482,12 @@ function renderInspector(){
     ${c.type!=="image"?sld("volume","Volume",0,200,(c.volume==null?100:c.volume),"%"):""}
     ${c.type!=="image"?`<div class="pill"><button class="toggle ${c.mute?"on":""}" id="muteT">${c.mute?"● Muted":"Mute"}</button></div>`:""}
   </div>`;
+  html+=`<div class="section"><div class="lbl">Transitions &amp; Fades</div>
+    ${c.type!=="audio"?`<div class="ctl"><div class="row"><label>Transition in</label></div><select id="trType" style="width:100%;background:var(--panel2);border:1px solid var(--edge2);border-radius:7px;padding:8px 9px"><option value="">None (hard cut)</option><option value="dissolve"${c.transition&&c.transition.type==="dissolve"?" selected":""}>Cross Dissolve</option><option value="dipblack"${c.transition&&c.transition.type==="dipblack"?" selected":""}>Dip to Black</option></select></div>`:""}
+    ${c.transition?sld("trDur","Transition length",2,40,Math.round((c.transition.duration||1)*10),""):""}
+    ${sld("fadeInS","Fade in",0,40,Math.round((c.fadeIn||0)*10),"")}
+    ${sld("fadeOutS","Fade out",0,40,Math.round((c.fadeOut||0)*10),"")}
+    <div class="ai-note">Transitions blend with the previous clip; fades go to/from black. Both render on export.</div></div>`;
   html+=`<div class="section"><div class="lbl">AI Tools</div><div class="ai-grid">
     ${c.type!=="image"?`<button class="aibtn" id="aiSilence"><span class="ti">✂</span>Auto-Cut Silence</button>`:""}
     ${c.type==="video"?`<button class="aibtn" id="aiScenes"><span class="ti">⎇</span>Auto Scene Split</button>`:""}
@@ -494,6 +517,11 @@ function renderInspector(){
   const vt=$("#vigT");if(vt)vt.onclick=()=>{g.vignette=g.vignette?0:1;renderInspector();applyGradeVisual(c.grade);scheduleSave();};
   const gt=$("#grainT");if(gt)gt.onclick=()=>{g.grain=g.grain?0:1;renderInspector();scheduleSave();};
   const lk=$("#looks");if(lk)lk.querySelectorAll("[data-look]").forEach(b=>b.onclick=()=>{const L=LOOKS[b.dataset.look]||{};c.grade=Object.assign({exposure:0,contrast:100,saturate:100,temperature:0,tint:0,shadows:0,highlights:0,grayscale:0,sepia:0,vignette:0,grain:0},L);renderInspector();applyGradeVisual(c.grade);scheduleSave();toast("Look applied");});
+  const bindSec=(id,fn)=>{const el=$("#"+id);if(!el)return;const upd=()=>{if($("#v_"+id))$("#v_"+id).textContent=(el.value/10).toFixed(1)+"s";};upd();el.oninput=()=>{upd();fn(Number(el.value));scheduleSave();};};
+  const trSel=$("#trType");if(trSel)trSel.onchange=()=>{if(trSel.value){if(!prevClip(c)){toast("Needs a previous clip on this track",true);trSel.value="";return;}c.transition={type:trSel.value,duration:(c.transition&&c.transition.duration)||1};}else c.transition=null;renderInspector();renderTimeline();scheduleSave();};
+  bindSec("trDur",v=>{if(c.transition)c.transition.duration=Math.max(0.2,v/10);renderTimeline();});
+  bindSec("fadeInS",v=>{c.fadeIn=v/10;renderTimeline();});
+  bindSec("fadeOutS",v=>{c.fadeOut=v/10;renderTimeline();});
   const aiB=(id,fn)=>{const el=$("#"+id);if(!el)return;el.onclick=async()=>{const o=el.innerHTML;el.disabled=true;el.innerHTML='<span class="ti">◴</span>Working…';try{await fn();}catch(e){toast(e.message||"AI step failed",true);}el.disabled=false;el.innerHTML=o;};};
   aiB("aiSilence",()=>autoCutSilence(c));aiB("aiScenes",()=>autoSceneSplit(c));aiB("aiColor",()=>autoColor(c));
   applyGradeVisual(c.grade);
@@ -534,6 +562,32 @@ function sampleAvg(fileId,type){
     if(type==="image"){const im=new Image();im.crossOrigin="anonymous";im.onload=()=>measure(im);im.onerror=()=>res(null);im.src="/api/admin/file/"+fileId;}
     else{const v=document.createElement("video");v.crossOrigin="anonymous";v.muted=true;v.preload="auto";v.src="/api/admin/file/"+fileId;v.onloadeddata=()=>{try{v.currentTime=Math.min(1,(v.duration||2)/2);}catch(e){measure(v);}};v.onseeked=()=>measure(v);v.onerror=()=>res(null);setTimeout(()=>measure(v),4500);}
   });
+}
+
+/* ---------- effects panel ---------- */
+const FX_LOOKS=["cinematic","warm","teal","bw","sepia","vivid","noir","faded"];
+function prevClip(c){const s=state.clips.filter(x=>x.track===c.track&&x.id!==c.id&&x.start<c.start+0.001).sort((a,b)=>a.start-b.start);return s.length?s[s.length-1]:null;}
+function renderEffects(){
+  const box=$("#effectsList");
+  const row=(k,label,icon)=>`<div class="fx" data-fx="${k}" draggable="true"><span class="fxi">${icon}</span>${label}</div>`;
+  box.innerHTML=`<div class="fx-sec">Video Effects</div>`+
+    FX_LOOKS.map(k=>row(k,(k==="bw"?"Black &amp; White":k[0].toUpperCase()+k.slice(1)),"◑")).join("")+
+    row("vignette","Vignette","◍")+row("grain","Film Grain","▦")+row("blur","Blur","◌")+
+    `<div class="fx-sec">Video Transitions</div>`+row("dissolve","Cross Dissolve","⧓")+row("dipblack","Dip to Black","◼")+row("fadein","Fade In","◐")+row("fadeout","Fade Out","◑")+
+    `<div class="fx-sec">Audio Transitions</div>`+row("afadein","Audio Fade In","♪")+row("afadeout","Audio Fade Out","♪")+row("acrossfade","Audio Crossfade","♪");
+  box.querySelectorAll("[data-fx]").forEach(el=>{el.onclick=()=>applyEffectToClip(el.dataset.fx,cmdTarget());el.ondragstart=e=>e.dataTransfer.setData("text/effect",el.dataset.fx);});
+}
+function applyEffectToClip(kind,c){
+  if(!c){toast("Select a clip first",true);return;}
+  const g=c.grade||(c.grade={});
+  if(LOOKS[kind]){c.grade=Object.assign({exposure:0,contrast:100,saturate:100,temperature:0,tint:0,shadows:0,highlights:0,grayscale:0,sepia:0,vignette:0,grain:0},LOOKS[kind]);applyGradeVisual(c.grade);}
+  else if(kind==="vignette"){g.vignette=g.vignette?0:1;applyGradeVisual(c.grade);}
+  else if(kind==="grain")g.grain=g.grain?0:1;
+  else if(kind==="blur"){g.blur=g.blur?0:6;applyGradeVisual(c.grade);}
+  else if(kind==="dissolve"||kind==="dipblack"||kind==="acrossfade"){if(!prevClip(c)){toast("Put this clip after another one to add a transition",true);return;}c.transition={type:kind==="dipblack"?"dipblack":"dissolve",duration:(c.transition&&c.transition.duration)||1};}
+  else if(kind==="fadein"||kind==="afadein")c.fadeIn=c.fadeIn?0:1;
+  else if(kind==="fadeout"||kind==="afadeout")c.fadeOut=c.fadeOut?0:1;
+  renderTimeline();renderInspector();scheduleSave();toast("Applied to “"+(c.name||"clip")+"”");
 }
 
 /* ---------- command bar ---------- */
@@ -630,6 +684,8 @@ function bindGlobal(){
   $("#saveBtn").onclick=()=>saveSeq();
   $("#resSelect").onchange=()=>{state.resolution=$("#resSelect").value;scheduleSave();};
   $("#refreshMedia").onclick=async()=>{await loadProject();renderMedia();renderTimeline();fitTimeline();renderPreview();toast("Media refreshed");};
+  $("#tabMedia").onclick=()=>{$("#tabMedia").classList.add("active");$("#tabFx").classList.remove("active");$("#mediaList").style.display="";$("#effectsList").style.display="none";};
+  $("#tabFx").onclick=()=>{renderEffects();$("#tabFx").classList.add("active");$("#tabMedia").classList.remove("active");$("#effectsList").style.display="";$("#mediaList").style.display="none";};
   $("#markIn").onclick=()=>{const c=state.clips.find(c=>c.id===selId);if(!c)return;const off=(playhead-c.start)*(c.speed||1);if(off>0&&off<(c.trimOut-c.trimIn)){c.trimIn=c.trimIn+off;c.start=playhead;c.duration=(c.trimOut-c.trimIn)/(c.speed||1);renderTimeline();scheduleSave();}};
   $("#markOut").onclick=()=>{const c=state.clips.find(c=>c.id===selId);if(!c)return;const off=(playhead-c.start)*(c.speed||1);if(off>0.1){c.trimOut=c.trimIn+off;c.duration=(c.trimOut-c.trimIn)/(c.speed||1);renderTimeline();scheduleSave();}};
   $("#cmdRun").onclick=()=>runCommand($("#cmdInput").value);
