@@ -34,7 +34,8 @@ if [ "$SIZE" -le 0 ]; then
 fi
 
 # Retain 14 days of backups; cleanup is scoped to this backup prefix only.
-CUTOFF="$(date -u -d '14 days ago' +%s)"
+NOW_EPOCH="$(date -u +%s)"
+CUTOFF=$((NOW_EPOCH - 14 * 24 * 60 * 60))
 LISTING="$(aws s3 ls "s3://${S3_BUCKET}/postgres/${BACKUP_PREFIX}/" --recursive \
   --endpoint-url "$S3_ENDPOINT" --region "$AWS_DEFAULT_REGION")"
 printf '%s\n' "$LISTING" | while read -r OBJECT_DATE OBJECT_TIME OBJECT_SIZE OBJECT_KEY; do
