@@ -13,7 +13,9 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 KEY="postgres/${BACKUP_PREFIX}/${STAMP}.dump"
 FILE="/tmp/fbi-postgres-${STAMP}.dump"
 
-echo "Starting PostgreSQL backup archive."
+DATABASE_NAME="$(psql --dbname="$DATABASE_URL" --set=ON_ERROR_STOP=1 --tuples-only --no-align --command='SELECT current_database()')"
+[ -n "$DATABASE_NAME" ] || { echo "Unable to identify the source database." >&2; exit 1; }
+echo "Starting PostgreSQL backup archive for database: $DATABASE_NAME"
 pg_dump --dbname="$DATABASE_URL" --format=custom --compress=6 --no-owner --no-acl --file="$FILE"
 test -s "$FILE"
 pg_restore --list "$FILE" >/dev/null
