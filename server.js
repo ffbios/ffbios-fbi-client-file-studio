@@ -1860,6 +1860,7 @@ app.get("/api/portal/media/:id",portalUser,async(req,res)=>{
   try{
     const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
     if(!r.rowCount)return res.status(404).send("File not found.");
+    if(!isTransportStreamVideo(r.rows[0])&&s3Ready())return redirectToBucket(res,r.rows[0].storage_path);
     await streamStoredObject(req,res,r.rows[0]);
   }catch(e){console.error("Portal media stream failed:",e?.stack||e);res.status(500).send("Unable to stream file.")}
 });
@@ -4103,6 +4104,7 @@ app.get("/api/admin/media/:id",admin,async(req,res)=>{
   try{
     const q=await pool.query("SELECT * FROM files WHERE id=$1",[req.params.id]);
     if(!q.rowCount)return res.status(404).send("File not found");
+    if(!isTransportStreamVideo(q.rows[0])&&s3Ready())return redirectToBucket(res,q.rows[0].storage_path);
     await streamStoredObject(req,res,q.rows[0]);
   }catch(e){console.error("Admin media stream failed:",e?.stack||e);res.status(500).send("Unable to stream file")}
 });
