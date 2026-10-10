@@ -236,6 +236,7 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
       <div class="pane-b" id="mediaList"></div>
       <div class="pane-b" id="effectsList" style="display:none"></div>
       <div class="pane-b" id="colorNodesPanel" style="display:none"></div>
+      <div class="pane-b" id="fxPanel" style="display:none"></div>
     </div>
 
     <div class="stage">
@@ -294,6 +295,7 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
   <div class="pagebar">
     <button class="ptab" data-page="media" id="pgMedia">Media</button>
     <button class="ptab active" data-page="edit" id="pgEdit">Edit</button>
+    <button class="ptab" data-page="fusion" id="pgFusion">Fusion</button>
     <button class="ptab" data-page="color" id="pgColor">Color</button>
     <button class="ptab" data-page="fairlight" id="pgFair">Fairlight</button>
     <button class="ptab" data-page="deliver" id="pgDeliver">Deliver</button>
@@ -360,7 +362,7 @@ async function loadProject(){
   if(!state.trackState)state.trackState={};
   LANES.forEach(t=>{if(!state.trackState[t])state.trackState[t]={mute:false,solo:false,lock:false,hide:false};});
   // migrate old A1-only clips
-  (state.clips||[]).forEach(c=>{if(!c.track)c.track=c.type==="audio"?"A1":"V1";if(!c.colorNodes)c.colorNodes=[];if(!c.crop)c.crop={l:0,r:0,t:0,b:0};if(c.scale==null)c.scale=100;if(c.opacity==null)c.opacity=100;});
+  (state.clips||[]).forEach(c=>{if(!c.track)c.track=c.type==="audio"?"A1":"V1";if(!c.colorNodes)c.colorNodes=[];if(!c.fxNodes)c.fxNodes=[];if(!c.crop)c.crop={l:0,r:0,t:0,b:0};if(c.scale==null)c.scale=100;if(c.opacity==null)c.opacity=100;});
   if(!state.name||state.name==="Untitled Sequence")state.name=name+" — edit";
   if(state.resolution)$("#resSelect").value=state.resolution;
 }
@@ -405,7 +407,7 @@ async function addToTimeline(f,track){
   const k=mediaKind(f);track=track||(k==="audio"?"A1":"V1");
   const dur=await probeDuration(f,k);
   const clip={id:uid(),fileId:f.id,name:f.original_name||"clip",type:k==="audio"?"audio":(k==="image"?"image":"video"),track,
-    start:trackEnd(track),duration:dur,trimIn:0,trimOut:dur,speed:1,volume:100,mute:false,srcDuration:dur,grade:{},colorNodes:[],
+    start:trackEnd(track),duration:dur,trimIn:0,trimOut:dur,speed:1,volume:100,mute:false,srcDuration:dur,grade:{},colorNodes:[],fxNodes:[],
     scale:100,tx:0,ty:0,rotate:0,opacity:100,crop:{l:0,r:0,t:0,b:0}};
   state.clips.push(clip);setSel(clip.id);playhead=clip.start;
   renderTimeline();renderInspector();fitTimeline();positionPlayhead();renderPreview();scheduleSave();toast(clip.name+" added to "+track);
@@ -493,7 +495,7 @@ function selectClip(c,additive){
   else{selSet=new Set([c.id]);selId=c.id;}
   document.querySelectorAll(".clip").forEach(x=>x.classList.toggle("sel",selSet.has(x.dataset.id)));
   if(playhead<c.start||playhead>=c.start+c.duration){playhead=c.start;positionPlayhead();}
-  colorSelNode=0;if(pageMode==="color")renderColorNodes();
+  colorSelNode=0;fxSelNode=-1;if(pageMode==="color")renderColorNodes();if(pageMode==="fusion")renderFxNodes();
   renderInspector();setMon("program");renderPreview();
 }
 function bindClip(el,c){
@@ -616,6 +618,24 @@ function renderInspector(){
     $("#insTitle").textContent=c.type==="audio"?"Color":("Color · "+(c.name||c.text||c.track));
     if(c.type==="audio"){ins.innerHTML='<div class="ins-empty">Audio clips have no colour. Select a video, image or title clip.</div>';return;}
     ins.innerHTML=colorInspectorHTML(c);bindColorInspector(c);previewColor(c);return;
+  }
+  if(pageMode==="fusion"){
+    if(!c){$("#insTitle").textContent="Fusion";ins.innerHTML='<div class="ins-empty">Select a clip on the timeline to build an effect chain.</div>';return;}
+    if(c.type==="audio"){$("#insTitle").textContent="Fusion";ins.innerHTML='<div class="ins-empty">Audio clips have no visual effects. Select a video, image or title clip.</div>';return;}
+    const nodes=clipFx(c);const n=nodes[fxSelNode];
+    if(!n){$("#insTitle").textContent="Fusion";ins.innerHTML='<div class="ins-empty">Pick an effect node, or add one from the chain on the left.</div>';return;}
+    $("#insTitle").textContent="Fusion · "+fxLabel(n.type);
+    const hasAmount=["blur","sharpen","glow","grain"].includes(n.type);
+    let h=`<div class="section"><div class="lbl">${fxLabel(n.type)}</div>`;
+    if(hasAmount)h+=sld("fxAmt",n.type==="sharpen"?"Strength":(n.type==="grain"?"Grain":"Amount"),0,(n.type==="sharpen"?200:40),Math.round(n.amount||0));
+    if(n.type==="glow")h+=sld("fxMix","Glow mix",0,100,Math.round(n.mix==null?60:n.mix));
+    if(!hasAmount)h+=`<div class="ai-note">This effect has no parameters — toggle it on or off, or reorder it by deleting and re-adding.</div>`;
+    h+=`<div class="pill" style="margin-top:8px"><button class="toggle ${n.enabled!==false?"on":""}" id="fxEnable">${n.enabled!==false?"● Enabled":"Disabled"}</button></div></div>`;
+    ins.innerHTML=h;
+    const bindSlF=(id,fn)=>{const el=$("#"+id);if(!el)return;el.oninput=()=>{const v=Number(el.value);if($("#v_"+id))$("#v_"+id).textContent=v;fn(v);previewFx(c);scheduleSave();};};
+    bindSlF("fxAmt",v=>n.amount=v);bindSlF("fxMix",v=>n.mix=v);
+    const en=$("#fxEnable");if(en)en.onclick=()=>{n.enabled=!(n.enabled!==false);renderFxNodes();renderInspector();previewFx(c);scheduleSave();};
+    previewFx(c);return;
   }
   if(!c){$("#insTitle").textContent="Inspector";ins.innerHTML='<div class="ins-empty">Select a clip on the timeline to transform, trim, mix and color-grade it.</div>';return;}
   const isAudio=c.type==="audio",isTitle=c.type==="title";
@@ -818,7 +838,36 @@ function bindColorInspector(c){
   }
   const en=$("#nEnable");if(en)en.onclick=()=>{n.enabled=!(n.enabled!==false);renderColorNodes();renderInspector();previewColor(c);scheduleSave();};
 }
-function showLeft(which){$("#mediaList").style.display=which==="media"?"":"none";$("#effectsList").style.display=which==="effects"?"":"none";$("#colorNodesPanel").style.display=which==="color"?"":"none";$("#tabMedia").classList.toggle("active",which==="media");$("#tabFx").classList.toggle("active",which==="effects");}
+function showLeft(which){$("#mediaList").style.display=which==="media"?"":"none";$("#effectsList").style.display=which==="effects"?"":"none";$("#colorNodesPanel").style.display=which==="color"?"":"none";$("#fxPanel").style.display=which==="fx"?"":"none";$("#tabMedia").classList.toggle("active",which==="media");$("#tabFx").classList.toggle("active",which==="effects");}
+
+/* ---------- fusion page: effect node chain ---------- */
+let fxSelNode=-1;
+const FXDEFS=[["blur","Blur","◌"],["sharpen","Sharpen","◆"],["glow","Glow","✶"],["edge","Edge Detect","▲"],["invert","Invert","◑"],["bw","Black & White","○"],["mirror","Mirror","◧"],["vignette","Vignette","◍"],["grain","Film Grain","▦"]];
+function fxLabel(t){const d=FXDEFS.find(x=>x[0]===t);return d?d[1]:t;}
+function clipFx(c){return c.fxNodes||(c.fxNodes=[]);}
+function fxDefault(t){return {id:uid(),type:t,enabled:true,amount:(t==="blur"?6:t==="glow"?12:t==="grain"?12:t==="sharpen"?50:0),mix:60};}
+function renderFxNodes(){
+  const box=$("#fxPanel");const c=state.clips.find(x=>x.id===selId);
+  if(!c||c.type==="audio"){box.innerHTML='<div class="empty">Select a video, image or title clip to build a Fusion effect chain.</div>';return;}
+  const nodes=clipFx(c);if(fxSelNode>=nodes.length)fxSelNode=-1;
+  let html=`<div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);font-weight:700;margin:4px 2px 9px">Fusion · Node Chain</div>`;
+  html+=`<div class="cnode" style="opacity:.7;cursor:default"><span class="nd"></span><span class="nn">MediaIn</span><span class="nt">source</span></div>`;
+  nodes.forEach((n,i)=>html+=`<div class="cnode${fxSelNode===i?" active":""}" data-fi="${i}"><span class="nd${n.enabled!==false?"":" off"}"></span><span class="nn">${fxLabel(n.type)}</span><span class="nt">fx</span><span class="nx" data-del="${i}">×</span></div>`);
+  html+=`<div class="cnode" style="opacity:.7;cursor:default"><span class="nd"></span><span class="nn">MediaOut</span><span class="nt">output</span></div>`;
+  html+=`<div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);font-weight:700;margin:14px 2px 8px">Add Effect</div>`;
+  html+=FXDEFS.map(d=>`<div class="fx" data-addfx="${d[0]}"><span class="fxi">${d[2]}</span>${d[1]}</div>`).join("");
+  html+=`<div class="ai-note" style="padding:0 2px;margin-top:8px">Effects stack from MediaIn to MediaOut and render on export. Reframing (zoom/position/rotation) and opacity live on the Edit inspector; lower video tracks composite underneath.</div>`;
+  box.innerHTML=html;
+  box.querySelectorAll("[data-fi]").forEach(el=>el.onclick=e=>{if(e.target.dataset.del){nodes.splice(+e.target.dataset.del,1);fxSelNode=-1;renderFxNodes();renderInspector();previewFx(c);scheduleSave();return;}fxSelNode=+el.dataset.fi;renderFxNodes();renderInspector();});
+  box.querySelectorAll("[data-addfx]").forEach(el=>el.onclick=()=>{nodes.push(fxDefault(el.dataset.addfx));fxSelNode=nodes.length-1;renderFxNodes();renderInspector();previewFx(c);scheduleSave();toast(fxLabel(el.dataset.addfx)+" added");});
+}
+function previewFx(c){
+  let css=gradeFilterCss(c.grade||{}),mirror=false,vig=(c.grade&&c.grade.vignette)?0.7:0;
+  (c.fxNodes||[]).forEach(n=>{if(n.enabled===false)return;if(n.type==="blur")css+=" blur("+(n.amount||6)+"px)";else if(n.type==="bw")css+=" grayscale(1)";else if(n.type==="invert")css+=" invert(1)";else if(n.type==="glow")css+=" brightness(1.08) contrast(1.04)";else if(n.type==="mirror")mirror=true;else if(n.type==="vignette")vig=0.7;});
+  pv.style.filter=css;pvImg.style.filter=css;applyTransformCss(c);
+  if(mirror)[pv,pvImg].forEach(x=>{x.style.transform+=" scaleX(-1)";});
+  $("#vig").style.boxShadow="inset 0 0 150px rgba(0,0,0,"+vig+")";
+}
 
 /* ---------- AI tools ---------- */
 function aiAnalyze(clip,kind){return api("/api/editor/analyze/"+encodeURIComponent(projectId),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({fileId:clip.fileId,kind})});}
@@ -981,8 +1030,9 @@ function setPage(mode){
   pageMode=mode;document.querySelectorAll(".ptab").forEach(b=>b.classList.toggle("active",b.dataset.page===mode));
   const showMixer=(mode==="fairlight");
   $("#mixerPanel").style.display=showMixer?"":"none";$("#inspector").style.display=showMixer?"none":"";
-  $("#insTitle").textContent=showMixer?"Mixer":(mode==="color"?"Color":"Inspector");
+  $("#insTitle").textContent=showMixer?"Mixer":(mode==="color"?"Color":(mode==="fusion"?"Fusion":"Inspector"));
   if(mode==="color"){showLeft("color");renderColorNodes();}
+  else if(mode==="fusion"){showLeft("fx");renderFxNodes();}
   else{showLeft("media");}
   if(showMixer)renderMixer();else renderInspector();
 }

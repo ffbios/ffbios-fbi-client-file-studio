@@ -2257,6 +2257,43 @@ function editorEffectFilters(eff){
   return f.length?(","+f.join(",")):"";
 }
 
+// Fusion effect nodes — a linear filter chain (MediaIn -> nodes -> MediaOut), with a
+// proper split/blend glow. Returns {entries:[graph strings], out:"[label]"}.
+function fxLinearFilter(t,p){
+  p=p||{};var amt=Number(p.amount);
+  switch(t){
+    case"blur":return "gblur=sigma="+Math.max(0.5,Math.min(40,isFinite(amt)?amt:6)).toFixed(2);
+    case"sharpen":return "unsharp=5:5:"+Math.max(0,Math.min(4,(isFinite(amt)?amt:50)/50)).toFixed(3);
+    case"edge":return "edgedetect=mode=colormix:high=0.3";
+    case"invert":return "negate";
+    case"bw":return "hue=s=0";
+    case"mirror":return "hflip";
+    case"vignette":return "vignette=PI/4";
+    case"grain":return "noise=alls="+Math.round(Math.max(2,Math.min(60,isFinite(amt)?amt:12)))+":allf=t+u";
+    default:return "";
+  }
+}
+function applyFxNodes(inLabel,nodes,prefix){
+  var entries=[],cur=inLabel,i=0;
+  if(!Array.isArray(nodes)||!nodes.length)return {entries:entries,out:cur};
+  nodes.forEach(function(n){
+    if(!n||n.enabled===false)return;
+    if(n.type==="glow"){
+      var sig=Math.max(1,Math.min(40,Number(n.amount)||12));
+      var op=Math.max(0,Math.min(1,(n.mix==null?60:Number(n.mix))/100));
+      var a=prefix+"a"+i,b=prefix+"b"+i,bb=prefix+"c"+i,o=prefix+"o"+i;i++;
+      entries.push(cur+"split["+a+"]["+b+"]");
+      entries.push("["+b+"]gblur=sigma="+sig.toFixed(2)+",eq=brightness=0.06["+bb+"]");
+      entries.push("["+a+"]["+bb+"]blend=all_mode=screen:all_opacity="+op.toFixed(3)+"["+o+"]");
+      cur="["+o+"]";
+    }else{
+      var f=fxLinearFilter(n.type,n);if(!f)return;
+      var o=prefix+"n"+i;i++;entries.push(cur+f+"["+o+"]");cur="["+o+"]";
+    }
+  });
+  return {entries:entries,out:cur};
+}
+
 // Node-based primary/secondary color grading (Color page). Applied after the quick grade.
 function colorNodeFilters(nodes){
   if(!Array.isArray(nodes)||!nodes.length)return "";
@@ -2395,17 +2432,21 @@ async function runEditorRender(jobId,projectId,state,settings){
       var zoom=Math.max(10,Math.min(500,Number(cc.scale)||100))/100;
       if(Math.abs(zoom-1)>0.001)chain+=",scale=iw*"+zoom.toFixed(3)+":ih*"+zoom.toFixed(3);
       if(!it.title){chain+=editorEffectFilters(Object.assign({},effect,cc.grade||{}));chain+=colorNodeFilters(cc.colorNodes);}
-      chain+=",format=yuva420p";
+      // Fusion effect nodes (may introduce split/blend sub-graphs)
+      filter.push(chain+"[fxin"+k+"]");
+      var fxr=applyFxNodes("[fxin"+k+"]",cc.fxNodes,"fx"+k+"_");
+      fxr.entries.forEach(function(e){filter.push(e)});
+      var chain2=fxr.out+"format=yuva420p";
       var rot=Number(cc.rotate)||0;
-      if(Math.abs(rot)>0.01){var ra=(rot*Math.PI/180).toFixed(5);chain+=",rotate="+ra+":c=none:ow=rotw("+ra+"):oh=roth("+ra+")";}
+      if(Math.abs(rot)>0.01){var ra=(rot*Math.PI/180).toFixed(5);chain2+=",rotate="+ra+":c=none:ow=rotw("+ra+"):oh=roth("+ra+")";}
       var op=Math.max(0,Math.min(1,(Number(cc.opacity==null?100:cc.opacity))/100));
-      if(op<0.999)chain+=",colorchannelmixer=aa="+op.toFixed(3);
+      if(op<0.999)chain2+=",colorchannelmixer=aa="+op.toFixed(3);
       var fi=Math.max(0,Math.min(dur2/2,Number(cc.fadeIn)||0));if(tr)fi=Math.max(fi,tr.dur);
       var fo=Math.max(0,Math.min(dur2/2,Math.max(Number(cc.fadeOut)||0,extraFadeOut[cc.id]||0)));
-      if(fi>0)chain+=",fade=t=in:st=0:d="+fi.toFixed(3)+":alpha=1";
-      if(fo>0)chain+=",fade=t=out:st="+(dur2-fo).toFixed(3)+":d="+fo.toFixed(3)+":alpha=1";
-      chain+=",setpts=PTS+"+effStart.toFixed(3)+"/TB["+lab+"]";
-      filter.push(chain);
+      if(fi>0)chain2+=",fade=t=in:st=0:d="+fi.toFixed(3)+":alpha=1";
+      if(fo>0)chain2+=",fade=t=out:st="+(dur2-fo).toFixed(3)+":d="+fo.toFixed(3)+":alpha=1";
+      chain2+=",setpts=PTS+"+effStart.toFixed(3)+"/TB["+lab+"]";
+      filter.push(chain2);
       var txp=(Number(cc.tx)||0)/100,typ=(Number(cc.ty)||0)/100;
       var out="bgv"+(++bi);
       filter.push(acc+"["+lab+"]overlay=x='(main_w-overlay_w)/2+("+txp.toFixed(4)+")*main_w':y='(main_h-overlay_h)/2+("+typ.toFixed(4)+")*main_h':enable='between(t,"+effStart.toFixed(3)+","+endT.toFixed(3)+")':eof_action=pass:repeatlast=0:format=auto["+out+"]");
