@@ -1693,7 +1693,7 @@ async function renderDownloadsPage(){
 }
 async function renderCreativeUsersPage(){
   const c=document.querySelector('#content');
-  c.innerHTML=\`
+  c.innerHTML=`
     <div class="viewgrid">
       <div class="metric span6"><small>Registered creatives</small><strong id="cuTotal">—</strong><span>Accounts registered in the Creative Portal</span></div>
       <div class="metric span6"><small>New in the last 30 days</small><strong id="cuRecent">—</strong><span>Recently created accounts</span></div>
@@ -1718,7 +1718,7 @@ async function renderCreativeUsersPage(){
         <div class="mb" id="cuModalBody"></div>
         <div class="mf"><button type="button" class="btn" id="cuModalCopyEmail">Copy email</button><button type="button" class="btn primary" id="cuModalDone">Done</button></div>
       </div>
-    </div>\`;
+    </div>`;
   const searchInput=c.querySelector('#cuSearch');
   const results=c.querySelector('#cuResults');
   const modal=c.querySelector('#creativeUserModal');
@@ -1778,14 +1778,14 @@ async function renderCreativeUsersPage(){
     const status=String(user.subscription_status||'not_configured').toLowerCase();
     c.querySelector('#cuModalTitle').textContent=user.full_name||'Unnamed creative';
     c.querySelector('#cuModalSubtitle').textContent=user.email||'';
-    modalBody.innerHTML=\`
+    modalBody.innerHTML=`
       <div class="viewgrid">
-        <div class="metric span6"><small>Registration date</small><strong style="font-size:19px">\${esc(dateLabel(user.created_at))}</strong><span>Account creation</span></div>
-        <div class="metric span6"><small>Subscription</small><strong style="font-size:19px">\${esc(planStatusLabel(status))}</strong><span>\${esc(user.plan_name||'Not configured')}</span></div>
-        <div class="metric span6"><small>Projects</small><strong>\${Number(user.project_count||0).toLocaleString()}</strong><span>\${Number(user.file_count||0).toLocaleString()} stored files</span></div>
-        <div class="metric span6"><small>Storage used</small><strong style="font-size:19px">\${esc(bytesLabel(usage))}</strong><span>\${quota>0?esc(bytesLabel(quota))+' plan quota':'No quota recorded'}</span></div>
-        <div class="panel span12"><div class="ph"><div><h3>Account reference</h3><p>Use this ID when recording a support case.</p></div><button type="button" class="mini" id="cuCopyId">Copy ID</button></div><div class="pb"><code class="mono" style="overflow-wrap:anywhere">\${esc(user.id||'—')}</code><div class="smallnote" style="margin-top:9px">Email: \${esc(user.email||'—')}</div><div class="smallnote" style="margin-top:6px">Latest payment: \${esc(paymentLabel(user))}</div><div class="smallnote" style="margin-top:6px">Payment record date: \${esc(dateTimeLabel(user.latest_payment_created_at))}</div>\${user.latest_payment_amount_ghs==null?'':'<div class="smallnote" style="margin-top:6px">Latest payment amount: GH₵ '+esc(Number(user.latest_payment_amount_ghs).toFixed(2))+'</div>'}</div></div>
-      </div>\`;
+        <div class="metric span6"><small>Registration date</small><strong style="font-size:19px">${esc(dateLabel(user.created_at))}</strong><span>Account creation</span></div>
+        <div class="metric span6"><small>Subscription</small><strong style="font-size:19px">${esc(planStatusLabel(status))}</strong><span>${esc(user.plan_name||'Not configured')}</span></div>
+        <div class="metric span6"><small>Projects</small><strong>${Number(user.project_count||0).toLocaleString()}</strong><span>${Number(user.file_count||0).toLocaleString()} stored files</span></div>
+        <div class="metric span6"><small>Storage used</small><strong style="font-size:19px">${esc(bytesLabel(usage))}</strong><span>${quota>0?esc(bytesLabel(quota))+' plan quota':'No quota recorded'}</span></div>
+        <div class="panel span12"><div class="ph"><div><h3>Account reference</h3><p>Use this ID when recording a support case.</p></div><button type="button" class="mini" id="cuCopyId">Copy ID</button></div><div class="pb"><code class="mono" style="overflow-wrap:anywhere">${esc(user.id||'—')}</code><div class="smallnote" style="margin-top:9px">Email: ${esc(user.email||'—')}</div><div class="smallnote" style="margin-top:6px">Latest payment: ${esc(paymentLabel(user))}</div><div class="smallnote" style="margin-top:6px">Payment record date: ${esc(dateTimeLabel(user.latest_payment_created_at))}</div>${user.latest_payment_amount_ghs==null?'':'<div class="smallnote" style="margin-top:6px">Latest payment amount: GH₵ '+esc(Number(user.latest_payment_amount_ghs).toFixed(2))+'</div>'}</div></div>
+      </div>`;
     modal.classList.add('show');
     const idButton=modalBody.querySelector('#cuCopyId');
     if(idButton)idButton.onclick=function(){copyText(user.id)};
@@ -1806,10 +1806,10 @@ async function renderCreativeUsersPage(){
         results.innerHTML='<div class="adm-empty">No creative accounts match that search.</div>';
         return;
       }
-      results.innerHTML=\`
+      results.innerHTML=`
         <table class="table">
           <thead><tr><th>Creative</th><th>Joined</th><th>Plan</th><th>Account / Payment</th><th>Projects / Files</th><th>Storage used</th><th>Support</th></tr></thead>
-          <tbody>\${displayedUsers.map(function(user){
+          <tbody>${displayedUsers.map(function(user){
             const status=String(user.subscription_status||'not_configured').toLowerCase();
             return '<tr>'+
               '<td><b>'+esc(user.full_name||'Unnamed creative')+'</b><div class="muted" style="margin-top:4px">'+esc(user.email||'')+'</div></td>'+
@@ -1821,7 +1821,7 @@ async function renderCreativeUsersPage(){
               '<td><button type="button" class="mini" data-detail="'+esc(user.id)+'">View details</button> <button type="button" class="mini" data-copy-email="'+esc(user.email)+'">Copy email</button></td>'+
             '</tr>';
           }).join('')}</tbody>
-        </table>\`;
+        </table>`;
       results.querySelectorAll('[data-detail]').forEach(function(button){
         button.onclick=function(){
           const user=displayedUsers.find(function(item){return String(item.id)===button.dataset.detail});
