@@ -1,6 +1,6 @@
 # CEO launch readiness — FBI Client File Studio
 
-**Release status:** the security/egress hardening has been merged to main and deployed successfully. The approved public prices are included in the follow-up release branch; they become effective when that release completes successfully. Existing subscription rows and complimentary grants are not rewritten by the price seed update.
+**Release status (10 October 2026):** the security/egress hardening and approved public pricing are merged to `main` and deployed to Railway production. The application health check passed and all application/streaming services report `SUCCESS`. Creator, Professional and Studio public prices are live. Existing subscription rows and complimentary grants were not mass-updated by the price seed update.
 
 ## CEO decision
 
@@ -22,7 +22,8 @@ Treat the platform as a controlled commercial launch. Preserve the original-medi
 - Password reset/email verification is not confirmed as available. Implement after setting up a working email delivery provider; never expose a reset code in a response or ordinary logs.
 - Gallery links remain bearer credentials. Optional passcodes, OTP or client-email allowlists should be added for sensitive deliveries.
 - A real low-value Moolre payment and reconciliation test has not been run as part of this code release. Do not mark payment acceptance complete until the provider status endpoint, webhook, payment ledger, and subscription activation have all been confirmed from a paying test account.
-- Confirm PostgreSQL backup operation and restore a backup to a safe test environment. Confirm object-storage originals are recoverable. Do not assume application deployment success proves recovery works.
+- A separate Railway backup worker (`fbi-client-file-studio-db-backup`) is configured to run daily at 03:15 UTC, writing PostgreSQL custom-format dumps to a separate private bucket. The first archive was validated with `pg_restore --list` and uploaded at 1,592,834 bytes on 10 October 2026. This confirms archive creation and object upload, not a full restore test. Restore a copy into a disposable test database and verify key tables/counts before calling disaster recovery fully tested.
+- The PostgreSQL backup job does not copy the original-media bucket. Confirm original media can be recovered separately; do not assume database backup protects stored originals.
 - Continue to inspect 4xx by route and user action. Not all 4xx errors indicate defects.
 
 ## Current public plan prices
