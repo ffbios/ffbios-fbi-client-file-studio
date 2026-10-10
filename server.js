@@ -2273,6 +2273,17 @@ function overlayGenerator(preset,W,H,dur){
   }
 }
 
+// Motion tracker — a follower's position as a piecewise-linear expression over the tracked path.
+function piecewiseExpr(kf,axis,dim){
+  var k=kf.slice().filter(function(p){return p&&isFinite(p.t)&&isFinite(p[axis])}).sort(function(a,b){return a.t-b.t});
+  if(k.length<2)return null;
+  var e=(k[k.length-1][axis]*dim).toFixed(1);
+  for(var i=k.length-2;i>=0;i--){var a=k[i],b=k[i+1];var av=a[axis]*dim,bv=b[axis]*dim;var dt=(b.t-a.t)||0.001;
+    var seg="("+av.toFixed(1)+"+("+(bv-av).toFixed(1)+")*(t-"+a.t.toFixed(3)+")/"+dt.toFixed(3)+")";
+    e="if(lt(t,"+b.t.toFixed(3)+"),"+seg+","+e+")";}
+  return "if(lt(t,"+k[0].t.toFixed(3)+"),"+(k[0][axis]*dim).toFixed(1)+","+e+")";
+}
+
 // 3D perspective tilt — projects the layer in 3D space; pads transparent so it floats over lower tracks.
 function perspective3dFilter(rx,ry,W,H){
   rx=Math.max(-60,Math.min(60,Number(rx)||0))*Math.PI/180;
@@ -2499,7 +2510,11 @@ async function runEditorRender(jobId,projectId,state,settings){
       chain2+=",setpts=PTS+"+effStart.toFixed(3)+"/TB["+lab+"]";
       filter.push(chain2);
       var txp=(Number(cc.tx)||0)/100,typ=(Number(cc.ty)||0)/100;
-      var ox="(main_w-overlay_w)/2+("+txp.toFixed(4)+")*main_w",oy="(main_h-overlay_h)/2+("+typ.toFixed(4)+")*main_h";
+      var ox,oy,evf="";
+      var fpX=Array.isArray(cc.followPath)&&cc.followPath.length>=2?piecewiseExpr(cc.followPath,"x",W):null;
+      var fpY=fpX?piecewiseExpr(cc.followPath,"y",H):null;
+      if(fpX&&fpY){ox="("+fpX+")-overlay_w/2+("+txp.toFixed(4)+")*main_w";oy="("+fpY+")-overlay_h/2+("+typ.toFixed(4)+")*main_h";evf=":eval=frame";}
+      else{ox="(main_w-overlay_w)/2+("+txp.toFixed(4)+")*main_w";oy="(main_h-overlay_h)/2+("+typ.toFixed(4)+")*main_h";}
       var en="enable='between(t,"+effStart.toFixed(3)+","+endT.toFixed(3)+")'";
       var out="bgv"+(++bi);
       var mode=String(cc.blend||"normal");
@@ -2508,10 +2523,10 @@ async function runEditorRender(jobId,projectId,state,settings){
         var idc=(mode==="multiply"||mode==="darken")?"white":"black";
         var cvl="bld"+bi;
         filter.push("color=c="+idc+":s="+W+"x"+H+":r=30:d="+totalDuration.toFixed(3)+",format=yuv420p[bgc"+bi+"]");
-        filter.push("[bgc"+bi+"]["+lab+"]overlay=x='"+ox+"':y='"+oy+"':"+en+":eof_action=pass:repeatlast=0:format=auto["+cvl+"]");
+        filter.push("[bgc"+bi+"]["+lab+"]overlay=x='"+ox+"':y='"+oy+"':"+en+evf+":eof_action=pass:repeatlast=0:format=auto["+cvl+"]");
         filter.push(acc+"["+cvl+"]blend=all_mode="+mode+"["+out+"]");
       }else{
-        filter.push(acc+"["+lab+"]overlay=x='"+ox+"':y='"+oy+"':"+en+":eof_action=pass:repeatlast=0:format=auto["+out+"]");
+        filter.push(acc+"["+lab+"]overlay=x='"+ox+"':y='"+oy+"':"+en+evf+":eof_action=pass:repeatlast=0:format=auto["+out+"]");
       }
       acc="["+out+"]";
     }

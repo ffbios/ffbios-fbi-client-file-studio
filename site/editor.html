@@ -248,6 +248,7 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
           <img id="pvImg" alt="">
           <div class="tempwash" id="tempwash"></div>
           <div class="vig" id="vig"></div>
+          <div id="trkMarker" style="display:none;position:absolute;border:2px solid var(--accent);border-radius:4px;box-shadow:0 0 0 2px rgba(0,0,0,.4);z-index:5;pointer-events:none"></div>
         </div>
       </div>
       <div class="transport">
@@ -566,7 +567,7 @@ function bindRulerScrub(){
 
 /* ---------- preview ---------- */
 function trackVisible(tr){if(tr[0]!=="V")return true;return !(state.trackState[tr]||{}).hide;}
-function topVideoClip(t){for(const tr of VTRACKS){if(!trackVisible(tr))continue;const c=state.clips.find(c=>c.track===tr&&(c.type==="video"||c.type==="image")&&t>=c.start-0.001&&t<c.start+c.duration-0.001);if(c)return c;}return null;}
+function topVideoClip(t){for(const tr of VTRACKS){if(!trackVisible(tr))continue;const c=state.clips.find(c=>c.track===tr&&(c.type==="video"||c.type==="image")&&!(c.followPath&&c.followPath.length)&&t>=c.start-0.001&&t<c.start+c.duration-0.001);if(c)return c;}return null;}
 function gradeFilterCss(g){g=g||{};const b=1+((g.exposure||0)/100)*0.5,con=(g.contrast==null?100:g.contrast)/100,sat=(g.saturate==null?100:g.saturate)/100,gray=(g.grayscale||0)/100,sep=(g.sepia||0)/100,blur=(g.blur||0);return `brightness(${b.toFixed(3)}) contrast(${con.toFixed(3)}) saturate(${sat.toFixed(3)}) grayscale(${gray.toFixed(2)}) sepia(${sep.toFixed(2)}) blur(${blur}px)`;}
 function applyTransformCss(c){const s=(c&&c.scale!=null?c.scale:100)/100,tx=(c&&c.tx||0),ty=(c&&c.ty||0),rot=(c&&c.rotate||0),op=(c&&c.opacity==null?100:c.opacity)/100,rx=(c&&c.rotX||0),ry=(c&&c.rotY||0);
   const cp=c?maskClipPath(c):"none";
@@ -882,6 +883,70 @@ function bindColorInspector(c){
 }
 function showLeft(which){$("#mediaList").style.display=which==="media"?"":"none";$("#effectsList").style.display=which==="effects"?"":"none";$("#colorNodesPanel").style.display=which==="color"?"":"none";$("#fxPanel").style.display=which==="fx"?"":"none";$("#tabMedia").classList.toggle("active",which==="media");$("#tabFx").classList.toggle("active",which==="effects");}
 
+/* ---------- motion tracker ---------- */
+let trkArm=false;
+function trackerHTML(c){
+  if(c.type!=="video")return `<div class="ai-note" style="padding:0 2px 10px">Motion Tracker needs a video clip (select one on the timeline).</div>`;
+  const n=(c.track2d&&c.track2d.length)||0;
+  return `<div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);font-weight:700;margin:4px 2px 9px">Motion Tracker</div>
+    <div class="pill" style="margin-bottom:7px"><button class="toggle ${trkArm?"on":""}" id="trkSet">${trkArm?"Click the subject…":"1 · Set Point"}</button><button class="toggle" id="trkAnalyze" ${c.trackRegion?"":"disabled style=opacity:.5"}>2 · Analyze</button></div>
+    <div class="ai-note" style="padding:0 2px 8px">${n?("Tracked "+n+" points. Pin something to follow it:"):"Click the moving subject in the monitor, then Analyze."}</div>
+    <div class="pill" ${n?"":"style=opacity:.5"}><button class="fx" style="margin:0" id="trkPinText" ${n?"":"disabled"}>⌶ Pin Text</button><button class="fx" style="margin:0" id="trkPinLogo" ${n?"":"disabled"}>▣ Pin Logo</button></div>
+    <div style="height:1px;background:var(--edge);margin:12px 0"></div>`;
+}
+function trackerMarker(c){
+  const mk=$("#trkMarker"),fr=$("#frame");if(!mk||!fr)return;
+  if(pageMode!=="fusion"||!c||c.type!=="video"||!c.trackRegion){mk.style.display="none";return;}
+  const r=c.trackRegion;mk.style.display="block";mk.style.left=(r.x-r.w/2)*100+"%";mk.style.top=(r.y-r.h/2)*100+"%";mk.style.width=r.w*100+"%";mk.style.height=r.h*100+"%";
+}
+function armTrackPoint(){trkArm=!trkArm;renderFxNodes();}
+async function analyzeTrack(c){
+  if(!c.trackRegion){toast("Set a tracking point first",true);return;}
+  toast("Analyzing motion…");
+  try{c.track2d=await trackMotion(c,c.trackRegion);renderFxNodes();scheduleSave();toast("Tracked "+c.track2d.length+" points");}
+  catch(e){toast("Couldn't analyze: "+(e.message||e),true);}
+}
+function trackMotion(clip,region){
+  return new Promise((resolve,reject)=>{
+    const v=document.createElement("video");v.crossOrigin="anonymous";v.muted=true;v.preload="auto";v.src="/api/admin/file/"+clip.fileId;
+    const fail=e=>reject(new Error("video load"));v.onerror=fail;
+    v.onloadedmetadata=async()=>{
+      try{
+        const vw=v.videoWidth||16,vh=v.videoHeight||9;const CW=320,CH=Math.max(90,Math.round(CW*vh/vw));
+        const cv=document.createElement("canvas");cv.width=CW;cv.height=CH;const ctx=cv.getContext("2d",{willReadFrequently:true});
+        const seek=t=>new Promise(res=>{let done=false;v.onseeked=()=>{if(!done){done=true;res();}};try{v.currentTime=t;}catch(e){res();}setTimeout(()=>{if(!done){done=true;res();}},700);});
+        const gray=d=>{const g=new Float32Array(d.length/4);for(let i=0,j=0;i<d.length;i+=4,j++)g[j]=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];return g;};
+        const sp=clip.speed||1,t0=clip.trimIn||0,t1=Math.min(clip.trimOut||v.duration,v.duration||clip.trimOut||1);
+        const N=18,rw=Math.max(10,Math.round(region.w*CW)),rh=Math.max(10,Math.round(region.h*CH));
+        await seek(t0+0.02);ctx.drawImage(v,0,0,CW,CH);let fg=gray(ctx.getImageData(0,0,CW,CH).data);
+        let cx=Math.round(region.x*CW),cy=Math.round(region.y*CH);
+        const tmpl=new Float32Array(rw*rh);for(let y=0;y<rh;y++)for(let x=0;x<rw;x++){const px=Math.round(cx-rw/2)+x,py=Math.round(cy-rh/2)+y;tmpl[y*rw+x]=fg[(Math.min(CH-1,Math.max(0,py)))*CW+Math.min(CW-1,Math.max(0,px))]||0;}
+        const pts=[{t:clip.start,x:cx/CW,y:cy/CH}];const SR=30;
+        for(let i=1;i<N;i++){
+          const tt=t0+(t1-t0)*i/(N-1);await seek(Math.min(tt,(v.duration||tt)-0.03));ctx.drawImage(v,0,0,CW,CH);const g=gray(ctx.getImageData(0,0,CW,CH).data);
+          let best=1e18,bx=cx,by=cy;
+          const sx0=Math.max(rw/2,cx-SR),sx1=Math.min(CW-rw/2,cx+SR),sy0=Math.max(rh/2,cy-SR),sy1=Math.min(CH-rh/2,cy+SR);
+          for(let py=sy0;py<=sy1;py+=2)for(let px=sx0;px<=sx1;px+=2){let sad=0;const ox=Math.round(px-rw/2),oy=Math.round(py-rh/2);
+            for(let y=0;y<rh;y+=2){for(let x=0;x<rw;x+=2){sad+=Math.abs(g[(oy+y)*CW+(ox+x)]-tmpl[y*rw+x]);}if(sad>=best)break;}
+            if(sad<best){best=sad;bx=px;by=py;}}
+          cx=bx;cy=by;pts.push({t:clip.start+(tt-t0)/sp,x:cx/CW,y:cy/CH});
+        }
+        resolve(pts);
+      }catch(e){reject(e);}
+    };
+    setTimeout(()=>reject(new Error("timed out")),30000);
+  });
+}
+function pinFollower(c,kind){
+  if(!c.track2d||c.track2d.length<2){toast("Analyze motion first",true);return;}
+  const path=c.track2d.map(p=>({t:p.t,x:p.x,y:p.y}));
+  const upTrack=c.track==="V1"?"V2":(c.track==="V2"?"V3":"V3");
+  const base={id:uid(),track:upTrack,start:c.start,duration:c.duration,followPath:path,scale:(kind==="logo"?28:100),tx:0,ty:0,rotate:0,rotX:0,rotY:0,opacity:100,blend:"normal",crop:{l:0,r:0,t:0,b:0},colorNodes:[],fxNodes:[],mask:{type:"none"},fadeIn:0.2,fadeOut:0.2};
+  if(kind==="text"){Object.assign(base,{type:"title",name:"Tracked Label",text:"Label",fontSize:5,fontColor:"#ffffff"});}
+  else{const a=document.querySelector(".media.active");const f=a&&files.find(x=>x.id===a.dataset.id&&mediaKind(x)==="image");if(!f){toast("Select an image in the Media Pool to pin as a logo",true);return;}Object.assign(base,{type:"image",fileId:f.id,name:f.original_name||"Logo"});}
+  state.clips.push(base);setSel(base.id);renderTimeline();fitTimeline();toast((kind==="text"?"Text":"Logo")+" pinned to the track — it follows on export");
+}
+
 /* ---------- fusion page: effect node chain ---------- */
 let fxSelNode=-1;
 const FXDEFS=[["blur","Blur","◌"],["sharpen","Sharpen","◆"],["glow","Glow","✶"],["edge","Edge Detect","▲"],["invert","Invert","◑"],["bw","Black & White","○"],["mirror","Mirror","◧"],["vignette","Vignette","◍"],["grain","Film Grain","▦"]];
@@ -892,7 +957,8 @@ function renderFxNodes(){
   const box=$("#fxPanel");const c=state.clips.find(x=>x.id===selId);
   if(!c||c.type==="audio"){box.innerHTML='<div class="empty">Select a video, image or title clip to build a Fusion effect chain.</div>';return;}
   const nodes=clipFx(c);if(fxSelNode>=nodes.length)fxSelNode=-1;
-  let html=`<div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);font-weight:700;margin:4px 2px 9px">Fusion · Node Chain</div>`;
+  let html=trackerHTML(c);
+  html+=`<div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);font-weight:700;margin:4px 2px 9px">Fusion · Node Chain</div>`;
   html+=`<div class="cnode" style="opacity:.7;cursor:default"><span class="nd"></span><span class="nn">MediaIn</span><span class="nt">source</span></div>`;
   nodes.forEach((n,i)=>html+=`<div class="cnode${fxSelNode===i?" active":""}" data-fi="${i}"><span class="nd${n.enabled!==false?"":" off"}"></span><span class="nn">${fxLabel(n.type)}</span><span class="nt">fx</span><span class="nx" data-del="${i}">×</span></div>`);
   html+=`<div class="cnode" style="opacity:.7;cursor:default"><span class="nd"></span><span class="nn">MediaOut</span><span class="nt">output</span></div>`;
@@ -900,6 +966,11 @@ function renderFxNodes(){
   html+=FXDEFS.map(d=>`<div class="fx" data-addfx="${d[0]}"><span class="fxi">${d[2]}</span>${d[1]}</div>`).join("");
   html+=`<div class="ai-note" style="padding:0 2px;margin-top:8px">Effects stack from MediaIn to MediaOut and render on export. Reframing (zoom/position/rotation) and opacity live on the Edit inspector; lower video tracks composite underneath.</div>`;
   box.innerHTML=html;
+  const tset=$("#trkSet");if(tset)tset.onclick=()=>armTrackPoint();
+  const tan=$("#trkAnalyze");if(tan&&c.trackRegion)tan.onclick=()=>analyzeTrack(c);
+  const tpt=$("#trkPinText");if(tpt&&c.track2d&&c.track2d.length)tpt.onclick=()=>pinFollower(c,"text");
+  const tpl=$("#trkPinLogo");if(tpl&&c.track2d&&c.track2d.length)tpl.onclick=()=>pinFollower(c,"logo");
+  trackerMarker(c);
   box.querySelectorAll("[data-fi]").forEach(el=>el.onclick=e=>{if(e.target.dataset.del){nodes.splice(+e.target.dataset.del,1);fxSelNode=-1;renderFxNodes();renderInspector();previewFx(c);scheduleSave();return;}fxSelNode=+el.dataset.fi;renderFxNodes();renderInspector();});
   box.querySelectorAll("[data-addfx]").forEach(el=>el.onclick=()=>{nodes.push(fxDefault(el.dataset.addfx));fxSelNode=nodes.length-1;renderFxNodes();renderInspector();previewFx(c);scheduleSave();toast(fxLabel(el.dataset.addfx)+" added");});
 }
@@ -1086,6 +1157,7 @@ function setPage(mode){
   if(mode==="color"){showLeft("color");renderColorNodes();}
   else if(mode==="fusion"){showLeft("fx");renderFxNodes();}
   else{showLeft("media");}
+  if(mode!=="fusion"){const mk=$("#trkMarker");if(mk)mk.style.display="none";trkArm=false;}
   if(showMixer)renderMixer();else renderInspector();
 }
 
@@ -1100,6 +1172,12 @@ function bindGlobal(){
     const rect=lane.getBoundingClientRect();const seek=cx=>{playhead=Math.max(0,(cx-rect.left-TLH)/pps);setMon("program");positionPlayhead();renderPreview();};seek(e.clientX);
     const mv=ev=>seek(ev.clientX);const up=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up);};
     document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);
+  });
+  $("#frame").addEventListener("pointerdown",e=>{
+    if(!trkArm||pageMode!=="fusion")return;
+    const c=state.clips.find(c=>c.id===selId);if(!c||c.type!=="video"){toast("Select a video clip to track",true);trkArm=false;renderFxNodes();return;}
+    const r=$("#frame").getBoundingClientRect();const x=clamp((e.clientX-r.left)/r.width,0,1),y=clamp((e.clientY-r.top)/r.height,0,1);
+    c.trackRegion={x,y,w:0.16,h:0.16};trkArm=false;renderFxNodes();scheduleSave();toast("Tracking point set — press Analyze");
   });
   $("#playBtn").onclick=togglePlay;
   $("#toStart").onclick=()=>{playhead=0;setMon("program");positionPlayhead();renderPreview();};
