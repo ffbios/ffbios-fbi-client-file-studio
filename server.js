@@ -323,6 +323,8 @@ const ROOT=path.join(__dirname,"site");
 const ADMIN_EMAIL=(process.env.ADMIN_EMAIL||"filmbyfbi@gmail.com").trim().toLowerCase();
 const ADMIN_PASSWORD=process.env.ADMIN_PASSWORD||"";
 const SESSION_SECRET=process.env.SESSION_SECRET||crypto.randomBytes(32).toString("hex");
+const ANNOUNCEMENT_ADMINS=new Set((process.env.ANNOUNCEMENT_ADMINS||ADMIN_EMAIL).split(",").map(s=>s.trim().toLowerCase()).filter(Boolean));
+function isAnnouncementAdmin(email){return ANNOUNCEMENT_ADMINS.has(String(email||"").toLowerCase());}
 const VAPID_PUBLIC_KEY=(process.env.VAPID_PUBLIC_KEY||"").trim();
 const VAPID_PRIVATE_KEY=(process.env.VAPID_PRIVATE_KEY||"").trim();
 const VAPID_SUBJECT=(process.env.VAPID_SUBJECT||("mailto:"+ADMIN_EMAIL)).trim();
@@ -1972,7 +1974,7 @@ app.get("/api/portal/announcements",portalUser,async(req,res)=>{
   res.json({
     announcements:rows,
     unread:rows.filter(x=>!x.read).length,
-    isAdmin:String(req.portalUser.email||"").toLowerCase()===ADMIN_EMAIL,
+    isAdmin:isAnnouncementAdmin(req.portalUser.email),
     pushEnabled:pushReady,
     vapidPublicKey:pushReady?VAPID_PUBLIC_KEY:""
   });
@@ -1988,7 +1990,7 @@ app.post("/api/portal/announcements/read",portalUser,async(req,res)=>{
 });
 app.post("/api/portal/announcements",portalUser,async(req,res)=>{
  try{
-  if(String(req.portalUser.email||"").toLowerCase()!==ADMIN_EMAIL)return res.status(403).json({error:"Only the studio owner can post updates."});
+  if(!isAnnouncementAdmin(req.portalUser.email))return res.status(403).json({error:"Only the studio owner can post updates."});
   const title=String(req.body?.title||"").trim().slice(0,160);
   const body=String(req.body?.body_md??req.body?.body??"").trim().slice(0,5000);
   const category=(String(req.body?.category||"update").trim().toLowerCase().slice(0,40))||"update";
@@ -2002,7 +2004,7 @@ app.post("/api/portal/announcements",portalUser,async(req,res)=>{
 });
 app.delete("/api/portal/announcements/:id",portalUser,async(req,res)=>{
  try{
-  if(String(req.portalUser.email||"").toLowerCase()!==ADMIN_EMAIL)return res.status(403).json({error:"Only the studio owner can remove updates."});
+  if(!isAnnouncementAdmin(req.portalUser.email))return res.status(403).json({error:"Only the studio owner can remove updates."});
   await pool.query("DELETE FROM announcements WHERE id=$1",[req.params.id]);
   res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not remove the update."})}
