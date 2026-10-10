@@ -129,6 +129,12 @@ input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;bac
 .playhead{position:absolute;top:0;bottom:0;width:2px;background:var(--gold);z-index:8;pointer-events:none;box-shadow:0 0 8px rgba(232,190,85,.6)}
 .playhead:before{content:"";position:absolute;top:-1px;left:-5px;border:6px solid transparent;border-top-color:var(--gold);border-bottom:0;width:0;height:0}
 .razor .clip{cursor:crosshair}
+/* command bar */
+.cmdbar{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--edge);background:linear-gradient(180deg,rgba(232,190,85,.06),rgba(232,190,85,.01))}
+.cmdbar .cmd-ic{width:30px;height:30px;flex:none;border-radius:9px;display:grid;place-items:center;background:conic-gradient(from 210deg,var(--golddeep),var(--gold2),var(--gold));color:#1a1405;font-size:15px;box-shadow:0 0 14px rgba(232,190,85,.25)}
+.cmdbar input{flex:1;background:var(--panel2);border:1px solid var(--edge2);border-radius:11px;padding:10px 13px;color:var(--text);font-size:13px}
+.cmdbar input:focus{outline:none;border-color:var(--gold)}
+.cmdbar input::placeholder{color:var(--faint)}
 /* toast + modal */
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);background:#17171c;border:1px solid var(--edge2);border-radius:12px;padding:12px 18px;box-shadow:var(--shadow);opacity:0;transition:.25s;z-index:100;max-width:80vw}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -192,6 +198,11 @@ input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;bac
 
   <!-- timeline -->
   <div class="tl">
+    <div class="cmdbar">
+      <span class="cmd-ic">✨</span>
+      <input id="cmdInput" autocomplete="off" placeholder="Tell the editor what to do — e.g.  “cut the silence, warm cinematic look, speed up 150%, add vignette”">
+      <button class="btn gold sm" id="cmdRun">Run ▸</button>
+    </div>
     <div class="tl-bar">
       <button class="tool active" id="toolSelect" title="Select / move (V)">▚</button>
       <button class="tool" id="toolRazor" title="Razor / split (C)">✂</button>
@@ -623,6 +634,67 @@ async function poll(jobId){
   }catch(e){pollT=setTimeout(()=>poll(jobId),2500);}
 }
 
+/* ---------- plain-language command bar (on-device, no AI fees) ---------- */
+function cmdTarget(){return state.clips.find(c=>c.id===selId)||activeClip(playhead,"V1")||state.clips.find(c=>c.track==="V1")||state.clips[0]||null;}
+function ensureGrade(c){return c.grade||(c.grade={});}
+const CMD_LOOKS={"cinematic":"cinematic","cinema":"cinematic","film look":"cinematic","warm look":"warm","teal and orange":"teal","teal":"teal","black and white":"bw","b&w":"bw","grayscale":"bw","monochrome":"bw","sepia":"sepia","vintage":"sepia","vivid":"vivid","noir":"noir","faded":"faded","matte":"faded"};
+async function runCommand(raw){
+  const text=(raw||"").trim();if(!text)return;
+  const parts=text.toLowerCase().split(/\s*(?:,|;|\bthen\b)\s*/).map(s=>s.trim()).filter(Boolean);
+  const done=[];
+  for(const p of parts){try{const r=await applyPhrase(p);if(r)done.push(r);}catch(e){console.warn(e);}}
+  renderTimeline();renderInspector();scheduleSave();
+  if(done.length)toast("✓ "+done.join(" · "));else toast("I didn't catch that — try “cut the silence” or “warm cinematic look”",true);
+  $("#cmdInput").value="";
+}
+async function applyPhrase(p){
+  const c=cmdTarget(),g=c?ensureGrade(c):null;let m;
+  // AI
+  if(/\bauto.?cut\b/.test(p)||(/(cut|remove|trim|delete|strip)/.test(p)&&/(silence|dead ?air|quiet|pauses?|gaps?)/.test(p))){if(c){await autoCutSilence(c);return "removed silence";}return null;}
+  if((/(split|cut|detect|break)/.test(p)&&/scenes?/.test(p))||/scene ?split/.test(p)){if(c){await autoSceneSplit(c);return "scene split";}return null;}
+  if(/auto ?colou?r|fix colou?r|balance (?:the )?colou?r|colou?r balance|white ?balance|fix (?:the )?(?:lighting|exposure)/.test(p)){if(c){await autoColor(c);return "auto color";}return null;}
+  // speed
+  let sp=null;
+  if(/(speed|faster|slow)/.test(p)&&(m=/(\d+(?:\.\d+)?)\s*%/.exec(p)))sp=parseFloat(m[1])/100;
+  if((m=/(\d+(?:\.\d+)?)\s*x\b/.exec(p)))sp=parseFloat(m[1]);
+  if(/speed up/.test(p)&&sp==null)sp=(c&&c.speed||1)*1.5;
+  if(/slow (?:it )?down/.test(p)&&sp==null)sp=(c&&c.speed||1)/1.5;
+  if(sp!=null&&c){c.speed=clamp(sp,0.25,4);c.duration=Math.max(0.1,(c.trimOut-c.trimIn)/c.speed);return "speed "+Math.round(c.speed*100)+"%";}
+  // volume / mute
+  if(/\bmute\b/.test(p)&&c){c.mute=true;return "muted";}
+  if(/\bunmute\b/.test(p)&&c){c.mute=false;return "unmuted";}
+  if((m=/volume\s*(?:to\s*)?(\d+)\s*%/.exec(p))&&c){c.volume=clamp(+m[1],0,200);return "volume "+c.volume+"%";}
+  if(/\blouder\b/.test(p)&&c){c.volume=clamp((c.volume==null?100:c.volume)+20,0,200);return "louder";}
+  if(/(quieter|softer)/.test(p)&&c){c.volume=clamp((c.volume==null?100:c.volume)-20,0,200);return "quieter";}
+  // trims
+  if((m=/(?:trim|cut|remove)\s+(?:the\s+)?first\s+(\d+(?:\.\d+)?)/.exec(p))&&c){const n=+m[1]*(c.speed||1);c.trimIn=Math.min(c.trimOut-0.2,c.trimIn+n);c.duration=Math.max(0.1,(c.trimOut-c.trimIn)/(c.speed||1));return "trimmed first "+m[1]+"s";}
+  if((m=/(?:trim|cut|remove)\s+(?:the\s+)?last\s+(\d+(?:\.\d+)?)/.exec(p))&&c){const n=+m[1]*(c.speed||1);c.trimOut=Math.max(c.trimIn+0.2,c.trimOut-n);c.duration=Math.max(0.1,(c.trimOut-c.trimIn)/(c.speed||1));return "trimmed last "+m[1]+"s";}
+  // split / delete
+  if(/\bsplit\b/.test(p)&&/(here|playhead)/.test(p)){splitAtPlayhead();return "split at playhead";}
+  if(/(delete|remove|drop)/.test(p)&&/clip/.test(p)){deleteSel();return "clip removed";}
+  // relative grade nudges (before looks so "warmer" != "warm look")
+  if(/warmer/.test(p)&&c){g.temperature=clamp((g.temperature||0)+20,-100,100);applyGradeVisual(c.grade);return "warmer";}
+  if(/cooler/.test(p)&&c){g.temperature=clamp((g.temperature||0)-20,-100,100);applyGradeVisual(c.grade);return "cooler";}
+  if(/brighter/.test(p)&&c){g.exposure=clamp((g.exposure||0)+15,-100,100);applyGradeVisual(c.grade);return "brighter";}
+  if(/darker/.test(p)&&c){g.exposure=clamp((g.exposure||0)-15,-100,100);applyGradeVisual(c.grade);return "darker";}
+  if(/more contrast|punch(?:y|ier)?|contrast(?:y|ier)/.test(p)&&c){g.contrast=clamp((g.contrast||100)+15,50,180);applyGradeVisual(c.grade);return "more contrast";}
+  if(/less contrast|flatter/.test(p)&&c){g.contrast=clamp((g.contrast||100)-15,50,180);applyGradeVisual(c.grade);return "less contrast";}
+  if(/(more saturation|more colou?r|punchier|vibrant)/.test(p)&&c){g.saturate=clamp((g.saturate||100)+15,0,200);applyGradeVisual(c.grade);return "more color";}
+  if(/(less saturation|desaturate|muted colou?rs?)/.test(p)&&c){g.saturate=clamp((g.saturate||100)-15,0,200);applyGradeVisual(c.grade);return "less color";}
+  if(/vignette/.test(p)&&c){g.vignette=/(no|remove|off|without)/.test(p)?0:1;applyGradeVisual(c.grade);return (g.vignette?"vignette on":"vignette off");}
+  if(/grain/.test(p)&&c){g.grain=/(no|remove|off|without)/.test(p)?0:1;return (g.grain?"grain on":"grain off");}
+  // looks
+  for(const k in CMD_LOOKS){if(p.includes(k)){if(c){const L=LOOKS[CMD_LOOKS[k]]||{};c.grade=Object.assign({exposure:0,contrast:100,saturate:100,temperature:0,tint:0,shadows:0,highlights:0,grayscale:0,sepia:0,vignette:0,grain:0},L);applyGradeVisual(c.grade);}return CMD_LOOKS[k]+" look";}}
+  // transport / export / zoom
+  if(/(export|render|finish|publish|deliver)/.test(p)){$("#exportBtn").click();return "export opened";}
+  if(/^play\b|\bplay it\b|\bpreview\b/.test(p)){play();return "playing";}
+  if(/(pause|stop)/.test(p)){stop();return "paused";}
+  if(/\bfit\b|zoom to fit/.test(p)){$("#fitBtn").click();return "fit timeline";}
+  // add by filename
+  if((m=/\badd\s+(.+)/.exec(p))){const q=m[1].trim();const f=files.find(x=>(x.original_name||"").toLowerCase().includes(q));if(f){await addToTimeline(f);return "added "+f.original_name;}return null;}
+  return null;
+}
+
 /* ---------- global bindings ---------- */
 function setTool(t){tool=t;$("#toolSelect").classList.toggle("active",t==="select");$("#toolRazor").classList.toggle("active",t==="razor");$("#tlScroll").classList.toggle("razor",t==="razor");}
 function bindGlobal(){
@@ -642,6 +714,9 @@ function bindGlobal(){
   $("#refreshMedia").onclick=async()=>{await loadProject();renderMedia();renderTimeline();toast("Media refreshed");};
   $("#markIn").onclick=()=>{const c=state.clips.find(c=>c.id===selId);if(!c)return;const off=(playhead-c.start)*(c.speed||1);if(off>0&&off<(c.trimOut-c.trimIn)){c.trimIn=c.trimIn+off;c.start=playhead;c.duration=(c.trimOut-c.trimIn)/(c.speed||1);renderTimeline();scheduleSave();}};
   $("#markOut").onclick=()=>{const c=state.clips.find(c=>c.id===selId);if(!c)return;const off=(playhead-c.start)*(c.speed||1);if(off>0.1){c.trimOut=c.trimIn+off;c.duration=(c.trimOut-c.trimIn)/(c.speed||1);renderTimeline();scheduleSave();}};
+  // command bar
+  $("#cmdRun").onclick=()=>runCommand($("#cmdInput").value);
+  $("#cmdInput").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();runCommand($("#cmdInput").value);}});
   // export modal
   $("#exportBtn").onclick=()=>{$("#exportModal").classList.add("show");$("#exStart").style.display="";$("#exStart").textContent="Start render";$("#exProgWrap").style.display="none";$("#exTitle").textContent="Export your edit";$("#exMsg").textContent="This renders your timeline on the server and saves the finished video into this project's files.";};
   $("#exClose").onclick=()=>{$("#exportModal").classList.remove("show");clearTimeout(pollT);};
