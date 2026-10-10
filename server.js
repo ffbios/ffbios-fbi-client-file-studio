@@ -3271,7 +3271,7 @@ app.post("/api/uploads/:id/finalize-pending",admin,async(req,res)=>{
 
 app.get("/api/dashboard",admin,async(req,res)=>{
   try{
-    const [counts,recentProjects,recentDownloads,typeRows,picksRows]=await Promise.all([
+    const [counts,recentProjects,recentDownloads,typeRows,picksRows,dailyRows]=await Promise.all([
       pool.query(`SELECT
         (SELECT count(*) FROM projects WHERE archived=false) active_projects,
         (SELECT count(*) FROM projects WHERE archived=true) archived_projects,
@@ -3284,6 +3284,7 @@ app.get("/api/dashboard",admin,async(req,res)=>{
         (SELECT count(*) FROM downloads WHERE downloaded_at>=now()-interval '7 days') downloads_7d,
         (SELECT count(*) FROM downloads WHERE downloaded_at>=now()-interval '30 days') downloads_30d`),
       pool.query(`SELECT p.*,
+        ARRAY(SELECT f.id::text FROM files f WHERE f.project_id=p.id AND f.mime_type LIKE 'image/%' ORDER BY f.size_bytes DESC LIMIT 3) cover_ids,
         (SELECT count(*) FROM files f WHERE f.project_id=p.id) file_count,
         COALESCE((SELECT sum(size_bytes) FROM files f WHERE f.project_id=p.id),0) total_bytes
         FROM projects p ORDER BY p.updated_at DESC LIMIT 8`),
@@ -3307,9 +3308,11 @@ app.get("/api/dashboard",admin,async(req,res)=>{
         FROM files GROUP BY 1 ORDER BY bytes DESC`),
       pool.query(`SELECT s.id,s.project_id,p.name project_name,s.client_name,s.client_email,jsonb_array_length(s.file_ids) AS count,s.created_at
         FROM client_selections s LEFT JOIN projects p ON p.id=s.project_id
-        ORDER BY s.created_at DESC LIMIT 6`).catch(()=>({rows:[]}))
+        ORDER BY s.created_at DESC LIMIT 6`).catch(()=>({rows:[]})),
+      pool.query(`SELECT to_char(date_trunc('day',downloaded_at),'YYYY-MM-DD') day,count(*)::int n
+        FROM downloads WHERE downloaded_at>=date_trunc('day',now())-interval '13 days' GROUP BY 1 ORDER BY 1`).catch(()=>({rows:[]}))
     ]);
-    res.json({summary:counts.rows[0],recentProjects:recentProjects.rows,recentDownloads:recentDownloads.rows,types:typeRows.rows,recentPicks:picksRows.rows});
+    res.json({summary:counts.rows[0],recentProjects:recentProjects.rows,recentDownloads:recentDownloads.rows,types:typeRows.rows,recentPicks:picksRows.rows,downloadsDaily:dailyRows.rows});
   }catch(e){console.error(e);res.status(500).json({error:"Could not load dashboard"})}
 });
 
@@ -4100,6 +4103,20 @@ async function publicFileRecord(fileId,tokenValue,req){
   return f;
 }
 
+app.get("/api/admin/preview/:id",admin,async(req,res)=>{
+ try{
+  const q=await pool.query("SELECT * FROM files WHERE id=$1",[req.params.id]);
+  if(!q.rowCount)return res.status(404).send("File not found");
+  const f=q.rows[0];
+  if(!/^image\//i.test(f.mime_type||"")&&!isRawPhoto(f))return res.status(415).send("Image preview only.");
+  const key=previewObjectKey(f,2000,2000);
+  if(await storedObjectExists(key))return redirectToBucket(res,key,"private, no-store");
+  const creative=await creativeBrandingForProject(f.project_id);
+  const webp=await buildPreviewImage(f,2000,2000,creative);
+  await persistDerivedImage(key,webp,f.id);
+  res.status(200).type("image/webp").set("Cache-Control","private, no-store").send(webp);
+ }catch(e){console.error("Admin preview failed",e?.stack||e);res.status(500).send("Unable to generate preview")}
+});
 app.get("/api/admin/media/:id",admin,async(req,res)=>{
   try{
     const q=await pool.query("SELECT * FROM files WHERE id=$1",[req.params.id]);
@@ -4129,12 +4146,12 @@ app.get("/api/admin/thumb/:id",admin,async(req,res)=>{
   const f=q.rows[0];
   const width=Math.max(160,Math.min(640,Number(req.query.w||360))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
   const kind=thumbKind(f),cacheKind=kind==="video"?"video-v3":kind;
-  const cacheKey="admin:"+f.id+":"+cacheKind+":"+width+"x"+height,cached=getThumbCache(cacheKey);
-  if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(cached.buffer);
+  const cacheKey="admin:"+f.id+":"+cacheKind+":"+width+"x"+height;
   const thumbKey="__admin-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+cacheKind+"|"+width+"|"+height).digest("hex")+".webp";
+  if(s3Ready()&&await storedObjectExists(thumbKey))return redirectToBucket(res,thumbKey,"private, no-store");
   try{
-    const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:thumbKey}));
-    if(head.ContentLength){
+    const head=null;
+    if(head&&head.ContentLength){
       const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:thumbKey}));
       const bytes=got.Body?.transformToByteArray?Buffer.from(await got.Body.transformToByteArray()):Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject)}));
       setThumbCache(cacheKey,bytes);
