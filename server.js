@@ -3141,6 +3141,28 @@ app.get("/api/storage",admin,async(req,res)=>{
         (SELECT count(*) FROM projects WHERE archived=false)::int AS project_count
     `);
     const row=r.rows[0]||{};
+    // Insights for the storage page: what is using space and how data flows
+    // in (uploads) and out (client deliveries). Each query fails soft.
+    const soft=q=>q.catch(err=>{console.warn("Storage insight query failed",err?.message||err);return {rows:[]}});
+    const [typeQ,topQ,inQ,outQ,dailyQ]=await Promise.all([
+      soft(pool.query(`SELECT CASE WHEN mime_type LIKE 'video/%' THEN 'Video' WHEN mime_type LIKE 'image/%' THEN 'Photo' WHEN mime_type LIKE 'audio/%' THEN 'Audio' WHEN mime_type='application/pdf' THEN 'PDF' WHEN mime_type LIKE 'application/zip%' OR mime_type LIKE '%compressed%' THEN 'Archive' ELSE 'Other' END AS type,count(*)::int files,COALESCE(sum(size_bytes),0)::numeric bytes FROM files GROUP BY 1 ORDER BY bytes DESC`)),
+      soft(pool.query(`SELECT p.id,p.name,p.client_name,p.archived,p.shared,count(f.id)::int files,COALESCE(sum(f.size_bytes),0)::numeric bytes,
+        (SELECT f2.id::text FROM files f2 WHERE f2.project_id=p.id AND f2.mime_type LIKE 'image/%' ORDER BY f2.size_bytes DESC LIMIT 1) cover_id
+        FROM projects p LEFT JOIN files f ON f.project_id=p.id GROUP BY p.id ORDER BY bytes DESC LIMIT 6`)),
+      soft(pool.query(`SELECT count(*)::int n,COALESCE(sum(size_bytes),0)::numeric bytes FROM files WHERE created_at>=now()-interval '30 days'`)),
+      soft(pool.query(`SELECT count(*)::int n,COALESCE(sum(f.size_bytes),0)::numeric bytes FROM downloads d LEFT JOIN files f ON f.id=d.file_id WHERE d.downloaded_at>=now()-interval '30 days'`)),
+      soft(pool.query(`SELECT to_char(g::date,'YYYY-MM-DD') day,
+        COALESCE((SELECT sum(size_bytes) FROM files WHERE created_at>=g AND created_at<g+interval '1 day'),0)::numeric up,
+        COALESCE((SELECT sum(f.size_bytes) FROM downloads x JOIN files f ON f.id=x.file_id WHERE x.downloaded_at>=g AND x.downloaded_at<g+interval '1 day'),0)::numeric down
+        FROM generate_series(date_trunc('day',now())-interval '29 days',date_trunc('day',now()),interval '1 day') g ORDER BY 1`))
+    ]);
+    const insights={
+      types:typeQ.rows.map(x=>({type:x.type,files:Number(x.files||0),bytes:Number(x.bytes||0)})),
+      top_projects:topQ.rows.map(x=>({id:x.id,name:x.name,client_name:x.client_name,archived:x.archived,shared:x.shared,files:Number(x.files||0),bytes:Number(x.bytes||0),cover_id:x.cover_id||null})),
+      in_30d:{files:Number(inQ.rows[0]?.n||0),bytes:Number(inQ.rows[0]?.bytes||0)},
+      out_30d:{downloads:Number(outQ.rows[0]?.n||0),bytes:Number(outQ.rows[0]?.bytes||0)},
+      daily:dailyQ.rows.map(x=>({day:x.day,up:Number(x.up||0),down:Number(x.down||0)}))
+    };
     const used=Number(row.used_bytes||0);
     const reserved=Number(row.reserved_bytes||0);
     const quota=Math.max(0,Number(STORAGE_QUOTA_BYTES||0));
@@ -3162,7 +3184,8 @@ app.get("/api/storage",admin,async(req,res)=>{
         storage_ready:s3Ready(),
         bucket_name:String(process.env.S3_BUCKET||""),
         bucket_region:String(process.env.S3_REGION||"")
-      }
+      },
+      insights
     });
   }catch(e){
     console.error(e);
