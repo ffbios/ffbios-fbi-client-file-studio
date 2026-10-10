@@ -841,9 +841,9 @@ async function initDb(){
     INSERT INTO subscription_plans(id,name,storage_bytes,monthly_price_ghs,active) VALUES
       ('trial','Free Trial',10000000000,0,true),
       ('starter','Starter',100000000000,50,true),
-      ('creator','Creator',500000000000,80,true),
-      ('professional','Professional',1000000000000,120,true),
-      ('studio','Studio',2000000000000,180,true)
+      ('creator','Creator',500000000000,150,true),
+      ('professional','Professional',1000000000000,300,true),
+      ('studio','Studio',2000000000000,550,true)
     ON CONFLICT (id) DO UPDATE SET
       name=excluded.name,
       storage_bytes=excluded.storage_bytes,
@@ -1606,7 +1606,7 @@ app.get("/api/portal/billing",portalUser,async(req,res)=>{
   const plan=(await pool.query("SELECT id,name,storage_bytes,monthly_price_ghs FROM subscription_plans WHERE id=$1",[sub?.plan_id||"trial"])).rows[0]||null;
   res.json({
     plans:plans.map(p=>({id:p.id,name:p.name,storage_bytes:Number(p.storage_bytes),monthly_price_ghs:Number(p.monthly_price_ghs)})),
-    current:sub?{...sub,storage_bytes:Number(sub.storage_bytes),monthly_price_ghs:Number(sub.monthly_price_ghs),plan:plan?{id:plan.id,name:plan.name,storage_bytes:Number(plan.storage_bytes),monthly_price_ghs:Number(plan.monthly_price_ghs)}:null}:null,
+    current:sub?{...sub,storage_bytes:Number(sub.storage_bytes),monthly_price_ghs:Number(sub.monthly_price_ghs),plan:plan?{id:plan.id,name:plan.name,storage_bytes:Number(sub.storage_bytes??plan.storage_bytes),monthly_price_ghs:Number(sub.monthly_price_ghs??plan.monthly_price_ghs)}:null}:null,
     usage:{quota_bytes:q.quotaBytes,used_bytes:q.usedBytes,reserved_bytes:q.reservedBytes,available_bytes:q.availableBytes,usage_percent:q.quotaBytes?Math.min(100,(q.usedBytes+q.reservedBytes)/q.quotaBytes*100):0},
     moolre:{configured:moolreConfigured(),checkout_available:moolreConfigured(),currency:CREATOR_BILLING_CURRENCY}
   });
