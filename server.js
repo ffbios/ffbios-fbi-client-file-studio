@@ -2162,6 +2162,35 @@ function editorAtempo(speed){
   out.push("atempo="+s.toFixed(5));
   return out.join(",");
 }
+// Build an ffmpeg video-filter tail from a combined effect/grade object.
+// Neutral values (brightness/contrast/saturate = 100, everything else 0) add nothing.
+// Supports classic look keys plus DaVinci-style grade keys so grading bakes into exports.
+function editorEffectFilters(eff){
+  eff=eff||{};
+  var num=function(v,d){var n=Number(v);return isFinite(n)?n:d;};
+  var f=[];
+  var brightness=num(eff.brightness,100),contrast=num(eff.contrast,100),saturate=num(eff.saturate,100);
+  var exposure=num(eff.exposure,0); // -100..100 (stops-ish)
+  var eqB=(brightness-100)/100 + (exposure/100)*0.5;
+  if(Math.abs(eqB)>0.001)f.push("eq=brightness="+Math.max(-1,Math.min(1,eqB)).toFixed(3));
+  if(contrast!==100)f.push("eq=contrast="+Math.max(0,Math.min(3,contrast/100)).toFixed(3));
+  if(saturate!==100)f.push("eq=saturation="+Math.max(0,Math.min(3,saturate/100)).toFixed(3));
+  var temp=num(eff.temperature,0),tint=num(eff.tint,0),sh=num(eff.shadows,0),hi=num(eff.highlights,0);
+  if(temp||tint||sh||hi){
+    var cl=function(v){return Math.max(-1,Math.min(1,v)).toFixed(3);};
+    var rm=temp/100*0.3,bm=-temp/100*0.3,gm=tint/100*0.3;
+    var rs=sh/100*0.3,gs=sh/100*0.3,bs=sh/100*0.3;
+    var rh=hi/100*0.3,gh=hi/100*0.3,bh=hi/100*0.3;
+    f.push("colorbalance=rs="+cl(rs)+":gs="+cl(gs)+":bs="+cl(bs)+":rm="+cl(rm)+":gm="+cl(gm)+":bm="+cl(bm)+":rh="+cl(rh)+":gh="+cl(gh)+":bh="+cl(bh));
+  }
+  var gray=num(eff.grayscale,0),sepia=num(eff.sepia,0),blur=num(eff.blur,0);
+  if(gray>0)f.push("hue=s="+Math.max(0,1-gray/100).toFixed(3));
+  if(sepia>0)f.push("colorchannelmixer=rr=.393:rg=.769:rb=.189:gr=.349:gg=.686:gb=.168:br=.272:bg=.534:bb=.131");
+  if(blur>0)f.push("gblur=sigma="+Math.min(30,blur).toFixed(2));
+  if(num(eff.vignette,0)>0)f.push("vignette=PI/4");
+  if(num(eff.grain,0)>0)f.push("noise=alls=8:allf=t+u");
+  return f.length?(","+f.join(",")):"";
+}
 
 async function setRenderJob(id,patch){
   var fields=["status","progress","output_file_id","output_name","error"],sets=[],vals=[],n=1;
@@ -2225,7 +2254,6 @@ async function runEditorRender(jobId,projectId,state,settings){
 
     var filter=[],vLabels=[],aLabels=[],cursor=0,seg=0;
     var effect=state.effect||{};
-    var brightness=Number(effect.brightness||100),contrast=Number(effect.contrast||100),saturate=Number(effect.saturate||100),gray=Number(effect.grayscale||0),sepia=Number(effect.sepia||0),blur=Number(effect.blur||0);
     for(var k=0;k<inputs.length;k++){
       var item=inputs[k],c=item.clip,start=Math.max(0,Number(c.start)||0);
       if(start>cursor+0.001){
@@ -2238,14 +2266,7 @@ async function runEditorRender(jobId,projectId,state,settings){
       if(item.image)vf="["+item.index+":v]setpts=PTS-STARTPTS";
       else vf="["+item.index+":v]trim=start="+item.trimIn+":end="+item.trimOut+",setpts=PTS-STARTPTS,setpts=PTS/"+item.speed;
       vf+=",scale="+W+":"+H+":force_original_aspect_ratio=decrease,pad="+W+":"+H+":(ow-iw)/2:(oh-ih)/2:color=black,fps=30,format=yuv420p";
-      if(brightness!==100)vf+=",eq=brightness="+((brightness-100)/100).toFixed(3);
-      if(contrast!==100)vf+=",eq=contrast="+(contrast/100).toFixed(3);
-      if(saturate!==100)vf+=",eq=saturation="+(saturate/100).toFixed(3);
-      if(gray>0)vf+=",hue=s="+Math.max(0,1-gray/100).toFixed(3);
-      if(sepia>0)vf+=",colorchannelmixer=rr=.393:rg=.769:rb=.189:gr=.349:gg=.686:gb=.168:br=.272:bg=.534:bb=.131";
-      if(blur>0)vf+=",gblur=sigma="+Math.min(30,blur);
-      if(Number(effect.vignette||0)>0)vf+=",vignette=PI/4";
-      if(Number(effect.grain||0)>0)vf+=",noise=alls=8:allf=t+u";
+      vf+=editorEffectFilters(Object.assign({},effect,item.clip&&item.clip.grade?item.clip.grade:{}));
       vf+="[v"+(vLabels.length+seg)+"]";
       var actualVLabel=vf.match(/\[(v[^\]]+)\]$/)[1];
       filter.push(vf);vLabels.push("["+actualVLabel+"]");

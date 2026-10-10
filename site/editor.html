@@ -3,570 +3,611 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#202124">
-<title>FBI Video Editor</title>
+<meta name="theme-color" content="#0a0a0b">
+<title>FBI Studio Engine — Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#202124;--bg2:#27282b;--panel:#2b2c2f;--panel2:#303135;--line:#3c3d40;--text:#e9eaec;--muted:#a7a8ad;--gold:#d4af37;--gold2:#f4d56d;--blue:#4c9aff;--red:#ef5350;--green:#55c878}
-*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif}button,input,select{font:inherit}button{cursor:pointer}
-.app{height:100%;display:grid;grid-template-rows:34px 36px minmax(330px,1fr) 330px}
-.menubar{display:flex;align-items:center;background:#1c1d1f;border-bottom:1px solid #131416;color:#c7c8cb;font-size:10px}
-.menubar button{height:100%;border:0;background:transparent;color:#c7c8cb;padding:0 13px;font-size:10px}.menubar button:hover{background:#2a2b2e}.home{width:42px;text-align:center;font-size:15px!important;border-right:1px solid #303135!important}
-.workspaces{display:flex;align-items:center;background:#222326;border-bottom:1px solid #151619;padding-left:6px;gap:2px}.workspaces button{height:30px;padding:0 15px;border:0;border-bottom:2px solid transparent;background:transparent;color:#bfc0c4;font-size:10px}.workspaces button:hover{color:#fff;background:#2c2d30}.workspaces button.active{color:#fff;border-bottom-color:var(--blue);background:#292a2d}
-.workspace{min-height:0;display:grid;grid-template-columns:50% 50%;background:#1f2022}
-.monitor{min-width:0;min-height:0;border-right:1px solid #131416;display:grid;grid-template-rows:26px minmax(0,1fr) 34px}.monitor:last-child{border-right:0}.monitorhead{display:flex;align-items:center;justify-content:space-between;padding:0 9px;background:#2a2b2e;border-bottom:1px solid #17181a;font-size:9px;color:#d5d6d8}.monitorhead .title{font-weight:700}.monitorhead .small{color:#9b9ca2}.canvas{min-height:0;display:grid;place-items:center;padding:9px;background:#191a1c}.screen{width:94%;height:88%;display:grid;place-items:center;background:#050506;border:1px solid #111;border-radius:2px;box-shadow:0 12px 35px rgba(0,0,0,.35);position:relative;overflow:hidden}.screen video{max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;background:#000}.checker{background-image:linear-gradient(45deg,#202124 25%,transparent 25%),linear-gradient(-45deg,#202124 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#202124 75%),linear-gradient(-45deg,transparent 75%,#202124 75%);background-size:18px 18px;background-position:0 0,0 9px,9px -9px,-9px 0;background-color:#17181a}
-.transport{display:flex;align-items:center;gap:8px;padding:5px 9px;background:#252629;border-top:1px solid #131416}.transport button{border:0;background:transparent;color:#d4d5d7;width:25px;height:24px;border-radius:4px}.transport button:hover{background:#343538}.tc{font:700 9px ui-monospace,monospace;color:#70b3ff;margin-left:7px}.zoom{margin-left:auto;color:#999;font-size:9px}
-.bottom{min-height:0;display:grid;grid-template-columns:31% 69%;background:#232427}
-.leftpanel{min-width:0;display:grid;grid-template-rows:32px minmax(0,1fr);border-right:1px solid #151619}.subtabs{display:flex;align-items:flex-end;padding-left:8px;background:#292a2d;border-bottom:1px solid #161719;overflow:auto}.subtabs button{border:0;background:transparent;color:#aaa;font-size:9px;padding:9px 9px 7px;border-bottom:2px solid transparent;white-space:nowrap}.subtabs button.active{color:#eee;border-bottom-color:var(--gold)}.leftcontent{min-height:0;overflow:hidden;background:#242528}.leftview{height:100%;display:none}.leftview.active{display:block}.tablewrap{height:100%;overflow:auto}.media-grid{padding:8px;display:grid;grid-template-columns:1fr 1fr;gap:7px}.asset{border:1px solid var(--line);background:#2d2e31;border-radius:4px;padding:5px;cursor:pointer}.asset:hover,.asset.sel{border-color:var(--gold)}.thumb{height:62px;display:grid;place-items:center;background:#17181a;margin-bottom:5px;font-size:22px}.asset b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:8px}.asset small{color:#999;font-size:7px}
-.projectlist{padding:7px}.projectrow{padding:8px;border-bottom:1px solid #343539;cursor:pointer}.projectrow:hover,.projectrow.sel{background:#2f3033}.projectrow b{font-size:9px}.projectrow small{display:block;color:#999;font-size:7px;margin-top:2px}
-.toolrail{position:absolute;left:7px;top:7px;bottom:7px;width:28px;background:#2a2b2e;border:1px solid #404145;display:grid;grid-template-rows:repeat(10,28px);z-index:3}.toolrail button{border:0;background:transparent;color:#c4c5c8;font-size:12px}.toolrail button:hover,.toolrail button.active{background:#3b3c40;color:#fff}.editorcontent{position:relative;height:100%}
-.timelinearea{min-width:0;position:relative;background:#202124}.timelinebar{height:34px;display:flex;align-items:center;gap:6px;padding:4px 8px;background:#2a2b2e;border-bottom:1px solid #151619}.timelinebar button{border:0;background:transparent;color:#ccc;padding:5px 8px;border-radius:4px;font-size:9px}.timelinebar button:hover{background:#3a3b3f}.timelinebar .active{background:#3a3b3f}.timelinebar .spacer{flex:1}.timelinebar select{background:#1e1f21;color:#ddd;border:1px solid #45464b;border-radius:3px;font-size:8px;padding:5px}
-.tlscroll{height:calc(100% - 34px);overflow:auto;position:relative}.timelinegrid{min-width:1850px;height:100%;display:grid;grid-template-columns:48px 1fr}.labels{background:#292a2d;border-right:1px solid #151619;padding-top:26px}.tracklabel{height:57px;border-top:1px solid #3a3b3f;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:8px;gap:4px}.tracklabel span{padding:2px 4px;border:1px solid #4a4b50;border-radius:2px}
-.trackarea{position:relative;background:#202124}.ruler{height:26px;position:relative;background:#252629;border-bottom:1px solid #141517}.tick{position:absolute;top:0;height:26px;border-left:1px solid #48494d;color:#999;font:7px ui-monospace,monospace;padding-left:3px}.lane{height:57px;position:relative;border-top:1px solid #35363a;background:repeating-linear-gradient(90deg,#202124 0,#202124 33px,#222326 34px)}.clip{position:absolute;top:5px;height:47px;border:1px solid #75632a;background:#6c5b26;border-radius:3px;overflow:hidden;cursor:pointer;color:#fff}.clip.audio{background:#345f45;border-color:#4e8b64}.clip.sel{outline:2px solid var(--gold2);z-index:4}.clip .nm{padding:4px 5px;font-size:7px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.clip .meta{padding:0 5px;font-size:6px;color:#ded8bf}.wave{position:absolute;left:5px;right:5px;bottom:5px;height:10px;opacity:.6;background:repeating-linear-gradient(90deg,#e0cc77 0 2px,transparent 2px 4px)}.audio .wave{background:repeating-linear-gradient(90deg,#8de0a8 0 2px,transparent 2px 4px)}
-.playline{position:absolute;top:0;bottom:0;width:1px;background:#54a7ff;z-index:20;pointer-events:none}.playline:before{content:"";position:absolute;top:-1px;left:-4px;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid #54a7ff}
-.inspectorwrap{position:absolute;right:8px;top:7px;width:280px;bottom:7px;background:#292a2d;border:1px solid #424348;display:none;z-index:5}.inspectorwrap.show{display:block}.inspecthead{height:31px;padding:0 9px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #424348;font-size:9px}.inspect{padding:8px;overflow:auto;height:calc(100% - 31px)}.inspectsec{border-bottom:1px solid #3a3b40;padding:8px 0}.inspectsec h4{margin:0 0 7px;font-size:8px;color:#bbb;text-transform:uppercase}.ig{display:grid;grid-template-columns:1fr 1fr;gap:6px}.if{display:grid;gap:3px}.if label{font-size:7px;color:#999}.if input,.if select{background:#1c1d1f;border:1px solid #44454a;color:#eee;padding:6px;font-size:8px;border-radius:3px}
-.library{padding:8px;overflow:auto}.libgroup{margin-bottom:12px}.libgroup h4{font-size:8px;color:#aaa;margin:0 0 6px}.effect{display:flex;align-items:center;justify-content:space-between;border:1px solid #3a3b3f;background:#2e2f32;padding:7px 8px;margin-bottom:5px;border-radius:3px;font-size:8px}.effect button{border:0;background:#45464a;color:#eee;font-size:7px;padding:4px 6px;border-radius:3px}.effect button:hover{background:#55565b}
-.mixer{padding:8px;display:grid;grid-template-columns:repeat(5,1fr);gap:6px;height:100%}.channel{background:#2b2c2f;border:1px solid #3c3d40;display:grid;grid-template-rows:22px 1fr 45px 22px;padding:6px}.channel .chname{text-align:center;font-size:8px}.meter{position:relative;background:#18191b;border:1px solid #111;height:100%}.meter i{position:absolute;bottom:0;left:0;right:0;height:45%;background:linear-gradient(0deg,#48b65f,#e5cb3c,#ed5757)}.fader{writing-mode:vertical-lr;transform:rotate(180deg);width:100%;accent-color:var(--gold)}.channel small{text-align:center;color:#aaa;font-size:7px}
-.graphics{padding:9px;display:grid;gap:8px}.graphics .big{font-size:12px}.graphics textarea{width:100%;height:70px;background:#1d1e20;border:1px solid #414247;color:#eee;border-radius:3px;padding:7px;font-size:9px}.graphics button{border:0;background:#3a3b3f;color:#eee;padding:7px;border-radius:3px;font-size:8px}
-.captions{padding:9px;display:grid;gap:8px}.captions textarea{width:100%;height:95px;background:#1d1e20;border:1px solid #414247;color:#eee;border-radius:3px;padding:7px;font-size:9px}
-.details{padding:9px;font-size:8px;color:#aaa;line-height:1.7}.details b{color:#ddd}
-.topright{margin-left:auto}.topbtn{border:0;background:#303136;color:#bbb;padding:5px 8px;border-radius:3px;font-size:8px}.topbtn.primary{background:var(--gold);color:#151515;font-weight:800}
-@media(max-width:1050px){.workspace{grid-template-columns:50% 50%}.bottom{grid-template-columns:28% 72%}.inspectorwrap{width:240px}.project{width:180px}}
-@media(max-width:800px){.app{grid-template-rows:auto auto minmax(300px,1fr) 290px}.menubar{overflow:auto}.workspaces{overflow:auto}.workspace{grid-template-columns:1fr 1fr}.bottom{grid-template-columns:1fr}.leftpanel{display:none}.inspectorwrap{width:230px}.logo span{display:none}}
+:root{
+  --bg:#0a0a0b;--bg2:#0e0e11;--panel:#141418;--panel2:#1a1a1f;--edge:#26262d;--edge2:#32323b;
+  --text:#f4f4f6;--muted:#9a9aa6;--faint:#6a6a74;
+  --gold:#e8be55;--gold2:#f6dd8a;--golddeep:#c6911f;
+  --good:#6ee7a0;--bad:#fb7185;--blue:#7cc5ff;
+  --v:#2a3f55;--v2:#355270;--a:#3a2f1a;--a2:#5a4624;
+  --r:14px;--shadow:0 18px 50px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:radial-gradient(1200px 600px at 80% -10%,#171310,var(--bg));color:var(--text);font-family:'Manrope',system-ui,-apple-system,Segoe UI,sans-serif;overflow:hidden;font-size:13px}
+button{font:inherit;cursor:pointer;color:inherit;border:0;background:none}
+input,select{font:inherit;color:inherit}
+.app{display:grid;grid-template-rows:54px 1fr 300px;height:100vh}
+/* ---- top bar ---- */
+.top{display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid var(--edge);background:rgba(16,16,19,.75);backdrop-filter:blur(14px);z-index:30}
+.brand{display:flex;align-items:center;gap:10px}
+.brand .orb{width:30px;height:30px;border-radius:9px;background:conic-gradient(from 210deg,var(--golddeep),var(--gold2),var(--gold),var(--golddeep));display:grid;place-items:center;color:#1a1405;font-weight:800;box-shadow:0 0 18px rgba(232,190,85,.25)}
+.brand b{font-family:'Fraunces',serif;font-weight:600;font-size:16px;letter-spacing:.2px}
+.brand small{display:block;color:var(--faint);font-size:9px;letter-spacing:.14em;text-transform:uppercase;margin-top:1px}
+.top .proj{display:flex;align-items:center;gap:8px;margin-left:8px}
+.top .proj select{background:var(--panel2);border:1px solid var(--edge);border-radius:10px;padding:8px 10px;max-width:230px}
+.spacer{flex:1}
+.chip{display:inline-flex;align-items:center;gap:7px;background:var(--panel2);border:1px solid var(--edge);border-radius:10px;padding:7px 10px;color:var(--muted);font-size:11px}
+.chip select{background:transparent;border:0;color:var(--text)}
+.btn{display:inline-flex;align-items:center;gap:7px;background:var(--panel2);border:1px solid var(--edge2);border-radius:10px;padding:8px 13px;font-weight:600;transition:.15s}
+.btn:hover{border-color:var(--gold);color:#fff}
+.btn.gold{background:linear-gradient(135deg,var(--gold2),var(--gold));color:#1a1405;border-color:#d1ac3a;font-weight:800}
+.btn.gold:hover{filter:brightness(1.05)}
+.btn.sm{padding:6px 10px;font-size:12px}
+/* ---- middle ---- */
+.mid{display:grid;grid-template-columns:230px 1fr 290px;min-height:0}
+.pane{background:var(--panel);border-right:1px solid var(--edge);display:flex;flex-direction:column;min-height:0}
+.pane.right{border-right:0;border-left:1px solid var(--edge)}
+.pane-h{padding:12px 14px;border-bottom:1px solid var(--edge);display:flex;align-items:center;justify-content:space-between}
+.pane-h b{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.pane-b{flex:1;overflow-y:auto;padding:10px}
+/* media bin */
+.media{display:flex;gap:9px;align-items:center;padding:8px;border:1px solid var(--edge);border-radius:11px;background:var(--panel2);margin-bottom:8px;cursor:grab;transition:.14s}
+.media:hover{border-color:var(--gold);transform:translateY(-1px)}
+.media .ic{width:40px;height:40px;border-radius:8px;flex:none;display:grid;place-items:center;background:#0c0c0f;color:var(--gold);font-weight:800;font-size:10px;overflow:hidden}
+.media .ic img{width:100%;height:100%;object-fit:cover}
+.media .mt{min-width:0}
+.media .mt b{display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.media .mt span{color:var(--faint);font-size:10px}
+.media .add{margin-left:auto;flex:none;width:26px;height:26px;border-radius:8px;background:#0c0c0f;color:var(--gold);display:grid;place-items:center;font-size:16px;border:1px solid var(--edge)}
+.empty{color:var(--faint);text-align:center;font-size:12px;padding:30px 10px;line-height:1.5}
+/* preview */
+.stage{display:flex;flex-direction:column;min-height:0;background:var(--bg2)}
+.screen{flex:1;display:grid;place-items:center;position:relative;overflow:hidden;background:
+  radial-gradient(900px 500px at 50% 0%,#141014,#0a0a0b)}
+.frame{position:relative;max-width:94%;max-height:94%;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden;box-shadow:var(--shadow);outline:1px solid #000}
+.frame video,.frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+.frame .tempwash{position:absolute;inset:0;pointer-events:none;mix-blend-mode:soft-light;opacity:0}
+.frame .vig{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 160px rgba(0,0,0,0);transition:.1s}
+.transport{display:flex;align-items:center;gap:14px;padding:10px 16px;border-top:1px solid var(--edge);background:var(--panel)}
+.tbtn{width:38px;height:38px;border-radius:10px;background:var(--panel2);border:1px solid var(--edge2);display:grid;place-items:center}
+.tbtn:hover{border-color:var(--gold)}
+.tbtn.play{width:46px;height:46px;background:linear-gradient(135deg,var(--gold2),var(--gold));color:#1a1405;border:0}
+.tc{font-variant-numeric:tabular-nums;font-weight:700;letter-spacing:.04em;color:var(--text)}
+.tc .sep{color:var(--faint);margin:0 4px}
+/* inspector */
+.section{margin-bottom:16px}
+.section>.lbl{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);margin:0 2px 9px;display:flex;align-items:center;gap:8px}
+.section>.lbl:before{content:"";width:5px;height:5px;border-radius:50%;background:var(--gold)}
+.ctl{margin-bottom:11px}
+.ctl .row{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}
+.ctl .row label{font-size:12px;color:var(--muted)}
+.ctl .row .val{font-size:11px;font-variant-numeric:tabular-nums;color:var(--text);background:var(--panel2);border:1px solid var(--edge);border-radius:6px;padding:1px 7px}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:4px;background:var(--edge2);outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:linear-gradient(135deg,var(--gold2),var(--gold));border:2px solid #0a0a0b;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--gold);border:2px solid #0a0a0b;cursor:pointer}
+.wheels{display:flex;gap:8px;margin-bottom:12px}
+.wheel{flex:1;text-align:center}
+.wheel .disc{width:100%;aspect-ratio:1;border-radius:50%;border:1px solid var(--edge2);background:
+  radial-gradient(circle at 50% 50%,#1c1c22,#101014);position:relative;margin-bottom:6px;box-shadow:inset 0 0 20px rgba(0,0,0,.5)}
+.wheel .disc .dot{position:absolute;width:14px;height:14px;border-radius:50%;background:#fff;left:50%;top:50%;transform:translate(-50%,-50%);box-shadow:0 0 8px rgba(255,255,255,.4),0 2px 4px rgba(0,0,0,.5);transition:.05s}
+.wheel small{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.looks{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.look{border:1px solid var(--edge);background:var(--panel2);border-radius:9px;padding:9px 4px;font-size:10px;font-weight:600;text-align:center;transition:.12s}
+.look:hover{border-color:var(--gold);color:#fff}
+.look.active{border-color:var(--gold);background:rgba(232,190,85,.12);color:var(--gold2)}
+.pill{display:flex;gap:6px;flex-wrap:wrap}
+.toggle{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--edge);border-radius:999px;padding:5px 10px;font-size:11px;color:var(--muted)}
+.toggle.on{border-color:var(--gold);color:var(--gold2);background:rgba(232,190,85,.1)}
+.ins-empty{color:var(--faint);text-align:center;padding:40px 14px;font-size:12px;line-height:1.6}
+/* ---- timeline ---- */
+.tl{background:var(--panel);border-top:1px solid var(--edge);display:flex;flex-direction:column;min-height:0}
+.tl-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--edge)}
+.tool{width:32px;height:30px;border-radius:8px;border:1px solid var(--edge2);background:var(--panel2);display:grid;place-items:center}
+.tool.active{border-color:var(--gold);background:rgba(232,190,85,.14);color:var(--gold2)}
+.tool:hover{border-color:var(--gold)}
+.tl-scroll{flex:1;overflow:auto;position:relative}
+.tl-inner{position:relative;min-width:100%}
+.ruler{height:26px;position:sticky;top:0;z-index:6;background:var(--panel2);border-bottom:1px solid var(--edge);display:flex;align-items:flex-end;margin-left:70px}
+.tick{position:absolute;bottom:0;border-left:1px solid var(--edge2);height:9px;color:var(--faint);font-size:9px;padding-left:4px;line-height:9px}
+.tick.maj{height:16px;color:var(--muted)}
+.lane{position:relative;height:84px;border-bottom:1px solid var(--edge);margin-left:70px}
+.lane.audio{height:66px;background:rgba(58,47,26,.06)}
+.lane-h{position:absolute;left:-70px;top:0;width:70px;height:100%;background:var(--panel);border-right:1px solid var(--edge);display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;z-index:5}
+.lane-h b{font-size:11px;color:var(--text)}
+.lane-h small{font-size:8px;color:var(--faint);letter-spacing:.1em}
+.clip{position:absolute;top:7px;bottom:7px;border-radius:9px;overflow:hidden;cursor:grab;border:1px solid var(--v2);background:linear-gradient(180deg,var(--v2),var(--v));box-shadow:0 4px 12px rgba(0,0,0,.35);user-select:none}
+.clip.audio{border-color:var(--a2);background:linear-gradient(180deg,var(--a2),var(--a))}
+.clip.sel{outline:2px solid var(--gold);outline-offset:-1px;box-shadow:0 0 0 3px rgba(232,190,85,.18),0 6px 16px rgba(0,0,0,.4)}
+.clip .cname{position:absolute;left:8px;top:5px;right:8px;font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);pointer-events:none}
+.clip .cmeta{position:absolute;left:8px;bottom:5px;font-size:9px;color:rgba(255,255,255,.7);pointer-events:none}
+.clip .thumbs{position:absolute;inset:0;opacity:.28;background-size:cover;background-position:center;pointer-events:none}
+.clip .edge{position:absolute;top:0;bottom:0;width:9px;cursor:ew-resize;z-index:3}
+.clip .edge.l{left:0}.clip .edge.r{right:0}
+.clip .edge:hover{background:rgba(232,190,85,.4)}
+.clip .wave{position:absolute;left:0;right:0;bottom:4px;height:22px;opacity:.5;pointer-events:none}
+.playhead{position:absolute;top:0;bottom:0;width:2px;background:var(--gold);z-index:8;pointer-events:none;box-shadow:0 0 8px rgba(232,190,85,.6)}
+.playhead:before{content:"";position:absolute;top:-1px;left:-5px;border:6px solid transparent;border-top-color:var(--gold);border-bottom:0;width:0;height:0}
+.razor .clip{cursor:crosshair}
+/* toast + modal */
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);background:#17171c;border:1px solid var(--edge2);border-radius:12px;padding:12px 18px;box-shadow:var(--shadow);opacity:0;transition:.25s;z-index:100;max-width:80vw}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.err{border-color:var(--bad);color:#fecaca}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;place-items:center;z-index:90}
+.modal.show{display:grid}
+.card{width:420px;max-width:92vw;background:var(--panel);border:1px solid var(--edge2);border-radius:18px;padding:22px;box-shadow:var(--shadow)}
+.card h3{font-family:'Fraunces',serif;font-weight:600;font-size:20px;margin-bottom:6px}
+.card p{color:var(--muted);font-size:12px;margin-bottom:16px}
+.prog{height:10px;border-radius:6px;background:var(--panel2);border:1px solid var(--edge);overflow:hidden;margin:14px 0}
+.prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--golddeep),var(--gold2));transition:.3s}
+.loading{position:fixed;inset:0;display:grid;place-items:center;background:var(--bg);z-index:120;color:var(--muted)}
+@media (max-width:1000px){.mid{grid-template-columns:180px 1fr 240px}}
 </style>
 </head>
 <body>
-<div class="app">
-  <div class="menubar">
-    <button class="home">⌂</button>
-    <button>File</button><button>Edit</button><button>Clip</button><button>Sequence</button><button>Markers</button><button>Graphics</button><button>Window</button><button>Help</button>
-    <img id="logo" alt="FBI" style="width:44px;height:24px;object-fit:contain;margin-left:8px">
-    <span style="color:#808187">FBI Client File Studio</span>
-    <div class="topright" style="display:flex;align-items:center;gap:6px">
-      <select id="project" style="width:210px;background:#1c1d1f;border:1px solid #44454a;color:#ddd;border-radius:3px;padding:5px 7px;font-size:8px"><option value="">Select Project</option></select>
-      <input id="sequence" value="Untitled Sequence" title="Sequence name" style="width:150px;background:#1c1d1f;border:1px solid #44454a;color:#ddd;border-radius:3px;padding:5px 7px;font-size:8px">
-      <button class="topbtn" id="back">Back to Studio</button><button class="topbtn primary" id="saveTop">Save</button>
+<div class="app" id="app" style="display:none">
+  <div class="top">
+    <div class="brand"><div class="orb">FBI</div><div><b>Studio Engine</b><small>Edit · Grade · Deliver</small></div></div>
+    <div class="proj"><select id="projSelect" title="Project"></select></div>
+    <div class="spacer"></div>
+    <span class="chip">Resolution <select id="resSelect"><option>1280x720</option><option selected>1920x1080</option><option>2560x1440</option><option>3840x2160</option></select></span>
+    <button class="btn sm" id="saveBtn">Save</button>
+    <button class="btn gold" id="exportBtn">Export ▸</button>
+  </div>
+
+  <div class="mid">
+    <!-- media bin -->
+    <div class="pane">
+      <div class="pane-h"><b>Media</b><button class="btn sm" id="refreshMedia">↻</button></div>
+      <div class="pane-b" id="mediaList"></div>
     </div>
-  </div>
-  <div class="workspaces" id="workspaces">
-    <button class="active" data-tab="assembly">Assembly</button><button data-tab="editing">Editing</button><button data-tab="color">Color</button><button data-tab="effects">Effects</button><button data-tab="audio">Audio</button><button data-tab="graphics">Graphics</button><button data-tab="captions">Captions</button><button data-tab="more">»</button>
-  </div>
-  <main class="workspace">
-    <section class="monitor">
-      <div class="monitorhead"><span class="title" id="sourceTitle">Source: No media selected</span><span class="small">Source Monitor</span></div>
-      <div class="canvas"><div class="screen checker"><video id="sourceVideo" controls playsinline></video></div></div>
-      <div class="transport"><button id="sourcePrev">◀</button><button id="sourcePlay">▶</button><button id="sourceNext">▶|</button><span class="tc" id="sourceTc">00:00:00:00</span><span class="zoom">Fit ▾</span></div>
-    </section>
-    <section class="monitor">
-      <div class="monitorhead"><span class="title">Program: <span id="programTitle">Untitled Sequence</span></span><span class="small">Program Monitor</span></div>
-      <div class="canvas"><div class="screen"><video id="programVideo" controls playsinline></video><div id="visualOverlay" style="position:absolute;inset:0;pointer-events:none;display:none;z-index:2;background:#000"></div><audio id="programAudio" style="display:none"></audio><div id="graphicsOverlay" style="position:absolute;inset:auto 8% 10%;font-size:28px;font-weight:800;text-align:center;text-shadow:0 2px 10px #000;display:none"></div><div id="captionOverlay" style="position:absolute;left:8%;right:8%;bottom:8%;font-size:19px;text-align:center;text-shadow:0 2px 7px #000;display:none"></div></div></div>
-      <div class="transport"><button id="prev">◀|</button><button id="play">▶</button><button id="next">|▶</button><span class="tc" id="programTc">00:00:00:00</span><span class="zoom" id="status">Ready</span></div>
-    </section>
-  </main>
-  <section class="bottom">
-    <aside class="leftpanel">
-      <div class="subtabs" id="subtabs"><button class="active" data-left="project">Project</button><button data-left="browser">Media Browser</button><button data-left="libraries">Libraries</button><button data-left="info">Info</button><button data-left="effects">Effects</button></div>
-      <div class="leftcontent">
-        <div class="leftview active" id="left-project"><div class="projectlist" id="projects"></div></div>
-        <div class="leftview" id="left-browser"><div style="padding:8px;border-bottom:1px solid #343539;display:flex;gap:6px;align-items:center"><input id="search" placeholder="Search media..." style="flex:1;background:#1d1e20;border:1px solid #424348;color:#eee;border-radius:3px;padding:7px;font-size:8px"><span id="count" style="font-size:8px;color:#999">0 media</span></div><div class="media-grid" id="mediaGrid"></div></div>
-        <div class="leftview" id="left-libraries"><div class="library"><div class="libgroup"><h4>Templates</h4><div class="effect">Wedding Lower Third <button>Use</button></div><div class="effect">Gold Title <button>Use</button></div><div class="effect">Cinematic Opener <button>Use</button></div></div><div class="libgroup"><h4>Presets</h4><div class="effect">FBI Brand Gold <button>Apply</button></div><div class="effect">Clean Documentary <button>Apply</button></div></div></div></div>
-        <div class="leftview" id="left-info"><div class="details" id="fileInfo">Select a media item to view metadata.</div></div>
-        <div class="leftview" id="left-effects"><div class="library" id="quickEffects"></div></div>
-      </div>
-    </aside>
-    <div class="timelinearea">
-      <div class="toolrail" id="toolrail"><button class="active" title="Selection">↖</button><button title="Track Select">⇥</button><button title="Ripple Edit">⌁</button><button title="Razor">✂</button><button title="Slip">◫</button><button title="Slide">⇆</button><button title="Pen">✎</button><button title="Hand">✋</button><button title="Type">T</button><button title="Zoom">⌕</button></div>
-      <div class="timelinebar">
-        <button id="addMedia">Import Media</button><button id="addFolder">Import Folder</button><button id="addToTimeline">Add to Timeline</button><button id="save" title="Save sequence">Save Sequence</button><button id="razorBtn">Razor</button><button id="rippleBtn">Ripple Delete</button><span class="spacer"></span><select id="sequenceSelect"><option>24 fps</option><option>25 fps</option><option>30 fps</option><option>50 fps</option><option>60 fps</option></select><select id="renderResolution" title="Render resolution"><option value="1280x720">720p</option><option value="1920x1080" selected>1080p</option><option value="2560x1440">1440p</option><option value="3840x2160">4K</option></select><button id="toggleInspector">Inspector</button><button id="export">Export Edit</button><button id="renderMaster" class="topbtn primary">Render Master</button>
-        <input id="fileInput" type="file" multiple accept="video/*,audio/*,image/*" style="display:none">
-        <input id="folderInput" type="file" webkitdirectory directory multiple style="display:none">
-      </div>
-      <div class="tlscroll" id="tlscroll">
-        <div class="timelinegrid">
-          <div class="labels">
-            <div class="tracklabel"><span>V4</span></div><div class="tracklabel"><span>V3</span></div><div class="tracklabel"><span>V2</span></div><div class="tracklabel"><span>V1</span></div><div class="tracklabel"><span>A1</span></div><div class="tracklabel"><span>A2</span></div><div class="tracklabel"><span>A3</span></div><div class="tracklabel"><span>A4</span></div>
-          </div>
-          <div class="trackarea" id="trackarea"><div class="ruler" id="ruler"></div>
-            <div class="lane" data-track="V4"></div><div class="lane" data-track="V3"></div><div class="lane" data-track="V2"></div><div class="lane" data-track="V1"></div>
-            <div class="lane" data-track="A1"></div><div class="lane" data-track="A2"></div><div class="lane" data-track="A3"></div><div class="lane" data-track="A4"></div>
-            <div class="playline" id="playline"></div>
-          </div>
+
+    <!-- preview -->
+    <div class="stage">
+      <div class="screen">
+        <div class="frame" id="frame">
+          <video id="pv" playsinline></video>
+          <img id="pvImg" alt="" style="display:none">
+          <div class="tempwash" id="tempwash"></div>
+          <div class="vig" id="vig"></div>
         </div>
       </div>
-      <div class="inspectorwrap" id="inspectorWrap"><div class="inspecthead"><b id="inspectTitle">Effect Controls</b><button class="topbtn" id="closeInspector">×</button></div><div class="inspect" id="inspect"></div></div>
+      <div class="transport">
+        <button class="tbtn" id="toStart" title="Jump to start">⏮</button>
+        <button class="tbtn play" id="playBtn" title="Play / Pause (Space)">▶</button>
+        <button class="tbtn" id="toEnd" title="Jump to end">⏭</button>
+        <div class="tc" id="tc">00:00<span class="sep">/</span>00:00</div>
+        <div class="spacer"></div>
+        <button class="tbtn" id="markIn" title="Set In at playhead">[</button>
+        <button class="tbtn" id="markOut" title="Set Out at playhead">]</button>
+      </div>
     </div>
-  </section>
+
+    <!-- inspector -->
+    <div class="pane right">
+      <div class="pane-h"><b id="insTitle">Inspector</b></div>
+      <div class="pane-b" id="inspector"><div class="ins-empty">Select a clip on the timeline to edit it, trim it, mix its audio and color-grade it.</div></div>
+    </div>
+  </div>
+
+  <!-- timeline -->
+  <div class="tl">
+    <div class="tl-bar">
+      <button class="tool active" id="toolSelect" title="Select / move (V)">▚</button>
+      <button class="tool" id="toolRazor" title="Razor / split (C)">✂</button>
+      <button class="tool" id="delBtn" title="Delete selected (Del)">🗑</button>
+      <span style="width:1px;height:20px;background:var(--edge2);margin:0 4px"></span>
+      <button class="tool" id="splitBtn" title="Split at playhead (S)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3v18"/><path d="M7 8l-3 4 3 4M17 8l3 4-3 4"/></svg></button>
+      <div class="spacer"></div>
+      <span class="chip" style="font-size:11px">Zoom</span>
+      <button class="tool" id="zoomOut">−</button>
+      <button class="tool" id="zoomIn">+</button>
+      <button class="tool" id="fitBtn" title="Fit">⤢</button>
+    </div>
+    <div class="tl-scroll" id="tlScroll">
+      <div class="tl-inner" id="tlInner">
+        <div class="ruler" id="ruler"></div>
+        <div class="lane" id="laneV1" data-track="V1"><div class="lane-h"><b>V1</b><small>VIDEO</small></div></div>
+        <div class="lane audio" id="laneA1" data-track="A1"><div class="lane-h"><b>A1</b><small>AUDIO</small></div></div>
+        <div class="playhead" id="playhead" style="left:70px"></div>
+      </div>
+    </div>
+  </div>
 </div>
+
+<div class="loading" id="loading">Loading FBI Studio Engine…</div>
+<div class="toast" id="toast"></div>
+
+<div class="modal" id="exportModal">
+  <div class="card">
+    <h3 id="exTitle">Export your edit</h3>
+    <p id="exMsg">This renders your timeline on the server and saves the finished video into this project's files.</p>
+    <div class="prog" id="exProgWrap" style="display:none"><i id="exProg"></i></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn" id="exClose">Close</button>
+      <button class="btn gold" id="exStart">Start render</button>
+    </div>
+  </div>
+</div>
+
 <script>
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
-const api=async(u,o={})=>{const r=await fetch(u,{credentials:'same-origin',...o});let d=null;try{d=await r.json()}catch{}if(!r.ok)throw new Error(d?.error||'Request failed');return d};
-const videoFile=f=>/^video\//.test(f?.mime_type||'');
-const audioFile=f=>/^audio\//.test(f?.mime_type||'');
-const imageFile=f=>/^image\//.test(f?.mime_type||'');
-const fpsValue=()=>Math.max(1,Number(String(S.frameRate||'24 fps').match(/\d+/)?.[0]||24));
-const ft=s=>{s=Math.max(0,Number(s||0));const fps=fpsValue(),whole=Math.floor(s),frames=Math.floor((s-whole)*fps);return String(Math.floor(whole/3600)).padStart(2,'0')+':'+String(Math.floor((whole%3600)/60)).padStart(2,'0')+':'+String(whole%60).padStart(2,'0')+':'+String(frames).padStart(2,'0')};
-const fmt=n=>{n=Number(n||0);const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
-const S={project:'',sequence:'Untitled Sequence',files:[],selectedFile:null,clips:[],selectedClip:null,playhead:0,playing:false,workspace:'assembly',effect:{blur:0,brightness:100,contrast:100,saturate:100,grayscale:0,sepia:0,vignette:0,grain:0},
-markers:[],graphics:'',caption:''};
-let projects=[],localFiles=[];
-const logo='data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="500" height="150"><text x="250" y="105" text-anchor="middle" font-family="Arial" font-size="92" font-weight="900" fill="#f4d56d">FBI</text></svg>');
-const logoEl=document.getElementById('logo');if(logoEl)logoEl.src=logo;
+const $=s=>document.querySelector(s);
+const api=async(url,opt={})=>{const r=await fetch(url,{credentials:"same-origin",cache:"no-store",...opt});const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{}if(!r.ok)throw new Error(d.error||("HTTP "+r.status));return d;};
+const uid=()=>"c"+Math.random().toString(36).slice(2,9);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+let toastT;
+function toast(msg,err){const el=$("#toast");el.textContent=msg;el.className="toast show"+(err?" err":"");clearTimeout(toastT);toastT=setTimeout(()=>el.className="toast",2600);}
+function fmt(t){t=Math.max(0,t||0);const m=Math.floor(t/60),s=Math.floor(t%60),f=Math.floor((t*30)%30);return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")+"·"+String(f).padStart(2,"0");}
+function mediaKind(f){const m=(f.mime_type||"").toLowerCase();if(m.startsWith("video"))return"video";if(m.startsWith("audio"))return"audio";if(m.startsWith("image"))return"image";const e=(f.original_name||"").split(".").pop().toLowerCase();if(["mp4","mov","webm","mkv","avi","m4v"].includes(e))return"video";if(["mp3","wav","m4a","aac","ogg"].includes(e))return"audio";if(["jpg","jpeg","png","gif","webp"].includes(e))return"image";return"other";}
 
-function fileUrl(f){return f.localUrl||('/api/admin/file/'+f.id)}
-function fileDuration(f){return imageFile(f)?5:Number(f.duration||5)}
-function selectedFile(){return S.files.find(f=>f.id===S.selectedFile)||null}
-function selectedClip(){return S.clips.find(c=>c.id===S.selectedClip)||null}
-function rebuild(c){c.sourceDuration=Number(c.sourceDuration||5);c.trimIn=Math.max(0,Math.min(c.sourceDuration,Number(c.trimIn||0)));c.trimOut=Math.max(c.trimIn,Math.min(c.sourceDuration,Number(c.trimOut||c.sourceDuration)));c.speed=Math.max(.25,Math.min(4,Number(c.speed||1)));c.duration=(c.trimOut-c.trimIn)/c.speed}
-function total(){S.clips.forEach(rebuild);return S.clips.reduce((m,c)=>Math.max(m,c.start+c.duration),0)}
-function snapshot(){S._history=S._history||[];S._history.push(JSON.stringify({clips:S.clips,selectedClip:S.selectedClip,playhead:S.playhead,effect:S.effect}));if(S._history.length>30)S._history.shift();S._future=[]}
-let cloudSaveTimer=0;
-function editorPayload(){
-  return {
-    sequence:S.sequence,
-    clips:S.clips,
-    effect:S.effect,
-    graphics:S.graphics,
-    graphicsStyle:S.graphicsStyle||{size:28,opacity:100},
-    caption:S.caption,
-    captionStyle:S.captionStyle||{size:19,opacity:100},
-    markers:Array.isArray(S.markers)?S.markers:[],
-    captionStyle:S.captionStyle||{size:19,opacity:100},
-    frameRate:S.frameRate||'24 fps'
-  };
-}
-function save(){
-  if(!S.project)return;
-  const payload=editorPayload();
-  localStorage.setItem('fbi-editor-project',JSON.stringify({projectId:S.project,sequence:S.sequence}));
-  localStorage.setItem('fbi-editor-clips-'+S.project,JSON.stringify(S.clips));
-  localStorage.setItem('fbi-editor-state-'+S.project,JSON.stringify(payload));
-  setStatus('Sequence saved locally. Syncing to cloud…');
-  clearTimeout(cloudSaveTimer);
-  cloudSaveTimer=setTimeout(async function(){
-    try{
-      await api('/api/editor/sequences/'+encodeURIComponent(S.project),{
-        method:'PUT',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({sequence_name:S.sequence||'Untitled Sequence',sequence:payload})
-      });
-      setStatus('Sequence saved to cloud.');
-    }catch(e){
-      setStatus('Saved locally. Cloud sync will retry on the next change.');
-      console.warn('Editor cloud save:',e);
-    }
-  },450);
-}
-function setStatus(t){document.getElementById('status').textContent=t}
-function refreshSource(){const f=selectedFile();const v=document.getElementById('sourceVideo');document.getElementById('sourceTitle').textContent='Source: '+(f?f.original_name:'No media selected');if(f){v.src=fileUrl(f);v.load();document.getElementById('sourceTc').textContent='00:00:00:00'}else{v.removeAttribute('src');v.load()}}
-function activeClip(){return S.clips.find(c=>S.playhead>=c.start&&S.playhead<c.start+c.duration)||null}
-function ensureEditorAudioGraph(el){
-  if(!el)return null;
-  window.__editorAudioGraphs=window.__editorAudioGraphs||new WeakMap();
-  const existing=window.__editorAudioGraphs.get(el);
-  if(existing)return existing;
+const state={name:"Untitled Sequence",resolution:"1920x1080",clips:[],effect:{}};
+let files=[],projectId=null,projects=[];
+let pps=64, playhead=0, playing=false, selId=null, tool="select";
+const DEFAULT_IMG_DUR=5;
+
+/* ---------- boot ---------- */
+async function boot(){
   try{
-    const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;
-    const ctx=window.__editorAudioContext||(window.__editorAudioContext=new C());
-    const source=ctx.createMediaElementSource(el);
-    const gain=ctx.createGain();
-    const panner=ctx.createStereoPanner?ctx.createStereoPanner():null;
-    const eq=ctx.createBiquadFilter();eq.type='peaking';eq.frequency.value=2200;eq.Q.value=.8;
-    const comp=ctx.createDynamicsCompressor();
-    source.connect(eq);eq.connect(comp);
-    if(panner){comp.connect(panner);panner.connect(gain)}else comp.connect(gain);
-    gain.connect(ctx.destination);
-    const graph={ctx,source,gain,panner,eq,comp};
-    window.__editorAudioGraphs.set(el,graph);
-    return graph;
-  }catch(e){console.warn('Editor audio graph:',e);return null}
+    const q=new URLSearchParams(location.search);projectId=q.get("project");
+    const pj=await api("/api/projects");projects=pj.projects||pj||[];
+    const sel=$("#projSelect");sel.innerHTML=projects.map(p=>`<option value="${p.id}">${(p.name||"Untitled project").replace(/</g,"&lt;")}</option>`).join("");
+    if(!projectId&&projects[0])projectId=projects[0].id;
+    if(projectId)sel.value=projectId;
+    sel.onchange=()=>{location.search="?project="+encodeURIComponent(sel.value);};
+    if(!projectId){$("#loading").textContent="No projects yet — create one in the portal first.";return;}
+    await loadProject();
+    $("#loading").style.display="none";$("#app").style.display="grid";
+    buildRuler();renderMedia();renderTimeline();bindGlobal();
+    requestAnimationFrame(loop);
+  }catch(e){$("#loading").innerHTML="Could not load the editor.<br><small style='color:var(--faint)'>"+(e.message||e)+"</small><br><br><a href='/' style='color:var(--gold)'>Back to sign in</a>";}
 }
-function applyClipAudio(c,positionSeconds){
-  if(!c)return;
-  const base=Math.max(0,Math.min(2,(Number(c.volume??100)/100)));
-  const pos=Math.max(0,Number(positionSeconds||0));
-  let gain=base;
-  if(c.fadeIn>0)gain*=Math.min(1,pos/Number(c.fadeIn));
-  const remain=Math.max(0,Number(c.duration||0)-pos);
-  if(c.fadeOut>0)gain*=Math.min(1,remain/Number(c.fadeOut));
-  const muted=!!c.mute;
-  const v=document.getElementById('programVideo'),a=document.getElementById('programAudio');
-  [v,a].forEach(function(el){
-    if(!el)return;
-    el.volume=1;
-    el.muted=muted;
-    const g=ensureEditorAudioGraph(el);
-    if(g){
-      if(g.ctx.state==='suspended')g.ctx.resume().catch(()=>{});
-      g.gain.gain.value=muted?0:Math.max(0,Math.min(2,gain));
-      if(g.panner)g.panner.pan.value=Math.max(-1,Math.min(1,Number(c.pan||0)/100));
-      if(c.audioEffect==='Parametric EQ'){g.eq.type='peaking';g.eq.frequency.value=2200;g.eq.gain.value=4;g.eq.Q.value=.8}
-      else {g.eq.gain.value=0}
-      if(c.audioEffect==='Dynamics'){g.comp.threshold.value=-24;g.comp.knee.value=18;g.comp.ratio.value=4;g.comp.attack.value=.01;g.comp.release.value=.18}
-      else if(c.audioEffect==='Limiter'){g.comp.threshold.value=-6;g.comp.knee.value=0;g.comp.ratio.value=20;g.comp.attack.value=.001;g.comp.release.value=.08}
-      else if(c.audioEffect==='DeNoise'){g.comp.threshold.value=-34;g.comp.knee.value=28;g.comp.ratio.value=2;g.comp.attack.value=.003;g.comp.release.value=.25}
-      else {g.comp.threshold.value=0;g.comp.knee.value=0;g.comp.ratio.value=1;g.comp.attack.value=.003;g.comp.release.value=.25}
-    }
+async function loadProject(){
+  const d=await api("/api/projects/"+encodeURIComponent(projectId));
+  files=(d.files||[]).filter(f=>["video","audio","image"].includes(mediaKind(f)));
+  const name=(d.project&&d.project.name)||"Untitled project";
+  try{const s=await api("/api/editor/sequences/"+encodeURIComponent(projectId));if(s.sequence&&s.sequence.sequence&&typeof s.sequence.sequence==="object"){Object.assign(state,s.sequence.sequence);state.name=s.sequence.sequence_name||state.name;}}catch(e){}
+  if(!state.name||state.name==="Untitled Sequence")state.name=name+" — edit";
+  if(state.resolution)$("#resSelect").value=state.resolution;
+}
+
+/* ---------- media bin ---------- */
+function renderMedia(){
+  const box=$("#mediaList");
+  if(!files.length){box.innerHTML='<div class="empty">No video, audio or image files in this project yet.<br>Upload some in the portal, then refresh.</div>';return;}
+  box.innerHTML="";
+  files.forEach(f=>{
+    const k=mediaKind(f);
+    const el=document.createElement("div");el.className="media";el.draggable=true;
+    const icon=k==="image"?`<img src="/api/admin/file/${f.id}" alt="">`:(k==="video"?"VID":"AUD");
+    el.innerHTML=`<div class="ic">${icon}</div><div class="mt"><b>${(f.original_name||"file").replace(/</g,"&lt;")}</b><span>${k.toUpperCase()}</span></div><button class="add" title="Add to timeline">+</button>`;
+    el.querySelector(".add").onclick=(ev)=>{ev.stopPropagation();addToTimeline(f);};
+    el.ondblclick=()=>addToTimeline(f);
+    el.ondragstart=e=>{e.dataTransfer.setData("text/fileid",f.id);};
+    box.appendChild(el);
   });
 }
-function refreshProgram(){
-  const c=activeClip(),v=document.getElementById('programVideo'),a=document.getElementById('programAudio'),f=c&&S.files.find(x=>x.id===c.fileId);
-  document.getElementById('programTitle').textContent=S.sequence;
-  if(!c||!f){v.pause();v.removeAttribute('src');v.load();a.pause();a.removeAttribute('src');a.load();applyVisual();return}
-  const offset=Math.max(0,(S.playhead-c.start)*c.speed);
-  if(c.type==='audio'){
-    v.pause();v.removeAttribute('src');v.load();
-    a.src=fileUrl(f);a.onloadedmetadata=()=>{try{a.currentTime=Math.min((a.duration||c.sourceDuration)-.05,c.trimIn+offset)}catch{};applyClipAudio(c,Math.max(0,offset));};a.playbackRate=c.speed;a.load();
-  }else{
-    a.pause();a.removeAttribute('src');a.load();
-    v.src=fileUrl(f);v.onloadedmetadata=()=>{try{v.currentTime=Math.min((v.duration||c.sourceDuration)-.05,c.trimIn+offset)}catch{};applyClipAudio(c,Math.max(0,offset));applyVisual()};v.playbackRate=c.speed;v.load();
-  }
-}
-function playProgram(){const v=document.getElementById('programVideo'),a=document.getElementById('programAudio'),c=activeClip()||S.clips[0];if(!c)return setStatus('Add media to the timeline first.');if(S.playing){v.pause();a.pause();S.playing=false;setStatus('Paused');return}S.selectedClip=c.id;refreshProgram();S.playing=true;const p=c.type==='audio'?a:v;p.play().then(()=>setStatus('Playing')).catch(()=>{S.playing=false;setStatus('Playback blocked by browser.')})}
-function stepNext(dir){const ordered=[...S.clips].sort((a,b)=>a.start-b.start);const i=ordered.findIndex(c=>c.id===S.selectedClip);const n=ordered[i+(dir>0?1:-1)];if(n){S.selectedClip=n.id;S.playhead=n.start;renderAll();refreshProgram()}}
-function mediaDuration(f){
-  if(imageFile(f))return Promise.resolve(5);
-  const tag=audioFile(f)?'audio':'video',el=document.createElement(tag);el.preload='metadata';el.src=fileUrl(f);
-  return new Promise(resolve=>{
-    const ok=()=>{cleanup();resolve(Number(el.duration)||0)},bad=()=>{cleanup();resolve(0)},cleanup=()=>{el.removeEventListener('loadedmetadata',ok);el.removeEventListener('error',bad);el.removeAttribute('src')};
-    el.addEventListener('loadedmetadata',ok,{once:true});el.addEventListener('error',bad,{once:true});
+
+/* ---------- add clip ---------- */
+function trackEnd(track){let end=0;state.clips.filter(c=>c.track===track).forEach(c=>{end=Math.max(end,(c.start||0)+(c.duration||0))});return end;}
+function probeDuration(f,kind){
+  return new Promise(res=>{
+    if(kind==="image")return res(DEFAULT_IMG_DUR);
+    const el=document.createElement(kind==="audio"?"audio":"video");
+    el.preload="metadata";el.src="/api/admin/file/"+f.id;
+    const done=d=>res(isFinite(d)&&d>0?d:4);
+    el.onloadedmetadata=()=>done(el.duration);
+    el.onerror=()=>done(4);
+    setTimeout(()=>done(el.duration||4),6000);
   });
 }
-async function addFileToTimeline(f){
-  if(!videoFile(f)&&!audioFile(f)&&!imageFile(f))return setStatus('This media type cannot be placed on the timeline.');
-  const d=await mediaDuration(f);if(!d)return setStatus('Could not read media duration.');
-  snapshot();
-  const c={id:crypto.randomUUID(),fileId:f.id,name:f.original_name,sourceDuration:d,trimIn:0,trimOut:d,speed:1,start:total(),duration:d,track:audioFile(f)?'A1':'V1',type:audioFile(f)?'audio':'video',scale:100,positionX:0,positionY:0,rotation:0,opacity:100,transition:'None',volume:100,pan:0,fadeIn:0,fadeOut:0,mute:false};
-  S.clips.push(c);S.selectedClip=c.id;S.selectedFile=f.id;S.playhead=c.start;save();renderAll();refreshProgram();setStatus('Added '+f.original_name)}
-function importFiles(list){
-  Array.from(list||[]).forEach(file=>{const id='local-'+crypto.randomUUID();localFiles.push({id,original_name:file.name,mime_type:file.type||'application/octet-stream',size_bytes:file.size,localUrl:URL.createObjectURL(file),local:true,relative_path:file.webkitRelativePath||file.name});});S.files=[...S.files.filter(f=>!f.local),...localFiles];renderBin();setStatus(localFiles.length+' local media file(s) available.')}
-function renderBin(){
-  const q=document.getElementById('search')?.value?.toLowerCase()||'';const list=S.files.filter(f=>!q||f.original_name.toLowerCase().includes(q));const b=document.getElementById('mediaGrid');if(!b)return;
-  document.getElementById('count').textContent=list.length+' media';
-  b.innerHTML=list.map(f=>'<div class="asset '+(S.selectedFile===f.id?'sel':'')+'" data-file="'+f.id+'"><div class="thumb">'+(videoFile(f)?'🎬':audioFile(f)?'🎵':'🖼️')+'</div><b title="'+esc(f.original_name)+'">'+esc(f.original_name)+'</b><small>'+fmt(f.size_bytes)+(f.local?' • Local':' • Cloud')+'</small></div>').join('');
-  b.querySelectorAll('.asset').forEach(e=>e.onclick=()=>{S.selectedFile=e.dataset.file;const f=selectedFile();refreshSource();renderBin();renderInfo(f);setStatus('Selected '+f.original_name)});
+async function addToTimeline(f){
+  const k=mediaKind(f);
+  const track=k==="audio"?"A1":"V1";
+  const dur=await probeDuration(f,k);
+  const clip={id:uid(),fileId:f.id,name:f.original_name||"clip",type:k==="audio"?"audio":(k==="image"?"image":"video"),track,
+    start:trackEnd(track),duration:dur,trimIn:0,trimOut:k==="image"?dur:dur,speed:1,volume:100,mute:false,srcDuration:dur,grade:{}};
+  state.clips.push(clip);selId=clip.id;renderTimeline();renderInspector();scheduleSave();toast(clip.name+" added");
 }
-function renderProjects(){const b=document.getElementById('projects');if(!b)return;b.innerHTML=projects.map(p=>'<div class="projectrow '+(S.project===p.id?'sel':'')+'" data-id="'+p.id+'"><b>'+esc(p.name)+'</b><small>'+esc(p.client_name||'No client')+' • '+(p.file_count||0)+' files</small></div>').join('');b.querySelectorAll('[data-id]').forEach(e=>e.onclick=()=>loadProject(e.dataset.id))}
-async function loadProject(id){
-  if(!id)return;const d=await api('/api/projects/'+id);S.project=id;document.getElementById('project').value=id;S.files=(d.files||[]).filter(f=>videoFile(f)||audioFile(f)||imageFile(f));S.selectedFile=null;S.selectedClip=null;S.playhead=0;
-  let loadedCloud=false;
-  try{
-    const remote=await api('/api/editor/sequences/'+encodeURIComponent(id));
-    const remoteState=remote?.sequence?.sequence;
-    if(remoteState&&typeof remoteState==='object'){
-      S.sequence=remoteState.sequence||S.sequence;
-      S.clips=Array.isArray(remoteState.clips)?remoteState.clips:[];
-      S.effect=remoteState.effect&&typeof remoteState.effect==='object'?remoteState.effect:S.effect;
-      S.graphics=remoteState.graphics||'';
-      S.graphicsStyle=remoteState.graphicsStyle||{size:28,opacity:100};
-      S.caption=remoteState.caption||'';
-      S.captionStyle=remoteState.captionStyle||{size:19,opacity:100};
-      S.markers=Array.isArray(remoteState.markers)?remoteState.markers:[];
-      S.frameRate=remoteState.frameRate||'24 fps';
-      loadedCloud=true;
-    }
-  }catch(e){console.warn('Editor cloud state load:',e)}
-  if(!loadedCloud){
-    try{
-      const localState=JSON.parse(localStorage.getItem('fbi-editor-state-'+id)||'null');
-      if(localState&&typeof localState==='object'){
-        S.sequence=localState.sequence||S.sequence;
-        S.clips=Array.isArray(localState.clips)?localState.clips:[];
-        S.effect=localState.effect&&typeof localState.effect==='object'?localState.effect:S.effect;
-        S.graphics=localState.graphics||'';
-        S.graphicsStyle=localState.graphicsStyle||{size:28,opacity:100};
-        S.caption=localState.caption||'';
-        S.captionStyle=localState.captionStyle||{size:19,opacity:100};
-        S.markers=Array.isArray(localState.markers)?localState.markers:[];
-        S.frameRate=localState.frameRate||'24 fps';
-      }else{
-        try{S.clips=JSON.parse(localStorage.getItem('fbi-editor-clips-'+id)||'[]')}catch{S.clips=[]}
-      }
-    }catch{S.clips=[]}
-  }
-  if(!Array.isArray(S.clips))S.clips=[];
-  S.clips.forEach(rebuild);
-  saveProjectHeader();
-  renderAll();
-  const seqInput=document.getElementById('sequence');if(seqInput)seqInput.value=S.sequence;
-  const fps=document.getElementById('sequenceSelect');if(fps)fps.value=S.frameRate||'24 fps';
-  setStatus(S.files.length+' cloud media loaded.'+(loadedCloud?' Editor state restored from cloud.':''));}
-function saveProjectHeader(){localStorage.setItem('fbi-editor-project',JSON.stringify({projectId:S.project,sequence:S.sequence}))}
-function renderInfo(f){document.getElementById('fileInfo').innerHTML=f?'<b>Filename:</b> '+esc(f.original_name)+'<br><b>Type:</b> '+esc(f.mime_type)+'<br><b>Size:</b> '+fmt(f.size_bytes)+'<br><b>Location:</b> '+(f.local?'Desktop / Local Browser':'FBI Cloud Storage'):S.workspace==='more'?'<b>Advanced Tools</b><br>Selection, track select, ripple edit, razor, slip, slide, pen, hand, type and zoom tools are available from the timeline tool rail.<br><br><b>Keyboard</b><br>Space: Play/Pause • B: Razor • Delete: Ripple Delete • Ctrl/Cmd+Z: Undo • Ctrl/Cmd+Y: Redo':'Select a media item to view metadata.'}
-let timelineZoom=34;
+
+/* ---------- timeline render ---------- */
+function timelineDuration(){let d=0;state.clips.forEach(c=>d=Math.max(d,(c.start||0)+(c.duration||0)));return Math.max(d,10);}
+function buildRuler(){
+  const total=timelineDuration()+4;
+  const ruler=$("#ruler");ruler.innerHTML="";ruler.style.width=(total*pps)+"px";
+  $("#tlInner").style.width=(total*pps+70)+"px";
+  let step=1;const minPx=54;while(step*pps<minPx)step*=(step===1?5:2);
+  for(let t=0;t<=total;t+=step){const tk=document.createElement("div");tk.className="tick maj";tk.style.left=(t*pps)+"px";tk.textContent=fmt(t).slice(0,5);ruler.appendChild(tk);}
+}
 function renderTimeline(){
-  const px=timelineZoom,max=Math.max(60,Math.ceil(total()/10)*10),r=document.getElementById('ruler'),track=document.getElementById('trackarea');
-  r.innerHTML=Array.from({length:max+1},(_,i)=>i%5===0?'<span class="tick" style="left:'+i*px+'px">'+i+'s</span>':'').join('');
-  track.querySelectorAll('.lane').forEach(x=>x.innerHTML='');
-  (S.markers||[]).forEach(function(m){
-    const mk=document.createElement('div');mk.style.cssText='position:absolute;top:0;bottom:0;width:1px;background:#f4d56d;z-index:18;left:'+(Number(m.time||0)*px)+'px;pointer-events:none';
-    const lab=document.createElement('span');lab.textContent=m.label||'Marker';lab.style.cssText='position:absolute;top:2px;left:3px;background:#d4af37;color:#111;padding:2px 4px;border-radius:2px;font-size:6px;white-space:nowrap';mk.appendChild(lab);track.appendChild(mk);
+  buildRuler();
+  ["V1","A1"].forEach(tr=>{
+    const lane=tr==="V1"?$("#laneV1"):$("#laneA1");
+    lane.querySelectorAll(".clip").forEach(c=>c.remove());
+    lane.style.width=(timelineDuration()*pps+200)+"px";
+    state.clips.filter(c=>c.track===tr).forEach(c=>lane.appendChild(makeClipEl(c)));
   });
-  S.clips.forEach(c=>{rebuild(c);const el=document.createElement('div');el.className='clip '+(c.type==='audio'?'audio ':'')+(c.id===S.selectedClip?'sel':'');el.style.left=(c.start*px)+'px';el.style.width=Math.max(44,c.duration*px)+'px';el.innerHTML='<div class="nm">'+esc(c.name)+'</div><div class="meta">'+ft(c.duration)+' • '+c.speed+'x</div><div class="wave"></div>';el.onclick=e=>{e.stopPropagation();S.selectedClip=c.id;S.playhead=c.start;renderTimeline();renderInspector();refreshProgram()};const lane=track.querySelector('.lane[data-track="'+(c.track||'V1')+'"]');if(lane)lane.appendChild(el)});
-  const width=(max+15)*px;track.style.minWidth=width+'px';r.style.minWidth=width+'px';track.querySelectorAll('.lane').forEach(x=>x.style.minWidth=width+'px');document.getElementById('playline').style.left=S.playhead*px+'px'
+  positionPlayhead();
 }
-function renderInspector(){
-  const w=document.getElementById('inspectorWrap'),b=document.getElementById('inspect'),c=selectedClip();
-  const title={assembly:'Effect Controls',editing:'Effect Controls',color:'Lumetri Color',effects:'Video Effects',audio:'Audio Mixer',graphics:'Essential Graphics',captions:'Captions'}[S.workspace]||'Effect Controls';
-  w.classList.toggle('show',S.workspace!=='assembly'||!!c);document.getElementById('inspectTitle').textContent=title;
-  if(S.workspace==='graphics'){
-    S.graphics=S.graphics||'';S.graphicsStyle=S.graphicsStyle||{size:28,opacity:100};
-    b.innerHTML='<div class="inspectsec"><h4>Title / Graphic</h4><div class="if"><label>Text</label><input id="gText" value="'+esc(S.graphics)+'" placeholder="Type your title"></div><div class="ig" style="margin-top:7px"><div class="if"><label>Size</label><input id="gSize" type="number" min="8" max="120" value="'+S.graphicsStyle.size+'"></div><div class="if"><label>Opacity %</label><input id="gOpacity" type="number" min="0" max="100" value="'+S.graphicsStyle.opacity+'"></div></div><div style="height:7px"></div><button class="topbtn primary" id="gApply">Apply Graphic</button></div>';
-    document.getElementById('gApply').onclick=()=>{S.graphics=document.getElementById('gText').value;S.graphicsStyle={size:Number(document.getElementById('gSize').value||28),opacity:Number(document.getElementById('gOpacity').value||100)};save();showGraphics();setStatus('Graphic applied.');};
-    return;
-  }
-  if(S.workspace==='captions'){
-    S.caption=S.caption||'';S.captionStyle=S.captionStyle||{size:19,opacity:100};
-    b.innerHTML='<div class="inspectsec"><h4>Caption</h4><div class="if"><label>Text</label><textarea id="capText" style="width:100%;height:90px;background:#1d1e20;border:1px solid #414247;color:#eee;border-radius:3px;padding:7px;font-size:9px">'+esc(S.caption)+'</textarea></div><div class="ig" style="margin-top:7px"><div class="if"><label>Size</label><input id="capSize" type="number" min="8" max="80" value="'+S.captionStyle.size+'"></div><div class="if"><label>Opacity %</label><input id="capOpacity" type="number" min="0" max="100" value="'+S.captionStyle.opacity+'"></div></div><div style="height:7px"></div><button class="topbtn primary" id="capApply">Apply Caption</button></div>';
-    document.getElementById('capApply').onclick=()=>{S.caption=document.getElementById('capText').value;S.captionStyle={size:Number(document.getElementById('capSize').value||19),opacity:Number(document.getElementById('capOpacity').value||100)};save();showCaptions();setStatus('Caption applied.');};
-    return;
-  }
-  if(!c){b.innerHTML='<div class="empty">Select a clip on the timeline. The selected workspace controls will appear here.</div>';return}
-  c.scale=Number(c.scale||100);c.opacity=Number(c.opacity??100);c.positionX=Number(c.positionX||0);c.positionY=Number(c.positionY||0);c.rotation=Number(c.rotation||0);c.speed=Number(c.speed||1);c.volume=Number(c.volume??100);c.pan=Number(c.pan||0);c.fadeIn=Number(c.fadeIn||0);c.fadeOut=Number(c.fadeOut||0);c.mute=!!c.mute;c.transition=c.transition||'None';
-  let html='';
-  if(S.workspace==='audio'){
-    html='<div class="inspectsec"><h4>Audio Controls</h4><div class="ig"><div class="if"><label>Volume %</label><input id="volume" type="number" min="0" max="200" value="'+c.volume+'"></div><div class="if"><label>Pan</label><input id="pan" type="number" min="-100" max="100" value="'+c.pan+'"></div><div class="if"><label>Fade In s</label><input id="fadeIn" type="number" min="0" max="30" step=".05" value="'+c.fadeIn+'"></div><div class="if"><label>Fade Out s</label><input id="fadeOut" type="number" min="0" max="30" step=".05" value="'+c.fadeOut+'"></div></div><div style="margin-top:8px"><label style="font-size:8px;color:#999"><input id="mute" type="checkbox" '+(c.mute?'checked':'')+'> Mute clip</label></div></div>';
-  }else if(S.workspace==='color'){
-    html='<div class="inspectsec"><h4>Color Correction</h4><div class="ig"><div class="if"><label>Brightness</label><input id="brightness" type="number" value="'+S.effect.brightness+'"></div><div class="if"><label>Contrast</label><input id="contrast" type="number" value="'+S.effect.contrast+'"></div><div class="if"><label>Saturation</label><input id="saturate" type="number" value="'+S.effect.saturate+'"></div><div class="if"><label>Grayscale %</label><input id="grayscale" type="number" value="'+S.effect.grayscale+'"></div><div class="if"><label>Sepia %</label><input id="sepia" type="number" value="'+S.effect.sepia+'"></div><div class="if"><label>Blur px</label><input id="blur" type="number" value="'+S.effect.blur+'"></div></div></div>';
-  }else if(S.workspace==='effects'){
-    html='<div class="inspectsec"><h4>Effects</h4><div class="note">Use the Effects panel for browser-preview effects and transitions.</div></div><div class="inspectsec"><h4>Transition</h4><div class="if"><label>Video Transition</label><select id="transition"><option>None</option><option>Cross Dissolve</option><option>Dip to Black</option><option>Dip to White</option><option>Film Dissolve</option><option>Push</option><option>Wipe</option><option>Zoom</option></select></div></div>';
-  }else{
-    html='<div class="inspectsec"><h4>Timing / Trim</h4><div class="ig"><div class="if"><label>Trim In s</label><input id="trimIn" type="number" min="0" max="'+c.sourceDuration+'" step=".01" value="'+c.trimIn.toFixed(2)+'"></div><div class="if"><label>Trim Out s</label><input id="trimOut" type="number" min="0" max="'+c.sourceDuration+'" step=".01" value="'+c.trimOut.toFixed(2)+'"></div></div></div><div class="inspectsec"><h4>Motion</h4><div class="ig"><div class="if"><label>Scale %</label><input id="scale" type="number" value="'+c.scale+'"></div><div class="if"><label>Opacity %</label><input id="opacity" type="number" value="'+c.opacity+'"></div><div class="if"><label>Position X</label><input id="px" type="number" value="'+c.positionX+'"></div><div class="if"><label>Position Y</label><input id="py" type="number" value="'+c.positionY+'"></div><div class="if"><label>Rotation</label><input id="rotation" type="number" value="'+c.rotation+'"></div><div class="if"><label>Speed</label><input id="speed" type="number" min=".25" max="4" step=".05" value="'+c.speed+'"></div></div></div><div class="inspectsec"><h4>Transition</h4><div class="if"><label>Video Transition</label><select id="transition"><option>None</option><option>Cross Dissolve</option><option>Dip to Black</option><option>Dip to White</option><option>Film Dissolve</option><option>Push</option><option>Wipe</option><option>Zoom</option></select></div></div>';
-  }
-  b.innerHTML=html;if(document.getElementById('transition'))document.getElementById('transition').value=c.transition;
-  ['trimIn','trimOut','scale','opacity','px','py','rotation','speed','transition','brightness','contrast','saturate','grayscale','sepia','blur','volume','pan','fadeIn','fadeOut','mute'].forEach(id=>{const el=document.getElementById(id);if(!el)return;el.onchange=()=>{snapshot();
-    if(id==='trimIn')c.trimIn=Math.max(0,Math.min(c.sourceDuration,Number(el.value||0)));else if(id==='trimOut')c.trimOut=Math.max(c.trimIn,Math.min(c.sourceDuration,Number(el.value||c.sourceDuration)));else if(id==='scale')c.scale=Number(el.value||100);else if(id==='opacity')c.opacity=Number(el.value||100);else if(id==='px')c.positionX=Number(el.value||0);else if(id==='py')c.positionY=Number(el.value||0);else if(id==='rotation')c.rotation=Number(el.value||0);else if(id==='speed')c.speed=Math.max(.25,Math.min(4,Number(el.value||1)));else if(id==='transition')c.transition=el.value;else if(id==='brightness')S.effect.brightness=Number(el.value||100);else if(id==='contrast')S.effect.contrast=Number(el.value||100);else if(id==='saturate')S.effect.saturate=Number(el.value||100);else if(id==='grayscale')S.effect.grayscale=Number(el.value||0);else if(id==='sepia')S.effect.sepia=Number(el.value||0);else if(id==='blur')S.effect.blur=Number(el.value||0);else if(id==='volume')c.volume=Math.max(0,Math.min(200,Number(el.value||100)));else if(id==='pan')c.pan=Math.max(-100,Math.min(100,Number(el.value||0)));else if(id==='fadeIn')c.fadeIn=Math.max(0,Number(el.value||0));else if(id==='fadeOut')c.fadeOut=Math.max(0,Number(el.value||0));else if(id==='mute')c.mute=!!el.checked;
-    rebuild(c);save();renderAll();applyVisual();setStatus('Updated '+id+'.');};
-  });
-}
-function applyVisual(){
-  const c=selectedClip(),v=document.getElementById('programVideo'),screen=v?.closest('.screen'),overlay=document.getElementById('visualOverlay');if(!v)return;
-  if(!c){v.style.transform='none';v.style.opacity='1';v.style.filter='none';if(overlay){overlay.style.display='none';overlay.style.opacity='0'}return}
-  const rel=Math.max(0,S.playhead-c.start),remain=Math.max(0,c.start+c.duration-S.playhead),tr=.5;
-  let opacity=Math.max(0,Math.min(100,c.opacity||100))/100;
-  const edge=Math.max(0,Math.min(1,Math.min(rel/tr,remain/tr)));
-  if(c.transition==='Dip to Black')opacity*=edge;
-  if(c.transition==='Cross Dissolve'||c.transition==='Film Dissolve')opacity*=Math.min(1,rel/tr);
-  let transform='translate('+c.positionX+'px,'+c.positionY+'px) scale('+(c.scale/100)+') rotate('+c.rotation+'deg)';
-  if(c.transition==='Zoom'&&rel<tr)transform='translate('+c.positionX+'px,'+c.positionY+'px) scale('+(c.scale/100*(.94+.06*rel/tr))+') rotate('+c.rotation+'deg)';
-  if(c.transition==='Push'&&rel<tr)transform='translate('+(c.positionX+(1-rel/tr)*80)+'px,'+c.positionY+'px) scale('+(c.scale/100)+') rotate('+c.rotation+'deg)';
-  if(c.transition==='Wipe'&&rel<tr) v.style.clipPath='inset(0 '+((1-rel/tr)*100).toFixed(1)+'% 0 0)'; else v.style.clipPath='none';
-  v.style.transform=transform;v.style.opacity=String(opacity);v.style.filter='brightness('+S.effect.brightness+'%) contrast('+S.effect.contrast+'%) saturate('+S.effect.saturate+'%) blur('+S.effect.blur+'px) grayscale('+S.effect.grayscale+'%) sepia('+S.effect.sepia+'%)';
-  if(overlay){
-    overlay.style.display='block';overlay.style.opacity='0';
-    if(c.transition==='Dip to White')overlay.style.opacity=String(1-edge);
-    if(c.transition==='Dip to Black')overlay.style.opacity=String(1-edge);
-    if(S.effect.vignette)overlay.style.background='radial-gradient(circle,transparent 45%,rgba(0,0,0,.75) 100%)';
-    else if(S.effect.grain)overlay.style.backgroundImage='repeating-radial-gradient(rgba(255,255,255,.08) 0 1px, transparent 1px 3px)';
-    else if(c.transition==='Dip to White')overlay.style.background='#fff';
-    else overlay.style.background='#000';
-  }
-  applyClipAudio(c,rel);
-}
-function renderLibraryForTab(tab){
-  const q=document.getElementById('quickEffects');if(!q)return;
-  const data={
-    effects:[
-      ['Video Transitions','Cross Dissolve'],['Video Transitions','Dip to Black'],['Video Transitions','Dip to White'],['Video Transitions','Film Dissolve'],['Video Transitions','Push'],['Video Transitions','Wipe'],['Video Transitions','Zoom'],
-      ['Video Effects','Gaussian Blur'],['Video Effects','Sharpen'],['Video Effects','Unsharp Mask'],['Stylize','Film Grain'],['Stylize','Vignette']
-    ],
-    color:[
-      ['Basic Correction','Exposure'],['Basic Correction','Contrast'],['Basic Correction','Highlights / Shadows'],['Basic Correction','Temperature'],['Basic Correction','Tint'],['Basic Correction','Saturation'],['Looks','FBI Gold'],['Looks','Cinematic Teal']
-    ],
-    audio:[
-      ['Audio Transitions','Constant Power'],['Audio Transitions','Constant Gain'],['Audio Effects','Parametric EQ'],['Audio Effects','Dynamics'],['Audio Effects','DeNoise'],['Audio Effects','Limiter'],['Sound Effects','Whoosh'],['Sound Effects','Impact'],['Sound Effects','Riser'],['Sound Effects','Camera Shutter']
-    ],
-    graphics:[
-      ['Titles','Main Title'],['Lower Thirds','FBI Gold Lower Third'],['Logos','FBI Logo'],['Text','Callout']
-    ],
-    captions:[
-      ['Captions','Open Captions'],['Captions','Subtitle Style'],['Captions','Burn-in Captions']
-    ]
-  }[tab]||[];
-  q.innerHTML=data.map(function(x){return "<div class='effect'><span>"+esc(x[0]+" • "+x[1])+"</span><button data-add='"+esc(x[1])+"'>Add</button></div>"}).join('');
-  q.querySelectorAll('[data-add]').forEach(function(b){b.onclick=function(){applyPreset(b.dataset.add)}});
-}
-function activateLeftPanel(name){
-  document.querySelectorAll('#subtabs button').forEach(b=>b.classList.toggle('active',b.dataset.left===name));
-  document.querySelectorAll('.leftview').forEach(v=>v.classList.toggle('active',v.id==='left-'+name));
-}
-function setWorkspace(tab){
-  S.workspace=tab;
-  document.querySelectorAll('#workspaces button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
-  const map={assembly:'project',editing:'browser',color:'effects',effects:'effects',audio:'effects',graphics:'libraries',captions:'libraries',more:'info'};
-  activateLeftPanel(map[tab]||'project');
-  const w=document.getElementById('inspectorWrap');if(w)w.classList.toggle('show',tab!=='assembly'||!!selectedClip());
-  renderLibraryForTab(tab);renderLibrariesForTab(tab);renderInspector();showGraphics();showCaptions();
-  setStatus(tab==='assembly'?'Assembly workspace ready':tab.charAt(0).toUpperCase()+tab.slice(1)+' workspace ready');
+function makeClipEl(c){
+  const el=document.createElement("div");
+  el.className="clip"+(c.track==="A1"?" audio":"")+(c.id===selId?" sel":"");
+  el.dataset.id=c.id;
+  el.style.left=((c.start||0)*pps)+"px";
+  el.style.width=Math.max(14,(c.duration||0)*pps)+"px";
+  if(c.type==="image")el.innerHTML+=`<div class="thumbs" style="background-image:url('/api/admin/file/${c.fileId}')"></div>`;
+  el.innerHTML+=`<div class="cname">${(c.name||"clip").replace(/</g,"&lt;")}</div><div class="cmeta">${((c.duration||0)).toFixed(1)}s${c.speed&&c.speed!==1?" · "+c.speed+"×":""}${c.mute?" · muted":""}</div><div class="edge l"></div><div class="edge r"></div>`;
+  bindClip(el,c);
+  return el;
 }
 
-function renderLibrariesForTab(tab){
-  const box=document.querySelector("#left-libraries .library");if(!box)return;
-  let html="";
-  if(tab==="graphics"){
-    html+="<div class='libgroup'><h4>Graphics & Titles</h4>";
-    html+="<div class='effect'>Main Title <button data-library='Main Title'>Use</button></div>";
-    html+="<div class='effect'>FBI Gold Lower Third <button data-library='FBI Gold Lower Third'>Use</button></div>";
-    html+="<div class='effect'>FBI Logo <button data-library='FBI Logo'>Use</button></div>";
-    html+="<div class='effect'>Callout <button data-library='Callout'>Use</button></div></div>";
-  }else{
-    html+="<div class='libgroup'><h4>Templates</h4>";
-    html+="<div class='effect'>Wedding Lower Third <button data-library='FBI Gold Lower Third'>Use</button></div>";
-    html+="<div class='effect'>Gold Title <button data-library='Main Title'>Use</button></div>";
-    html+="<div class='effect'>Cinematic Opener <button data-library='Main Title'>Use</button></div></div>";
-    html+="<div class='libgroup'><h4>Presets</h4>";
-    html+="<div class='effect'>FBI Brand Gold <button data-library='FBI Gold'>Apply</button></div>";
-    html+="<div class='effect'>Cinematic Teal <button data-library='Cinematic Teal'>Apply</button></div></div>";
-  }
-  box.innerHTML=html;
-  box.querySelectorAll("[data-library]").forEach(function(b){b.onclick=function(){applyPreset(b.dataset.library)}});
-}
-function applyPreset(name){
-  const c=selectedClip();
-  if(['Main Title','FBI Gold Lower Third','FBI Logo','Callout'].includes(name)){
-    S.graphics=name==='FBI Gold Lower Third'?'FILM BEYOND IMAGINATION':name==='FBI Logo'?'FBI':name==='Callout'?'CALL OUT':'YOUR TITLE';S.graphicsStyle=S.graphicsStyle||{size:28,opacity:100};showGraphics();setWorkspace('graphics');setStatus(name+' applied.');return;
-  }
-  if(['Open Captions','Subtitle Style','Burn-in Captions'].includes(name)){
-    S.caption=name==='Open Captions'?'Caption text':name==='Subtitle Style'?'Subtitle text':'BURN-IN CAPTION';S.captionStyle=S.captionStyle||{size:19,opacity:100};showCaptions();setWorkspace('captions');setStatus(name+' applied.');return;
-  }
-  if(!c)return setStatus('Select a clip first.');
-  snapshot();
-  if(name==='Gaussian Blur')S.effect.blur=7;else if(name==='Sharpen')S.effect.contrast=Math.max(S.effect.contrast,108);else if(name==='Unsharp Mask')S.effect.contrast=Math.max(S.effect.contrast,112);else if(name==='Film Grain'){S.effect.grain=1;S.effect.contrast+=4}else if(name==='Vignette'){S.effect.vignette=1;S.effect.brightness=Math.max(75,S.effect.brightness-8)}else if(name==='Exposure')S.effect.brightness=110;else if(name==='Contrast')S.effect.contrast=115;else if(name==='Highlights / Shadows')S.effect.contrast=105;else if(name==='Temperature')S.effect.sepia=8;else if(name==='Tint')S.effect.sepia=4;else if(name==='Saturation')S.effect.saturate=120;else if(name==='FBI Gold'){S.effect.saturate=115;S.effect.contrast=108}else if(name==='Cinematic Teal'){S.effect.saturate=108;S.effect.contrast=112}else if(['Cross Dissolve','Dip to Black','Dip to White','Film Dissolve','Push','Wipe','Zoom'].includes(name))c.transition=name;else if(['Constant Power','Constant Gain'].includes(name)){c.fadeIn=Math.max(c.fadeIn||0,.25);c.fadeOut=Math.max(c.fadeOut||0,.25)}else if(['Parametric EQ','Dynamics','DeNoise','Limiter','Whoosh','Impact','Riser','Camera Shutter'].includes(name)){c.audioEffect=name}
-  save();renderAll();setStatus(name+' applied.');
-}
-function showGraphics(){const o=document.getElementById('graphicsOverlay');if(!o)return;S.graphicsStyle=S.graphicsStyle||{size:28,opacity:100};o.textContent=S.graphics;o.style.display=S.graphics?'block':'none';o.style.fontSize=(S.graphicsStyle.size||28)+'px';o.style.opacity=String((S.graphicsStyle.opacity??100)/100)}
-function showCaptions(){const o=document.getElementById('captionOverlay');if(!o)return;S.captionStyle=S.captionStyle||{size:19,opacity:100};o.textContent=S.caption;o.style.display=S.caption?'block':'none';o.style.fontSize=(S.captionStyle.size||19)+'px';o.style.opacity=String((S.captionStyle.opacity??100)/100)}
-function undo(){const h=S._history?.pop();if(!h)return;S._future=S._future||[];S._future.push(JSON.stringify({clips:S.clips,selectedClip:S.selectedClip,playhead:S.playhead,effect:S.effect}));Object.assign(S,JSON.parse(h));renderAll()}
-function redo(){const h=S._future?.pop();if(!h)return;S._history=S._history||[];S._history.push(JSON.stringify({clips:S.clips,selectedClip:S.selectedClip,playhead:S.playhead,effect:S.effect}));Object.assign(S,JSON.parse(h));renderAll()}
-function renderAll(){renderBin();renderProjects();renderTimeline();renderInspector();refreshSource();refreshProgram();renderLibraryForTab(S.workspace);showGraphics();showCaptions();document.getElementById('programTitle').textContent=S.sequence;document.getElementById('sequence').value=S.sequence;document.getElementById('sequenceSelect').value=S.frameRate||'24 fps';applyVisual()}
-function wireTabs(){
-  document.querySelectorAll('#workspaces button[data-tab]').forEach(b=>b.onclick=()=>setWorkspace(b.dataset.tab));
-  document.querySelectorAll('#subtabs button').forEach(b=>b.onclick=()=>{activateLeftPanel(b.dataset.left);if(b.dataset.left==='effects')renderLibraryForTab(S.workspace);if(b.dataset.left==='libraries')renderLibrariesForTab(S.workspace);if(b.dataset.left==='info')renderInfo(selectedFile());setStatus(b.textContent+' panel opened.')});
-}
-
-function closeEditorMenu(){const m=document.getElementById('editorMenu');if(m)m.remove()}
-function openEditorMenu(button,items){
-  closeEditorMenu();
-  const menu=document.createElement('div');menu.id='editorMenu';
-  menu.style.cssText='position:fixed;z-index:1000;min-width:190px;background:#2a2b2e;border:1px solid #4a4b50;border-radius:5px;box-shadow:0 18px 40px rgba(0,0,0,.45);padding:5px';
-  const r=button.getBoundingClientRect();menu.style.left=Math.max(4,Math.min(window.innerWidth-200,r.left))+'px';menu.style.top=(r.bottom+2)+'px';
-  items.forEach(function(item){
-    const b=document.createElement('button');b.textContent=item.label;
-    b.style.cssText='display:block;width:100%;text-align:left;border:0;background:transparent;color:#eee;padding:7px 9px;border-radius:3px;font-size:9px;cursor:pointer';
-    b.onmouseenter=function(){b.style.background='#3a3b3f'};b.onmouseleave=function(){b.style.background='transparent'};
-    b.onclick=function(){closeEditorMenu();item.action()};
-    menu.appendChild(b);
+/* ---------- clip interactions ---------- */
+function bindClip(el,c){
+  el.addEventListener("pointerdown",e=>{
+    if(e.target.classList.contains("edge"))return;
+    if(tool==="razor"){razorSplit(c,e);return;}
+    selId=c.id;renderInspector();document.querySelectorAll(".clip").forEach(x=>x.classList.toggle("sel",x.dataset.id===selId));
+    const lane=el.parentElement,laneRect=lane.getBoundingClientRect();
+    const grab=e.clientX-(laneRect.left)- (c.start*pps) + lane.parentElement.scrollLeft*0; // start grab offset
+    const startX=e.clientX, origStart=c.start;
+    el.setPointerCapture(e.pointerId);el.style.cursor="grabbing";
+    const move=ev=>{
+      let ns=origStart+(ev.clientX-startX)/pps;
+      ns=snap(ns, c);
+      c.start=Math.max(0,ns);
+      el.style.left=(c.start*pps)+"px";
+    };
+    const up=ev=>{el.releasePointerCapture(e.pointerId);el.style.cursor="grab";el.removeEventListener("pointermove",move);el.removeEventListener("pointerup",up);renderTimeline();renderInspector();scheduleSave();};
+    el.addEventListener("pointermove",move);el.addEventListener("pointerup",up);
   });
-  document.body.appendChild(menu);
-  setTimeout(function(){
-    const outside=function(e){if(!menu.contains(e.target)&&e.target!==button){closeEditorMenu();document.removeEventListener('pointerdown',outside)}};
-    document.addEventListener('pointerdown',outside);
-  },0);
-}
-function addTimelineMarker(){
-  S.markers=S.markers||[];
-  S.markers.push({id:crypto.randomUUID(),time:Number(S.playhead||0),label:'Marker'});
-  S.markers.sort((a,b)=>a.time-b.time);
-  save();renderTimeline();setStatus('Marker added at '+ft(S.playhead)+'.');
-}
-document.getElementById('back').onclick=()=>location.href='/';
-document.querySelector('.home').onclick=()=>location.href='/';
-const menuActions={
-  File:[['Import Media',()=>document.getElementById('fileInput').click()],['Import Folder',()=>document.getElementById('folderInput').click()],['Save Sequence',save],['Export Edit Package',exportEditPackage]],
-  Edit:[['Undo',undo],['Redo',redo]],
-  Clip:[['Add Selected to Timeline',()=>{const f=selectedFile();if(f)addFileToTimeline(f);else setStatus('Select media first')}],['Razor Cut',()=>document.getElementById('razorBtn').click()],['Ripple Delete',()=>document.getElementById('rippleBtn').click()]],
-  Sequence:[['24 fps',()=>{S.frameRate='24 fps';document.getElementById('sequenceSelect').value='24 fps';save();setStatus('Sequence set to 24 fps')}],['30 fps',()=>{S.frameRate='30 fps';document.getElementById('sequenceSelect').value='30 fps';save();setStatus('Sequence set to 30 fps')}],['50 fps',()=>{S.frameRate='50 fps';document.getElementById('sequenceSelect').value='50 fps';save();setStatus('Sequence set to 50 fps')}],['60 fps',()=>{S.frameRate='60 fps';document.getElementById('sequenceSelect').value='60 fps';save();setStatus('Sequence set to 60 fps')}]],
-  Markers:[['Add Marker',addTimelineMarker],['Clear Markers',()=>{S.markers=[];save();setStatus('Markers cleared.')}]],
-  Graphics:[['Open Graphics',()=>setWorkspace('graphics')],['Open Captions',()=>setWorkspace('captions')]],
-  Window:[['Toggle Inspector',()=>document.getElementById('toggleInspector').click()],['Fullscreen Editor',()=>document.documentElement.requestFullscreen?.().catch(()=>{})]],
-  Help:[['Keyboard Shortcuts',()=>setStatus('Space Play/Pause • B Razor • Delete Ripple Delete • Ctrl/Cmd+Z Undo • Ctrl/Cmd+Y Redo')],['About FBI Editor',()=>setStatus('FBI Creative Video Editor • Non-destructive cloud project workspace')]]
-};
-document.querySelectorAll('.menubar>button:not(.home)').forEach(function(b){
-  const name=b.textContent.trim();
-  b.onclick=function(){const items=(menuActions[name]||[]).map(x=>({label:x[0],action:x[1]}));if(items.length)openEditorMenu(b,items)};
-});
-document.getElementById('saveTop').onclick=save;document.getElementById('save')&&(document.getElementById('save').onclick=save);
-document.getElementById('addMedia').onclick=()=>document.getElementById('fileInput').click();
-document.getElementById('addFolder').onclick=()=>document.getElementById('folderInput').click();
-document.getElementById('folderInput').onchange=e=>{importFiles(e.target.files);e.target.value=''};
-
-document.getElementById('fileInput').onchange=e=>{importFiles(e.target.files);e.target.value=''};
-document.getElementById('addToTimeline').onclick=()=>{const f=selectedFile();if(f)addFileToTimeline(f);else setStatus('Select media first.')};
-document.getElementById('razorBtn').onclick=()=>{const c=activeClip();if(!c)return setStatus('Place the playhead inside a clip.');const rel=S.playhead-c.start;if(rel<=.05||rel>=c.duration-.05)return setStatus('Place the playhead inside a clip.');snapshot();const cut=c.trimIn+rel*c.speed;const n=Object.assign({},c,{id:crypto.randomUUID(),trimIn:cut,start:c.start+rel});c.trimOut=cut;rebuild(c);rebuild(n);S.clips.push(n);S.selectedClip=n.id;save();renderAll();setStatus('Razor cut created.')};
-document.getElementById('rippleBtn').onclick=()=>{const c=selectedClip();if(!c)return;const end=c.start+c.duration;snapshot();S.clips=S.clips.filter(x=>x.id!==c.id);S.clips.forEach(x=>{if(x.start>=end)x.start-=c.duration});S.selectedClip=null;save();renderAll();setStatus('Ripple delete complete.')};
-document.getElementById('toggleInspector').onclick=()=>document.getElementById('inspectorWrap').classList.toggle('show');
-document.getElementById('closeInspector').onclick=()=>document.getElementById('inspectorWrap').classList.remove('show');
-document.getElementById('play').onclick=playProgram;
-document.getElementById('programVideo').ontimeupdate=()=>{const c=activeClip();if(!c)return;const rel=Math.max(0,Math.min(c.duration,(document.getElementById('programVideo').currentTime-c.trimIn)/c.speed));S.playhead=c.start+rel;document.getElementById('programTc').textContent=ft(S.playhead)+':00';applyClipAudio(c,rel);applyVisual();renderTimeline()};
-document.getElementById('programAudio').ontimeupdate=()=>{const c=activeClip();if(!c||c.type!=='audio')return;const rel=Math.max(0,Math.min(c.duration,(document.getElementById('programAudio').currentTime-c.trimIn)/c.speed));S.playhead=c.start+rel;document.getElementById('programTc').textContent=ft(S.playhead)+':00';applyClipAudio(c,rel);renderTimeline()};
-const advanceAfterEnd=()=>{if(!S.playing)return;const n=[...S.clips].sort((a,b)=>a.start-b.start).find(x=>x.start>S.playhead+.01);if(n){S.selectedClip=n.id;S.playhead=n.start;refreshProgram();const c=n,f=c.type==='audio'?document.getElementById('programAudio'):document.getElementById('programVideo');const p=f.play();if(p&&p.catch)p.catch(function(){})}else{S.playing=false;setStatus('Sequence complete.')}};
-document.getElementById('programVideo').onended=advanceAfterEnd;document.getElementById('programAudio').onended=advanceAfterEnd;
-document.getElementById('prev').onclick=()=>stepNext(-1);document.getElementById('next').onclick=()=>stepNext(1);
-document.getElementById('sourcePlay').onclick=()=>{const v=document.getElementById('sourceVideo');if(v.paused)v.play().catch(()=>{});else v.pause()};document.getElementById('sourcePrev').onclick=()=>{document.getElementById('sourceVideo').currentTime=0};document.getElementById('sourceNext').onclick=()=>{const v=document.getElementById('sourceVideo');if(Number.isFinite(v.duration))v.currentTime=v.duration};document.getElementById('sourceVideo').ontimeupdate=()=>{document.getElementById('sourceTc').textContent=ft(document.getElementById('sourceVideo').currentTime)+':00'};
-document.getElementById('tlscroll').onclick=e=>{if(e.target.closest('.clip'))return;const rect=document.getElementById('tlscroll').getBoundingClientRect();const x=e.clientX-rect.left+document.getElementById('tlscroll').scrollLeft;S.playhead=Math.max(0,x/timelineZoom);const c=activeClip();if(c)S.selectedClip=c.id;renderTimeline();renderInspector();refreshProgram()};
-document.getElementById('sequence')&&(document.getElementById('sequence').onchange=e=>{S.sequence=e.target.value||'Untitled Sequence';document.getElementById('programTitle').textContent=S.sequence;save()});
-async function exportEditPackage(){
-  const payload=editorPayload();
-  const blob=new Blob([JSON.stringify({format:'fbi-editor-project',version:1,exported_at:new Date().toISOString(),project_id:S.project,sequence:payload},null,2)],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(String(S.sequence||'Untitled Sequence').replace(/[^a-z0-9._-]+/gi,'_')||'Untitled_Sequence')+'.fbi-edit.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);setStatus('Edit package exported. Original media remains untouched.');
-}
-async function renderMaster(){
-  if(!S.project)return setStatus('Select a project before rendering.');
-  if(!S.clips.length)return setStatus('Add media to the timeline first.');
-  const btn=document.getElementById('renderMaster'),res=document.getElementById('renderResolution');
-  if(btn)btn.disabled=true;
-  setStatus('Starting non-destructive master render…');
-  try{
-    const d=await api('/api/editor/render/'+encodeURIComponent(S.project),{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({sequence:editorPayload(),resolution:res?.value||'1920x1080'})
+  el.querySelectorAll(".edge").forEach(edge=>{
+    edge.addEventListener("pointerdown",e=>{
+      e.stopPropagation();selId=c.id;
+      const left=edge.classList.contains("l");const startX=e.clientX;
+      const o={start:c.start,duration:c.duration,trimIn:c.trimIn,trimOut:c.trimOut};
+      edge.setPointerCapture(e.pointerId);
+      const move=ev=>{
+        const dt=(ev.clientX-startX)/pps;
+        if(left){
+          let ni=clamp(o.trimIn+dt*(c.speed||1),0,(o.trimOut)-0.1);
+          const dd=(ni-o.trimIn)/(c.speed||1);
+          c.trimIn=ni;c.start=Math.max(0,o.start+dd);c.duration=Math.max(0.1,(c.trimOut-c.trimIn)/(c.speed||1));
+        }else{
+          let no=clamp(o.trimOut+dt*(c.speed||1),o.trimIn+0.1,c.srcDuration||o.trimOut+dt*(c.speed||1)+999);
+          c.trimOut=no;c.duration=Math.max(0.1,(c.trimOut-c.trimIn)/(c.speed||1));
+        }
+        el.style.left=(c.start*pps)+"px";el.style.width=Math.max(14,c.duration*pps)+"px";
+      };
+      const up=ev=>{edge.releasePointerCapture(e.pointerId);edge.removeEventListener("pointermove",move);edge.removeEventListener("pointerup",up);renderTimeline();renderInspector();scheduleSave();};
+      edge.addEventListener("pointermove",move);edge.addEventListener("pointerup",up);
     });
-    const jobId=d?.job?.id;
-    if(!jobId)throw new Error('Render job was not created.');
-    let last=-1;
-    for(;;){
-      await new Promise(r=>setTimeout(r,1200));
-      const s=await api('/api/editor/renders/'+encodeURIComponent(jobId));
-      const j=s.job||{};
-      if(Number(j.progress)!==last){last=Number(j.progress);setStatus('Rendering master… '+last+'%')}
-      if(j.status==='completed'){
-        setStatus('Master render complete. Downloading render…');
-        window.open('/api/editor/renders/'+encodeURIComponent(jobId)+'/download','_blank','noopener');
-        break;
-      }
-      if(j.status==='failed')throw new Error(j.error||'Master render failed.');
-    }
-  }catch(e){setStatus(e.message||'Master render failed.');}
-  finally{if(btn)btn.disabled=false}
+  });
 }
-document.getElementById('export').onclick=exportEditPackage;
-document.getElementById('renderMaster').onclick=renderMaster;
-document.getElementById('toolrail').querySelectorAll('button').forEach(function(b){
-  b.onclick=function(){
-    document.getElementById('toolrail').querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');
-    const tool=b.title||'Selection';
-    if(tool==='Razor')document.getElementById('razorBtn').click();
-    else if(tool==='Ripple Edit')document.getElementById('rippleBtn').click();
-    else if(tool==='Type')setWorkspace('graphics');
-    else if(tool==='Zoom'){timelineZoom=Math.min(80,timelineZoom+8);renderTimeline();setStatus('Timeline zoom '+timelineZoom+' px/sec.')}
-    else setStatus(tool+' tool active.');
-  };
-});
-document.addEventListener('keydown',e=>{const t=document.activeElement?.tagName;if(t==='INPUT'||t==='SELECT'||t==='TEXTAREA')return;if(e.code==='Space'){e.preventDefault();playProgram()}else if(e.key.toLowerCase()==='b'){e.preventDefault();document.getElementById('razorBtn').click()}else if(e.key==='Delete'){e.preventDefault();document.getElementById('rippleBtn').click()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();undo()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();redo()}});
-document.getElementById('sequenceSelect').onchange=e=>{S.frameRate=e.target.value;save();setStatus('Sequence set to '+e.target.value)};
-document.addEventListener('dragover',e=>{e.preventDefault()});document.addEventListener('drop',e=>{e.preventDefault();if(e.dataTransfer?.files?.length)importFiles(e.dataTransfer.files)});
-document.getElementById('graphicsOverlay').onclick=()=>setStatus('Graphics preview overlay');
-document.getElementById('captionOverlay').onclick=()=>setStatus('Caption preview overlay');
-(async function boot(){
+function snap(ns,c){
+  const targets=[0,playhead];
+  state.clips.forEach(o=>{if(o.id!==c.id&&o.track===c.track){targets.push(o.start);targets.push(o.start+o.duration-c.duration);targets.push(o.start+o.duration);}});
+  const thresh=8/pps;
+  for(const t of targets){if(Math.abs(ns-t)<thresh)return Math.max(0,t);}
+  return ns;
+}
+function razorSplit(c,e){
+  const lane=e.currentTarget?e.currentTarget.parentElement:null;
+  const rect=(lane||$("#laneV1")).getBoundingClientRect();
+  const tAt=(e.clientX-rect.left)/pps;
+  splitClipAt(c,tAt);
+}
+function splitClipAt(c,tAbs){
+  if(tAbs<=c.start+0.05||tAbs>=c.start+c.duration-0.05)return;
+  const offset=(tAbs-c.start)*(c.speed||1);
+  const b=Object.assign({},c,{id:uid(),grade:Object.assign({},c.grade)});
+  c.trimOut=c.trimIn+offset;c.duration=(c.trimOut-c.trimIn)/(c.speed||1);
+  b.trimIn=c.trimIn+offset;b.start=tAbs;b.duration=(b.trimOut-b.trimIn)/(b.speed||1);
+  state.clips.push(b);selId=b.id;renderTimeline();renderInspector();scheduleSave();toast("Clip split");
+}
+function splitAtPlayhead(){
+  const c=state.clips.find(c=>c.id===selId)||activeClip(playhead,"V1");
+  if(c&&playhead>c.start&&playhead<c.start+c.duration)splitClipAt(c,playhead);else toast("Put the playhead over a clip to split",true);
+}
+function deleteSel(){if(!selId)return;state.clips=state.clips.filter(c=>c.id!==selId);selId=null;renderTimeline();renderInspector();scheduleSave();toast("Clip removed");}
+
+/* ---------- playhead / scrub ---------- */
+function positionPlayhead(){$("#playhead").style.left=(70+playhead*pps)+"px";
+  const tot=timelineDuration();$("#tc").innerHTML=fmt(playhead)+'<span class="sep">/</span>'+fmt(tot);}
+function bindRulerScrub(){
+  const sc=$("#tlScroll");
+  const area=$("#tlInner");
+  function toTime(clientX){const r=area.getBoundingClientRect();return Math.max(0,(clientX-r.left-70+sc.scrollLeft*0)/pps);}
+  $("#ruler").addEventListener("pointerdown",e=>{
+    const r=$("#ruler").getBoundingClientRect();
+    const seek=cx=>{playhead=Math.max(0,(cx-r.left)/pps);positionPlayhead();renderPreview();};
+    seek(e.clientX);
+    const mv=ev=>seek(ev.clientX);const up=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up);};
+    document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);
+  });
+}
+
+/* ---------- preview playback ---------- */
+const pv=$("#pv"),pvImg=$("#pvImg");
+let loadedFileId=null,lastTs=0;
+function activeClip(t,track){return state.clips.filter(c=>c.track===(track||"V1")).find(c=>t>=c.start-0.001&&t<c.start+c.duration-0.001);}
+function gradeFilterCss(g){g=g||{};
+  const b=1+((g.exposure||0)/100)*0.5;
+  const con=(g.contrast==null?100:g.contrast)/100;
+  const sat=(g.saturate==null?100:g.saturate)/100;
+  const gray=(g.grayscale||0)/100,sep=(g.sepia||0)/100,blur=(g.blur||0);
+  return `brightness(${b.toFixed(3)}) contrast(${con.toFixed(3)}) saturate(${sat.toFixed(3)}) grayscale(${gray.toFixed(2)}) sepia(${sep.toFixed(2)}) blur(${blur}px)`;
+}
+function applyGradeVisual(g){g=g||{};
+  const css=gradeFilterCss(g);pv.style.filter=css;pvImg.style.filter=css;
+  const temp=(g.temperature||0),tint=(g.tint||0);const wash=$("#tempwash");
+  if(temp||tint){let r=128+temp*0.9,b=128-temp*0.9,gg=128+tint*0.6;wash.style.background=`rgb(${clamp(r,0,255)|0},${clamp(gg,0,255)|0},${clamp(b,0,255)|0})`;wash.style.opacity=Math.min(.6,(Math.abs(temp)+Math.abs(tint))/180);}else wash.style.opacity=0;
+  const vg=Math.max(g.vignette?40:0,0);$("#vig").style.boxShadow="inset 0 0 160px rgba(0,0,0,"+(g.vignette?0.7:0)+")";
+}
+function renderPreview(){
+  const c=activeClip(playhead,"V1");
+  if(!c){pv.style.display="none";pvImg.style.display="none";loadedFileId=null;applyGradeVisual({});return;}
+  applyGradeVisual(c.grade);
+  if(c.type==="image"){pv.style.display="none";pv.pause&&pv.pause();pvImg.style.display="block";if(loadedFileId!=="img:"+c.fileId){pvImg.src="/api/admin/file/"+c.fileId;loadedFileId="img:"+c.fileId;}return;}
+  pvImg.style.display="none";pv.style.display="block";
+  if(loadedFileId!==c.fileId){loadedFileId=c.fileId;pv.src="/api/admin/file/"+c.fileId;}
+  const want=(c.trimIn||0)+(playhead-c.start)*(c.speed||1);
+  pv.playbackRate=clamp(c.speed||1,0.25,4);
+  pv.volume=c.mute?0:clamp((c.volume==null?100:c.volume)/100,0,1);
+  if(!playing){try{if(Math.abs(pv.currentTime-want)>0.15)pv.currentTime=want;}catch(e){}}
+}
+function loop(ts){
+  if(playing){
+    const dt=(ts-lastTs)/1000;lastTs=ts;
+    playhead+=dt;
+    const tot=timelineDuration();
+    if(playhead>=tot){playhead=tot;stop();}
+    const c=activeClip(playhead,"V1");
+    if(c&&c.type==="video"){
+      if(loadedFileId!==c.fileId){loadedFileId=c.fileId;pv.src="/api/admin/file/"+c.fileId;}
+      const want=(c.trimIn||0)+(playhead-c.start)*(c.speed||1);
+      if(pv.paused)pv.play().catch(()=>{});
+      if(Math.abs(pv.currentTime-want)>0.25){try{pv.currentTime=want;}catch(e){}}
+      applyGradeVisual(c.grade);pv.style.display="block";pvImg.style.display="none";
+    }else{if(!pv.paused)pv.pause();renderPreview();}
+    positionPlayhead();
+    const sc=$("#tlScroll"),phx=70+playhead*pps;if(phx>sc.scrollLeft+sc.clientWidth-80||phx<sc.scrollLeft)sc.scrollLeft=phx-120;
+  }else lastTs=ts;
+  requestAnimationFrame(loop);
+}
+function play(){if(playing)return;if(playhead>=timelineDuration()-0.05)playhead=0;playing=true;lastTs=performance.now();$("#playBtn").textContent="⏸";renderPreview();if(pv.style.display!=="none")pv.play().catch(()=>{});}
+function stop(){playing=false;$("#playBtn").textContent="▶";if(!pv.paused)pv.pause();}
+function togglePlay(){playing?stop():play();}
+
+/* ---------- inspector ---------- */
+const LOOKS={
+  none:{},
+  cinematic:{contrast:112,saturate:92,temperature:-8,shadows:-10,highlights:6,vignette:1},
+  warm:{temperature:28,saturate:108,exposure:4},
+  teal:{temperature:-26,tint:-8,saturate:110,contrast:106},
+  bw:{grayscale:100,contrast:112},
+  sepia:{sepia:70,saturate:70,temperature:18},
+  vivid:{saturate:135,contrast:110,exposure:4},
+  noir:{grayscale:100,contrast:128,shadows:-22,vignette:1},
+  faded:{contrast:88,saturate:84,exposure:8,highlights:-8}
+};
+function renderInspector(){
+  const c=state.clips.find(c=>c.id===selId);
+  const ins=$("#inspector");
+  if(!c){$("#insTitle").textContent="Inspector";ins.innerHTML='<div class="ins-empty">Select a clip on the timeline to edit it, trim it, mix its audio and color-grade it.</div>';return;}
+  $("#insTitle").textContent=c.type==="audio"?"Audio clip":"Clip";
+  const g=c.grade||(c.grade={});
+  const sld=(id,label,min,max,v,unit)=>`<div class="ctl"><div class="row"><label>${label}</label><span class="val" id="v_${id}">${v}${unit||""}</span></div><input type="range" id="${id}" min="${min}" max="${max}" step="1" value="${v}"></div>`;
+  let html=`<div class="section"><div class="lbl">Clip</div>
+    ${sld("speed","Speed",25,400,Math.round((c.speed||1)*100),"%")}
+    ${c.type!=="image"?sld("volume","Volume",0,200,(c.volume==null?100:c.volume),"%"):""}
+    ${c.type!=="image"?`<div class="pill"><button class="toggle ${c.mute?"on":""}" id="muteT">${c.mute?"● Muted":"Mute"}</button></div>`:""}
+  </div>`;
+  if(c.type!=="audio"){
+    const wheel=(id,label,x,y)=>`<div class="wheel"><div class="disc" id="${id}"><div class="dot" style="left:${50+x}%;top:${50-y}%"></div></div><small>${label}</small></div>`;
+    html+=`<div class="section"><div class="lbl">Color Grade</div>
+      <div class="wheels">
+        ${wheel("wShadows","Shadows",0,(g.shadows||0)/4)}
+        ${wheel("wMids","Temp / Tint",(g.temperature||0)/4,(g.tint||0)/4)}
+        ${wheel("wHigh","Highlights",0,(g.highlights||0)/4)}
+      </div>
+      ${sld("exposure","Exposure",-100,100,(g.exposure||0))}
+      ${sld("contrast","Contrast",50,180,(g.contrast==null?100:g.contrast))}
+      ${sld("saturate","Saturation",0,200,(g.saturate==null?100:g.saturate))}
+      ${sld("temperature","Temperature",-100,100,(g.temperature||0))}
+      ${sld("tint","Tint",-100,100,(g.tint||0))}
+      ${sld("shadows","Shadows",-100,100,(g.shadows||0))}
+      ${sld("highlights","Highlights",-100,100,(g.highlights||0))}
+      <div class="pill" style="margin-top:8px">
+        <button class="toggle ${g.vignette?"on":""}" id="vigT">Vignette</button>
+        <button class="toggle ${g.grain?"on":""}" id="grainT">Film grain</button>
+      </div>
+    </div>
+    <div class="section"><div class="lbl">Looks</div><div class="looks" id="looks">
+      ${Object.keys(LOOKS).map(k=>`<button class="look" data-look="${k}">${k==="bw"?"B&amp;W":k[0].toUpperCase()+k.slice(1)}</button>`).join("")}
+    </div></div>`;
+  }
+  ins.innerHTML=html;
+  // bind clip controls
+  const bindSld=(id,fn)=>{const el=$("#"+id);if(!el)return;el.oninput=()=>{const v=Number(el.value);$("#v_"+id)&&($("#v_"+id).textContent=v+(id==="speed"||id==="volume"||id==="contrast"||id==="saturate"?"%":""));fn(v);scheduleSave();};};
+  bindSld("speed",v=>{c.speed=clamp(v/100,0.25,4);c.duration=Math.max(0.1,(c.trimOut-c.trimIn)/c.speed);renderTimeline();});
+  bindSld("volume",v=>{c.volume=v;});
+  const mt=$("#muteT");if(mt)mt.onclick=()=>{c.mute=!c.mute;renderInspector();renderTimeline();scheduleSave();};
+  ["exposure","contrast","saturate","temperature","tint","shadows","highlights"].forEach(k=>bindSld(k,v=>{g[k]=v;applyGradeVisual(g);syncWheels(g);}));
+  const vt=$("#vigT");if(vt)vt.onclick=()=>{g.vignette=g.vignette?0:1;renderInspector();applyGradeVisual(g);scheduleSave();};
+  const gt=$("#grainT");if(gt)gt.onclick=()=>{g.grain=g.grain?0:1;renderInspector();scheduleSave();};
+  const lk=$("#looks");if(lk)lk.querySelectorAll("[data-look]").forEach(b=>b.onclick=()=>{const L=LOOKS[b.dataset.look]||{};c.grade=Object.assign({exposure:0,contrast:100,saturate:100,temperature:0,tint:0,shadows:0,highlights:0,grayscale:0,sepia:0,vignette:0,grain:0},L);renderInspector();applyGradeVisual(c.grade);scheduleSave();toast("Look applied");});
+  applyGradeVisual(c.grade);
+}
+function syncWheels(g){
+  const set=(id,x,y)=>{const d=document.querySelector("#"+id+" .dot");if(d){d.style.left=(50+x)+"%";d.style.top=(50-y)+"%";}};
+  set("wMids",(g.temperature||0)/4,(g.tint||0)/4);set("wShadows",0,(g.shadows||0)/4);set("wHigh",0,(g.highlights||0)/4);
+}
+
+/* ---------- save & export ---------- */
+let saveT;
+function scheduleSave(){clearTimeout(saveT);saveT=setTimeout(saveSeq,1200);}
+async function saveSeq(silent){
+  try{state.resolution=$("#resSelect").value;await api("/api/editor/sequences/"+encodeURIComponent(projectId),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({sequence:state,sequence_name:state.name})});if(!silent)toast("Saved");}
+  catch(e){toast("Save failed: "+(e.message||e),true);}
+}
+let pollT;
+async function startExport(){
+  const vclips=state.clips.filter(c=>c.track==="V1");
+  if(!vclips.length){toast("Add at least one video or image to V1 first",true);return;}
+  await saveSeq(true);
+  $("#exStart").style.display="none";$("#exProgWrap").style.display="block";$("#exClose").textContent="Hide";
+  $("#exTitle").textContent="Rendering…";$("#exMsg").textContent="Your edit is rendering on the server. You can keep working — it will be saved into this project when done.";
   try{
-    const me=await api('/api/auth/me');if(!me.authenticated){location.href='/';return}
-    const d=await api('/api/projects?status=active');projects=d.projects||[];
-    const base=JSON.parse(localStorage.getItem('fbi-editor-project')||'null');if(base?.projectId){S.project=base.projectId;S.sequence=base.sequence||S.sequence}
-    document.getElementById('sequence').value=S.sequence;
-    document.getElementById('project')&&(document.getElementById('project').onchange=e=>loadProject(e.target.value));
-    wireTabs();renderAll();setWorkspace('assembly');renderLibrariesForTab('assembly');
-    if(S.project){document.getElementById('project').value=S.project;await loadProject(S.project)}else setStatus('Select a project or import media from your desktop.');
-  }catch(e){document.body.innerHTML='<div class="empty">'+esc(e.message||'Editor unavailable')+'</div>'}
-})();
+    const r=await api("/api/editor/render/"+encodeURIComponent(projectId),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sequence:state,resolution:$("#resSelect").value})});
+    const jobId=r.job&&r.job.id;if(!jobId)throw new Error("No render job id returned.");
+    poll(jobId);
+  }catch(e){$("#exTitle").textContent="Render failed";$("#exMsg").textContent=e.message||String(e);$("#exStart").style.display="";$("#exProgWrap").style.display="none";}
+}
+async function poll(jobId){
+  try{
+    const d=await api("/api/editor/renders/"+encodeURIComponent(jobId));
+    const j=d.job||d;const p=Number(j.progress||0);
+    $("#exProg").style.width=Math.max(3,p)+"%";
+    if(j.status==="completed"){
+      $("#exTitle").textContent="Export complete ✓";
+      $("#exMsg").innerHTML="Saved into this project's files (Renders). <a href='/api/editor/renders/"+jobId+"/download' style='color:var(--gold)'>Download the master</a>.";
+      $("#exStart").textContent="Render again";$("#exStart").style.display="";toast("Export complete");return;
+    }
+    if(j.status==="failed"){$("#exTitle").textContent="Render failed";$("#exMsg").textContent=j.error||"The render did not finish.";$("#exStart").style.display="";return;}
+    $("#exMsg").textContent="Rendering… "+p+"%";
+    pollT=setTimeout(()=>poll(jobId),1500);
+  }catch(e){pollT=setTimeout(()=>poll(jobId),2500);}
+}
+
+/* ---------- global bindings ---------- */
+function setTool(t){tool=t;$("#toolSelect").classList.toggle("active",t==="select");$("#toolRazor").classList.toggle("active",t==="razor");$("#tlScroll").classList.toggle("razor",t==="razor");}
+function bindGlobal(){
+  bindRulerScrub();
+  $("#playBtn").onclick=togglePlay;
+  $("#toStart").onclick=()=>{playhead=0;positionPlayhead();renderPreview();};
+  $("#toEnd").onclick=()=>{playhead=timelineDuration();positionPlayhead();renderPreview();};
+  $("#toolSelect").onclick=()=>setTool("select");
+  $("#toolRazor").onclick=()=>setTool("razor");
+  $("#delBtn").onclick=deleteSel;
+  $("#splitBtn").onclick=splitAtPlayhead;
+  $("#zoomIn").onclick=()=>{pps=clamp(pps*1.4,10,320);renderTimeline();positionPlayhead();};
+  $("#zoomOut").onclick=()=>{pps=clamp(pps/1.4,10,320);renderTimeline();positionPlayhead();};
+  $("#fitBtn").onclick=()=>{const w=$("#tlScroll").clientWidth-90;pps=clamp(w/Math.max(6,timelineDuration()),10,320);renderTimeline();positionPlayhead();};
+  $("#saveBtn").onclick=()=>saveSeq();
+  $("#resSelect").onchange=()=>{state.resolution=$("#resSelect").value;scheduleSave();};
+  $("#refreshMedia").onclick=async()=>{await loadProject();renderMedia();renderTimeline();toast("Media refreshed");};
+  $("#markIn").onclick=()=>{const c=state.clips.find(c=>c.id===selId);if(!c)return;const off=(playhead-c.start)*(c.speed||1);if(off>0&&off<(c.trimOut-c.trimIn)){c.trimIn=c.trimIn+off;c.start=playhead;c.duration=(c.trimOut-c.trimIn)/(c.speed||1);renderTimeline();scheduleSave();}};
+  $("#markOut").onclick=()=>{const c=state.clips.find(c=>c.id===selId);if(!c)return;const off=(playhead-c.start)*(c.speed||1);if(off>0.1){c.trimOut=c.trimIn+off;c.duration=(c.trimOut-c.trimIn)/(c.speed||1);renderTimeline();scheduleSave();}};
+  // export modal
+  $("#exportBtn").onclick=()=>{$("#exportModal").classList.add("show");$("#exStart").style.display="";$("#exStart").textContent="Start render";$("#exProgWrap").style.display="none";$("#exTitle").textContent="Export your edit";$("#exMsg").textContent="This renders your timeline on the server and saves the finished video into this project's files.";};
+  $("#exClose").onclick=()=>{$("#exportModal").classList.remove("show");clearTimeout(pollT);};
+  $("#exStart").onclick=startExport;
+  // drag-drop onto timeline
+  ["laneV1","laneA1"].forEach(id=>{const lane=$("#"+id);lane.addEventListener("dragover",e=>e.preventDefault());lane.addEventListener("drop",e=>{e.preventDefault();const fid=e.dataTransfer.getData("text/fileid");const f=files.find(x=>x.id===fid);if(f)addToTimeline(f);});});
+  // keys
+  document.addEventListener("keydown",e=>{
+    if(/input|select|textarea/i.test(e.target.tagName))return;
+    if(e.code==="Space"){e.preventDefault();togglePlay();}
+    else if(e.key==="Delete"||e.key==="Backspace"){deleteSel();}
+    else if(e.key==="c"||e.key==="C"){setTool("razor");}
+    else if(e.key==="v"||e.key==="V"){setTool("select");}
+    else if(e.key==="s"||e.key==="S"){splitAtPlayhead();}
+  });
+}
+boot();
 </script>
 </body>
 </html>
