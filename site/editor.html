@@ -148,12 +148,71 @@ input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;bac
 .prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--golddeep),var(--gold2));transition:.3s}
 .loading{position:fixed;inset:0;display:grid;place-items:center;background:var(--bg);z-index:120;color:var(--muted)}
 @media (max-width:1000px){.mid{grid-template-columns:180px 1fr 240px}}
+
+/* ============ FBI signature polish ============ */
+body{background:
+  radial-gradient(1100px 560px at 84% -12%,rgba(232,190,85,.10),transparent 60%),
+  radial-gradient(900px 600px at 0% 110%,rgba(124,160,200,.05),transparent 55%),
+  #08080a;}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.025;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+.app{position:relative;z-index:2}
+/* brand */
+.brand .blogo{height:30px;width:auto;max-width:120px;object-fit:contain;filter:drop-shadow(0 2px 10px rgba(232,190,85,.3))}
+.brand .bwm b{font-family:'Fraunces',serif;font-weight:600;font-size:15px}
+.brand .bwm small{color:var(--faint);font-size:8px;letter-spacing:.22em;text-transform:uppercase;margin-top:1px;display:block}
+.top{border-bottom:1px solid rgba(232,190,85,.14);background:linear-gradient(180deg,rgba(20,18,14,.9),rgba(14,14,17,.72))}
+/* loading iris */
+.loading{flex-direction:column;gap:18px;background:radial-gradient(800px 520px at 50% 34%,#16110a,#060607);letter-spacing:.04em}
+.loading .iris{width:58px;height:58px;border-radius:50%;background:conic-gradient(from 0deg,#8a6512,#f6dd8a,#c6911f,#f3d579,#8a6512);-webkit-mask:radial-gradient(circle 10px at center,transparent 97%,#000 100%);mask:radial-gradient(circle 10px at center,transparent 97%,#000 100%);animation:fbispin 1.05s cubic-bezier(.5,.15,.5,.85) infinite;box-shadow:0 0 30px rgba(232,190,85,.28)}
+@keyframes fbispin{to{transform:rotate(360deg)}}
+/* panels: glassy with inset highlight */
+.pane,.tl{background:linear-gradient(180deg,rgba(22,22,26,.92),rgba(18,18,21,.92));box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}
+.pane-h b,.lbl{text-shadow:0 1px 0 rgba(0,0,0,.4)}
+/* empty-canvas watermark */
+.frame{background:#060607;box-shadow:0 30px 70px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.03),inset 0 0 120px rgba(0,0,0,.5)}
+.phwm{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#55555f;z-index:0}
+.phwm .mk{width:150px;height:84px;background:url('/official-logo.png?v=3') center/contain no-repeat;opacity:.16;filter:drop-shadow(0 0 20px rgba(232,190,85,.12))}
+.phwm span{font-size:12px;letter-spacing:.06em}
+.frame video,.frame img{z-index:1}
+.frame .tempwash,.frame .vig{z-index:2}
+/* screen ambience */
+.screen{background:radial-gradient(1000px 560px at 50% -8%,#161018,#08080a 70%)}
+.screen:before{content:"";position:absolute;left:50%;top:0;width:60%;height:3px;transform:translateX(-50%);background:linear-gradient(90deg,transparent,rgba(232,190,85,.5),transparent);filter:blur(1px)}
+/* transport */
+.transport{background:linear-gradient(180deg,rgba(20,20,24,.9),rgba(16,16,19,.95));border-top:1px solid rgba(232,190,85,.1)}
+.tbtn.play{box-shadow:0 8px 24px rgba(232,190,85,.4);transition:.15s}
+.tbtn.play:hover{transform:translateY(-1px);filter:brightness(1.06)}
+.tc{background:#0c0c0f;border:1px solid var(--edge);border-radius:10px;padding:8px 12px}
+/* command bar glow */
+.cmdbar{background:linear-gradient(180deg,rgba(232,190,85,.08),rgba(232,190,85,.015));border-top:1px solid rgba(232,190,85,.12)}
+.cmdbar input:focus{box-shadow:0 0 0 3px rgba(232,190,85,.14)}
+/* timeline clips: top accent + depth */
+.clip{box-shadow:0 5px 16px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.08);border-radius:10px}
+.clip:after{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,var(--gold2),var(--gold));opacity:.85}
+.clip.audio:after{background:linear-gradient(90deg,#f0b76a,#caa23b)}
+.lane-h b{font-family:'Fraunces',serif}
+.playhead{box-shadow:0 0 10px rgba(232,190,85,.7)}
+.playhead:before{border-top-color:var(--gold2);filter:drop-shadow(0 0 4px rgba(232,190,85,.6))}
+.ruler{background:linear-gradient(180deg,#1b1b20,#141418)}
+/* tools + buttons tactile */
+.tool,.tbtn,.btn{transition:transform .12s,border-color .12s,background .12s}
+.tool:active,.tbtn:active,.btn:active{transform:translateY(1px)}
+.btn.gold{box-shadow:0 4px 14px rgba(232,190,85,.28)}
+/* scrollbars + selection */
+::-webkit-scrollbar{height:12px;width:12px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#2a2a32;border-radius:7px;border:3px solid rgba(0,0,0,0)}
+::-webkit-scrollbar-thumb:hover{background:#3a3a46}
+::selection{background:rgba(232,190,85,.32);color:#fff}
+/* color wheels get a faint iris ring */
+.wheel .disc{background:radial-gradient(circle at 50% 42%,#20201a,#0d0d10);box-shadow:inset 0 0 22px rgba(0,0,0,.6),0 0 0 1px rgba(232,190,85,.08)}
 </style>
 </head>
 <body>
 <div class="app" id="app" style="display:none">
   <div class="top">
-    <div class="brand"><div class="orb">FBI</div><div><b>Studio Engine</b><small>Edit · Grade · Deliver</small></div></div>
+    <div class="brand"><img class="blogo" src="/official-logo.png?v=3" alt="FBI"><div class="bwm"><b>Studio Engine</b><small>Edit · Grade · Deliver</small></div></div>
     <div class="proj"><select id="projSelect" title="Project"></select></div>
     <div class="spacer"></div>
     <span class="chip">Resolution <select id="resSelect"><option>1280x720</option><option selected>1920x1080</option><option>2560x1440</option><option>3840x2160</option></select></span>
@@ -172,6 +231,7 @@ input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;bac
     <div class="stage">
       <div class="screen">
         <div class="frame" id="frame">
+          <div class="phwm" id="phwm"><div class="mk"></div><span>Your canvas — add a clip to begin</span></div>
           <video id="pv" playsinline></video>
           <img id="pvImg" alt="" style="display:none">
           <div class="tempwash" id="tempwash"></div>
@@ -226,7 +286,7 @@ input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;bac
   </div>
 </div>
 
-<div class="loading" id="loading">Loading FBI Studio Engine…</div>
+<div class="loading" id="loading"><div class="iris"></div><span>Loading FBI Studio Engine…</span></div>
 <div class="toast" id="toast"></div>
 
 <div class="modal" id="exportModal">
