@@ -2273,6 +2273,17 @@ function overlayGenerator(preset,W,H,dur){
   }
 }
 
+// 3D perspective tilt — projects the layer in 3D space; pads transparent so it floats over lower tracks.
+function perspective3dFilter(rx,ry,W,H){
+  rx=Math.max(-60,Math.min(60,Number(rx)||0))*Math.PI/180;
+  ry=Math.max(-60,Math.min(60,Number(ry)||0))*Math.PI/180;
+  if(Math.abs(rx)<0.0017&&Math.abs(ry)<0.0017)return "";
+  var cx=W/2,cy=H/2,sx=Math.sin(ry),sy=Math.sin(rx);
+  var proj=function(u,v){var d=1+(u*sx+v*sy)*0.5;if(d<0.25)d=0.25;return [Math.round(cx+(u*W*0.5)/d),Math.round(cy+(v*H*0.5)/d)];};
+  var TL=proj(-1,-1),TR=proj(1,-1),BL=proj(-1,1),BR=proj(1,1);
+  return ",scale=iw*0.78:ih*0.78,pad="+W+":"+H+":(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba,perspective=x0="+TL[0]+":y0="+TL[1]+":x1="+TR[0]+":y1="+TR[1]+":x2="+BL[0]+":y2="+BL[1]+":x3="+BR[0]+":y3="+BR[1]+":sense=destination:eval=init,format=yuva420p";
+}
+
 // Shape mask — cuts the clip's alpha to a rectangle or feathered ellipse (Fusion mask).
 function maskFilter(mask,W,H){
   if(!mask||!mask.type||mask.type==="none")return "";
@@ -2480,6 +2491,7 @@ async function runEditorRender(jobId,projectId,state,settings){
       var op=Math.max(0,Math.min(1,(Number(cc.opacity==null?100:cc.opacity))/100));
       if(op<0.999)chain2+=",colorchannelmixer=aa="+op.toFixed(3);
       chain2+=maskFilter(cc.mask,W,H);
+      chain2+=perspective3dFilter(cc.rotX,cc.rotY,W,H);
       var fi=Math.max(0,Math.min(dur2/2,Number(cc.fadeIn)||0));if(tr)fi=Math.max(fi,tr.dur);
       var fo=Math.max(0,Math.min(dur2/2,Math.max(Number(cc.fadeOut)||0,extraFadeOut[cc.id]||0)));
       if(fi>0)chain2+=",fade=t=in:st=0:d="+fi.toFixed(3)+":alpha=1";

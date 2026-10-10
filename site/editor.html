@@ -408,7 +408,7 @@ async function addToTimeline(f,track){
   const dur=await probeDuration(f,k);
   const clip={id:uid(),fileId:f.id,name:f.original_name||"clip",type:k==="audio"?"audio":(k==="image"?"image":"video"),track,
     start:trackEnd(track),duration:dur,trimIn:0,trimOut:dur,speed:1,volume:100,mute:false,srcDuration:dur,grade:{},colorNodes:[],fxNodes:[],
-    scale:100,tx:0,ty:0,rotate:0,opacity:100,crop:{l:0,r:0,t:0,b:0},blend:"normal",mask:{type:"none",cx:0.5,cy:0.5,rx:0.4,ry:0.4,feather:0.05,l:0.15,r:0.15,t:0.15,b:0.15,invert:false}};
+    scale:100,tx:0,ty:0,rotate:0,rotX:0,rotY:0,opacity:100,crop:{l:0,r:0,t:0,b:0},blend:"normal",mask:{type:"none",cx:0.5,cy:0.5,rx:0.4,ry:0.4,feather:0.05,l:0.15,r:0.15,t:0.15,b:0.15,invert:false}};
   state.clips.push(clip);setSel(clip.id);playhead=clip.start;
   renderTimeline();renderInspector();fitTimeline();positionPlayhead();renderPreview();scheduleSave();toast(clip.name+" added to "+track);
 }
@@ -568,9 +568,10 @@ function bindRulerScrub(){
 function trackVisible(tr){if(tr[0]!=="V")return true;return !(state.trackState[tr]||{}).hide;}
 function topVideoClip(t){for(const tr of VTRACKS){if(!trackVisible(tr))continue;const c=state.clips.find(c=>c.track===tr&&(c.type==="video"||c.type==="image")&&t>=c.start-0.001&&t<c.start+c.duration-0.001);if(c)return c;}return null;}
 function gradeFilterCss(g){g=g||{};const b=1+((g.exposure||0)/100)*0.5,con=(g.contrast==null?100:g.contrast)/100,sat=(g.saturate==null?100:g.saturate)/100,gray=(g.grayscale||0)/100,sep=(g.sepia||0)/100,blur=(g.blur||0);return `brightness(${b.toFixed(3)}) contrast(${con.toFixed(3)}) saturate(${sat.toFixed(3)}) grayscale(${gray.toFixed(2)}) sepia(${sep.toFixed(2)}) blur(${blur}px)`;}
-function applyTransformCss(c){const s=(c&&c.scale!=null?c.scale:100)/100,tx=(c&&c.tx||0),ty=(c&&c.ty||0),rot=(c&&c.rotate||0),op=(c&&c.opacity==null?100:c.opacity)/100;
+function applyTransformCss(c){const s=(c&&c.scale!=null?c.scale:100)/100,tx=(c&&c.tx||0),ty=(c&&c.ty||0),rot=(c&&c.rotate||0),op=(c&&c.opacity==null?100:c.opacity)/100,rx=(c&&c.rotX||0),ry=(c&&c.rotY||0);
   const cp=c?maskClipPath(c):"none";
-  [pv,pvImg].forEach(x=>{x.style.transform=`translate(${tx}%,${ty}%) scale(${s}) rotate(${rot}deg)`;x.style.opacity=op;x.style.clipPath=cp;x.style.webkitClipPath=cp;});}
+  const d3=(rx||ry)?`perspective(900px) rotateX(${rx}deg) rotateY(${ry}deg) `:"";
+  [pv,pvImg].forEach(x=>{x.style.transform=`translate(${tx}%,${ty}%) ${d3}scale(${s}) rotate(${rot}deg)`;x.style.opacity=op;x.style.clipPath=cp;x.style.webkitClipPath=cp;});}
 function applyGradeVisual(g,c){g=g||{};const css=gradeFilterCss(g);pv.style.filter=css;pvImg.style.filter=css;applyTransformCss(c);
   const temp=(g.temperature||0),tint=(g.tint||0),wash=$("#tempwash");
   if(temp||tint){const r=128+temp*0.9,b=128-temp*0.9,gg=128+tint*0.6;wash.style.background=`rgb(${clamp(r,0,255)|0},${clamp(gg,0,255)|0},${clamp(b,0,255)|0})`;wash.style.opacity=Math.min(.55,(Math.abs(temp)+Math.abs(tint))/190);}else wash.style.opacity=0;
@@ -672,7 +673,8 @@ function renderInspector(){
       <div class="twocol">${sld("tTx","Position X",-100,100,Math.round(c.tx||0),"")}${sld("tTy","Position Y",-100,100,Math.round(c.ty||0),"")}</div>
       ${sld("tRot","Rotation",-180,180,Math.round(c.rotate||0),"°")}
       ${sld("tOp","Opacity",0,100,Math.round(c.opacity==null?100:c.opacity),"%")}
-      <div class="ai-note">Zoom, position, rotation & opacity composite over lower tracks — use them for picture-in-picture, logos and reframing. They render on export.</div></div>`;
+      <div class="twocol">${sld("tRx","3D Tilt X",-60,60,Math.round(c.rotX||0),"°")}${sld("tRy","3D Tilt Y",-60,60,Math.round(c.rotY||0),"°")}</div>
+      <div class="ai-note">Zoom, position, rotation, opacity & 3D tilt composite over lower tracks — for picture-in-picture, logos, reframing and floating-card looks. All render on export.</div></div>`;
     html+=`<div class="section"><div class="lbl">Cropping</div>
       <div class="twocol">${sld("crL","Left",0,45,Math.round((c.crop.l||0)*100),"%")}${sld("crR","Right",0,45,Math.round((c.crop.r||0)*100),"%")}</div>
       <div class="twocol">${sld("crT","Top",0,45,Math.round((c.crop.t||0)*100),"%")}${sld("crB","Bottom",0,45,Math.round((c.crop.b||0)*100),"%")}</div></div>`;
@@ -727,6 +729,7 @@ function renderInspector(){
   bindSld("tTx",v=>{c.tx=v;applyTransformCss(c);});
   bindSld("tTy",v=>{c.ty=v;applyTransformCss(c);});
   bindSld("tRot",v=>{c.rotate=v;applyTransformCss(c);},"°");
+  bindSld("tRx",v=>{c.rotX=v;applyTransformCss(c);},"°");bindSld("tRy",v=>{c.rotY=v;applyTransformCss(c);},"°");
   bindSld("tOp",v=>{c.opacity=v;applyTransformCss(c);},"%");
   bindSld("crL",v=>{c.crop.l=v/100;});bindSld("crR",v=>{c.crop.r=v/100;});bindSld("crT",v=>{c.crop.t=v/100;});bindSld("crB",v=>{c.crop.b=v/100;});
   const blendSel=$("#blendSel");if(blendSel)blendSel.onchange=()=>{c.blend=blendSel.value;scheduleSave();};
