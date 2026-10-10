@@ -1657,6 +1657,71 @@ app.post("/api/auth/logout",(req,res)=>{
   res.json({ok:true});
 });
 app.get("/api/auth/me",(req,res)=>res.json(validSession(req)?{authenticated:true,email:ADMIN_EMAIL}:{authenticated:false}));
+app.get("/api/admin/creative-users",admin,async(req,res)=>{
+ try{
+  const search=String(req.query.search||"").trim().slice(0,120);
+  const [users,summary]=await Promise.all([
+   pool.query(`
+    SELECT
+      u.id,u.full_name,u.email,u.created_at,u.updated_at,
+      COALESCE(sp.name,CASE WHEN sub.plan_id='trial' THEN 'Trial' WHEN sub.plan_id IS NOT NULL THEN sub.plan_id ELSE 'Not configured' END) AS plan_name,
+      COALESCE(sub.status,'not_configured') AS subscription_status,
+      COALESCE(sub.storage_bytes,0)::bigint AS storage_quota_bytes,
+      COALESCE(account_usage.storage_used_bytes,0)::bigint AS storage_used_bytes,
+      COALESCE(account_usage.project_count,0)::int AS project_count,
+      COALESCE(account_usage.file_count,0)::int AS file_count,
+      latest_payment.status AS latest_payment_status,
+      latest_payment.amount_ghs AS latest_payment_amount_ghs,
+      latest_payment.created_at AS latest_payment_created_at
+    FROM users u
+    LEFT JOIN creator_subscriptions sub ON sub.user_id=u.id
+    LEFT JOIN subscription_plans sp ON sp.id=sub.plan_id
+    LEFT JOIN LATERAL (
+      SELECT
+        COALESCE(SUM(f.size_bytes),0)::bigint AS storage_used_bytes,
+        COUNT(DISTINCT p.id)::int AS project_count,
+        COUNT(f.id)::int AS file_count
+      FROM projects p
+      LEFT JOIN files f ON f.project_id=p.id AND f.trashed_at IS NULL
+      WHERE p.owner_id=u.id
+    ) account_usage ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT pt.status,pt.amount_ghs,pt.created_at
+      FROM payment_transactions pt
+      WHERE pt.user_id=u.id
+      ORDER BY pt.created_at DESC
+      LIMIT 1
+    ) latest_payment ON TRUE
+    WHERE ($1='' OR u.full_name ILIKE '%'||$1||'%' OR u.email ILIKE '%'||$1||'%')
+    ORDER BY u.created_at DESC
+    LIMIT 500
+   `,[search]),
+   pool.query(`
+    SELECT COUNT(*)::int AS total_users,
+           COUNT(*) FILTER (WHERE created_at >= now()-interval '30 days')::int AS new_last_30_days
+    FROM users
+   `)
+  ]);
+  const totals=summary.rows[0]||{};
+  res.set("Cache-Control","no-store").json({
+   total_users:Number(totals.total_users||0),
+   new_last_30_days:Number(totals.new_last_30_days||0),
+   shown:users.rowCount,
+   search,
+   users:users.rows.map(u=>({
+    ...u,
+    storage_quota_bytes:Number(u.storage_quota_bytes||0),
+    storage_used_bytes:Number(u.storage_used_bytes||0),
+    project_count:Number(u.project_count||0),
+    file_count:Number(u.file_count||0),
+    latest_payment_amount_ghs:u.latest_payment_amount_ghs==null?null:Number(u.latest_payment_amount_ghs)
+   }))
+  });
+ }catch(e){
+  console.error("Admin creative-user directory failed:",e);
+  res.status(500).json({error:"Could not load creative accounts."});
+ }
+});
 app.post("/api/portal/register",portalRegisterRateLimit,async(req,res)=>{
  try{
   const fullName=String(req.body.full_name||"").trim().slice(0,120);
