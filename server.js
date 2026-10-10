@@ -5144,6 +5144,10 @@ app.get("/portal-pwa-icon-:size.png",async(req,res)=>{
 app.get("/portal-sw.js",(req,res)=>{
   res.type("application/javascript").set("Cache-Control","no-cache, no-store, must-revalidate").sendFile(path.join(ROOT,"portal-sw.js"));
 });
+// Digital Asset Links — lets the Android (TWA/APK) app verify this domain and run full-screen.
+app.get("/.well-known/assetlinks.json",(req,res)=>{
+  res.type("application/json").set("Cache-Control","public, max-age=3600").sendFile(path.join(ROOT,"assetlinks.json"));
+});
 app.get("/manifest.webmanifest",(req,res)=>{
   const isLiveStandalone=process.env.FBI_LIVE_STANDALONE==="1"||/^live\.fbigh\.com$/i.test(String(req.hostname||""));
   const file=isLiveStandalone?"live-manifest.webmanifest":"manifest.webmanifest";
