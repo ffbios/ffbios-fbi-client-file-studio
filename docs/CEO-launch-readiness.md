@@ -1,72 +1,71 @@
 # CEO launch readiness — FBI Client File Studio
 
-**Status:** staged recommendations. The engineering changes in this branch are not live until the branch is merged and the Railway production deployment succeeds. Proposed plan prices below are not live.
+**Release status:** the security/egress hardening has been merged to main and deployed successfully. The approved public prices are included in the follow-up release branch; they become effective when that release completes successfully. Existing subscription rows and complimentary grants are not rewritten by the price seed update.
 
 ## CEO decision
 
-The product has a useful foundation for creative client delivery, but it should be treated as a controlled commercial launch rather than scaled with paid advertising immediately. Priority is account protection, truthful billing, file-delivery cost, reliable recovery, and clear plan economics.
+Treat the platform as a controlled commercial launch. Preserve the original-media/upload engine, reduce paid application egress, protect account and contact data, price storage based on usage economics, and verify payment/recovery procedures before scaling acquisition.
 
-## Included in the hardening change
+## Applied engineering safeguards
 
-1. **Throttle expensive/abusable routes:** in-memory per-IP limits for admin sign-in, portal sign-in, registration and gallery access; a per-user limit for payment-checkout creation. Requests over the limit receive HTTP 429 and a retry interval.
-2. **Trust the Railway proxy correctly for client IP detection:** Express is configured for one trusted proxy hop. Verify this assumption if the traffic topology changes.
-3. **Protect project contact data:** an email typed by a client to open a bearer-link gallery now remains only in that signed gallery session and client-selection records. It no longer overwrites the owner's stored projects.client_email without verification.
-4. **Reduce thumbnail service egress:** once authorization is checked, authenticated portal/admin thumbnail routes redirect to signed object-bucket URLs instead of returning cached/stored image bytes through the app. The redirect is marked private/no-store; bucket responses can still use object-level cache policy.
-5. **Keep the main media/upload engine untouched:** these changes do not alter original uploads, resumable upload sessions, project ownership rules, source video delivery, or the payment activation logic.
+- Rate limits cover admin sign-in, portal sign-in, registration, gallery access, and authenticated checkout creation.
+- Express trusts one Railway proxy hop for IP detection. Verify this topology if it changes.
+- Email typed by a client to open a bearer-link gallery no longer overwrites the owner's saved project client email.
+- Authenticated admin/portal thumbnails redirect to signed private-bucket URLs once authorization is confirmed. The existing upload engine and original-media routes remain unchanged.
+- The current-plan API returns the subscriber's recorded quota and price snapshot; plan cards display that recorded price for the active subscription. New purchases, upgrades and renewals use the currently published plan prices.
+- Current subscriptions remain at their recorded price until their existing billing period expires; the published new rate applies when they renew or choose another plan. The application uses manual Moolre checkout, not automatic recurring charges.
+- Complimentary Studio records remain complimentary, and current account entitlements are not mass-updated by the public plan-price seed.
 
-### Limitations to resolve before broader scale
+### Technical limitations and release gates
 
-- Rate-limit state is local to one app instance. Replace with shared storage before running multiple replicas; otherwise an attacker can get a separate limit per replica.
-- No working password-recovery or email-verification flow has been confirmed in the current portal. Implement these after choosing an email delivery provider, rather than showing a nonfunctional reset link.
-- Gallery links are bearer credentials. Add optional passcodes, OTP or client-email allowlists for sensitive projects before positioning the product for regulated/confidential use.
-- Automated Postgres backup, object-storage restore, and a complete real-money Moolre payment/reconciliation test still need explicit verification.
-- Monitor route-level HTTP 4xx/5xx and actual Railway egress/storage figures. Do not assume every 4xx is an application defect.
+- The rate-limit counters are in-process. Replace them with shared storage before using multiple application replicas.
+- Password reset/email verification is not confirmed as available. Implement after setting up a working email delivery provider; never expose a reset code in a response or ordinary logs.
+- Gallery links remain bearer credentials. Optional passcodes, OTP or client-email allowlists should be added for sensitive deliveries.
+- A real low-value Moolre payment and reconciliation test has not been run as part of this code release. Do not mark payment acceptance complete until the provider status endpoint, webhook, payment ledger, and subscription activation have all been confirmed from a paying test account.
+- Confirm PostgreSQL backup operation and restore a backup to a safe test environment. Confirm object-storage originals are recoverable. Do not assume application deployment success proves recovery works.
+- Continue to inspect 4xx by route and user action. Not all 4xx errors indicate defects.
 
-## Storage-cost math
+## Current public plan prices
 
-Railway's current documentation states that buckets cost **US$0.015 per GB-month** and that bucket egress and S3 API operations are free. The Bank of Ghana's 9 October 2026 USD/GHS mid reference rate is **GH₵11.79 per US$1**. Reference sources:
+| Plan | Storage quota | Monthly price |
+|---|---:|---:|
+| Starter | 100 GB | GH₵50 |
+| Creator | 500 GB | GH₵150 |
+| Professional | 1 TB | GH₵300 |
+| Studio | 2 TB | GH₵550 |
 
-- Railway Bucket billing: https://docs.railway.com/storage-buckets/billing
-- Railway compute/egress pricing: https://docs.railway.com/pricing/plans
-- Bank of Ghana daily interbank rates: https://www.bog.gov.gh/treasury-and-the-markets/daily-interbank-fx-rates/
+The 10 GB Free Trial remains GH₵0 for its trial period. These rates are public plan prices in the release. A user's currently active subscription keeps its recorded price/quota for the remainder of its current period. At its expiry, a new Moolre checkout is required at the current public rate.
 
-This means bucket storage is approximately **GH₵0.17685 per stored GB-month** at that exchange reference rate. Calculations below assume every allowance is filled for an entire 30-day month and use decimal GB/TB; this is a conservative full-utilization scenario, not a claim about current real usage.
+## Storage unit economics
 
-| Current plan | Quota | Current monthly price | Bucket cost at full quota | Storage-only result before compute, payments and support |
+Current Railway bucket documentation prices storage at US$0.015 per GB-month (30 days) and states that bucket egress and S3 API operations are free. Uploads originating from a Railway application can still incur service egress. Source: https://docs.railway.com/storage-buckets/billing
+
+The Bank of Ghana's 9 October 2026 USD/GHS mid reference rate was GH₵11.79 per US$1. Source: https://www.bog.gov.gh/treasury-and-the-markets/daily-interbank-fx-rates/
+
+Using that rate, full allowance occupancy for a whole 30-day month costs:
+
+| Plan | Full quota | Bucket cost at full quota | Public price | Remainder after bucket storage only |
 |---|---:|---:|---:|---:|
-| Starter | 100 GB | GH₵50 | GH₵17.69 | +GH₵32.31 |
-| Creator | 500 GB | GH₵80 | GH₵88.43 | −GH₵8.43 |
-| Professional | 1,000 GB | GH₵120 | GH₵176.85 | −GH₵56.85 |
-| Studio | 2,000 GB | GH₵180 | GH₵353.70 | −GH₵173.70 |
+| Starter | 100 GB | GH₵17.69 | GH₵50 | GH₵32.31 |
+| Creator | 500 GB | GH₵88.43 | GH₵150 | GH₵61.57 |
+| Professional | 1,000 GB | GH₵176.85 | GH₵300 | GH₵123.15 |
+| Studio | 2,000 GB | GH₵353.70 | GH₵550 | GH₵196.30 |
 
-Actual bucket cost follows stored data rather than the user's unused entitlement. At the current price and the full-utilization assumption, Creator becomes storage-only negative above roughly 452 GB, Professional above roughly 679 GB, and Studio above roughly 1,018 GB. Compute, service egress for any bytes still served through the app, payment fees, support, taxes and FX variation reduce the remaining margin further.
+These are conservative full-occupancy scenarios, not statements about current customer usage. Actual storage charges follow average actual stored GB-month, not unused entitlements. The remainder is not net profit: it must also cover compute, remaining service egress, payment fees, support, tax and exchange-rate movements.
 
-## Recommended public pricing proposal — not applied
+## Operating policy
 
-Keep the current Starter entry point affordable, and price higher capacities to cover a high-utilization account without relying on every customer to use very little storage:
+1. Record monthly stored GB by user and plan; review high storage use at 70%, 85% and 95% of quota.
+2. Do not change existing subscription records, take away promised complimentary storage, delete files, or introduce overage fees without a clear policy and intentional implementation.
+3. Communicate plan price/renewal changes clearly. Users must see the charge before leaving to Moolre.
+4. Do not advertise unlimited storage. Publish limits, renewal process, expiry handling, file-retention and privacy rules.
+5. Consider annual prepay only after real Moolre reconciliation, receipt and reminder handling have been verified.
+6. Inspect Railway resource usage/egress alongside the stored-byte totals. Redirecting media helps lower service egress but does not eliminate compute, upload egress or database costs.
 
-| Recommended plan | Storage quota | Proposed monthly price | Bucket cost at full quota | Gross remainder before other costs |
-|---|---:|---:|---:|---:|
-| Starter | 100 GB | GH₵50 | GH₵17.69 | GH₵32.31 |
-| Creator | 500 GB | GH₵150 | GH₵88.43 | GH₵61.57 |
-| Professional | 1 TB | GH₵300 | GH₵176.85 | GH₵123.15 |
-| Studio | 2 TB | GH₵550 | GH₵353.70 | GH₵196.30 |
+## Next operational checks
 
-These are recommended prices, not edits to the live plan table. The full-capacity figures leave around 36–41% of revenue after bucket storage on the upper tiers, before every other cost; actual economics should be checked against real user storage usage and the Railway bill.
-
-### How to introduce the new prices safely
-
-1. **Do not revoke complimentary or existing storage grants.** The current subscription row stores a separate entitlement. Keep each existing account's current quota/period intact.
-2. **Publish a clear change notice before renewing existing paid users at new rates.** Grandfather existing paid accounts for an agreed period or until their current paid period ends; do not surprise users at checkout.
-3. **Apply the new prices only after approval.** The app seeds subscription_plans on startup. Changing seed values is a customer-facing price change, so it needs an intentional release and a UI/terms update.
-4. **Track used GB per plan weekly.** Flag accounts using more than 70%, 85% and 95% of quota and aggregate real stored GB-month. Do not charge overages or delete data without a published policy and explicit implementation.
-5. **Offer annual prepay later, not now.** First verify Moolre payment reconciliation, receipts, failed-payment handling and renewal reminders. Current checkout uses a non-reusable checkout and should be treated as manual monthly renewal unless an automated renewal integration is separately implemented.
-6. **Do not advertise "unlimited" or guarantee a 2TB cost-free transfer service.** State storage quotas, file-retention rules, download/share behavior, renewal timing, and what happens after expiry before paid launch.
-
-## Next release gates
-
-- Deploy this branch only after syntax/build verification and confirm the Railway deployment is healthy.
-- Smoke-test admin sign-in, user register/login, gallery access, thumbnail loading, original-media playback/download, upload resume and client picks.
-- Run an actual low-value Moolre test using a non-complimentary paying account and verify both webhook and server-side status-check activation.
-- Verify Postgres backup plus restore and recovery of stored originals.
-- Decide/approve a pricing effective date before changing the seeded live prices.
+1. Verify production sign-in and test file upload/resume, thumbnail display, original-media playback/download, client selection and share expiration using a non-critical test project.
+2. Complete one low-value test payment from a separate paying account and confirm provider verification, webhook delivery, ledger status and quota activation.
+3. Verify PostgreSQL backup and complete a restore test in a safe environment.
+4. Confirm recovery of original media from the private bucket.
+5. Replace in-process rate limits before horizontal scaling.
