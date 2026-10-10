@@ -87,8 +87,45 @@ async function generateRawPreview(file,width,height){
   }
 }
 
+const DESIGN_EXTENSIONS=new Set(["PSD","PSB","AI","EPS","INDD","IDML","SKETCH","XD","FIG","AFPHOTO","AFDESIGN","CDR"]);
+function isDesignFile(file){return DESIGN_EXTENSIONS.has(thumbExt(file?.original_name));}
+// Best-effort extraction of a PSD/PSB embedded composite preview (JPEG), pure JS, no deps.
+function parsePsdThumbJpeg(buf){
+  try{
+    if(!buf||buf.length<30||buf.toString("ascii",0,4)!=="8BPS")return null;
+    let off=26;                                   // file header is 26 bytes
+    const cmLen=buf.readUInt32BE(off); off+=4+cmLen;        // Color Mode Data
+    if(off+4>buf.length)return null;
+    const irLen=buf.readUInt32BE(off); off+=4;              // Image Resources
+    const end=Math.min(buf.length,off+irLen);
+    while(off+12<=end){
+      if(buf.toString("ascii",off,off+4)!=="8BIM")break; off+=4;
+      const id=buf.readUInt16BE(off); off+=2;
+      let nlen=buf[off]; let nameField=1+nlen; if(nameField%2)nameField++; off+=nameField; // Pascal name, even-padded
+      if(off+4>end)break;
+      const size=buf.readUInt32BE(off); off+=4;
+      const dataStart=off; const padded=size+(size%2);
+      if((id===1033||id===1036)&&dataStart+28<=buf.length){  // thumbnail resource
+        const fmt=buf.readUInt32BE(dataStart);               // 1 = kJpegRGB
+        const jpegStart=dataStart+28, jpegEnd=Math.min(buf.length,dataStart+size);
+        if(fmt===1&&jpegEnd>jpegStart)return buf.slice(jpegStart,jpegEnd);
+      }
+      off=dataStart+padded;
+    }
+  }catch(e){/* fall through to card */}
+  return null;
+}
+async function psdEmbeddedPreview(file,width,height){
+  // Range-fetch only the start of the file; embedded thumbnails live in the header region.
+  const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:file.storage_path,Range:"bytes=0-6291455"}));
+  const buf=await bodyToBuffer(obj.Body);
+  const jpg=parsePsdThumbJpeg(buf);
+  if(!jpg||!jpg.length)return null;
+  return sharp(jpg).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:82,method:4}).toBuffer();
+}
 function thumbKind(file){
   if(isRawPhoto(file))return"raw";
+  if(isDesignFile(file))return"design";
   const mime=String(file?.mime_type||"").toLowerCase();
   if(/^image\//.test(mime))return"image";
   if(/^video\//.test(mime))return"video";
@@ -106,6 +143,7 @@ function thumbDocFamily(name,mime){
   if(["XLS","XLSX","ODS","CSV"].includes(ext))return ext;
   if(["PPT","PPTX","ODP"].includes(ext))return ext;
   if(["ZIP","RAR","7Z"].includes(ext)||/zip|rar|7z/.test(m))return ext;
+  if(["PSD","PSB","AI","EPS","INDD","IDML","SKETCH","XD","FIG","AFPHOTO","AFDESIGN","CDR"].includes(ext))return ext;
   return ext||"FILE";
 }
 function thumbXml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
@@ -114,7 +152,7 @@ function documentThumbSvg(file,width){
   const rawName=String(file?.original_name||"Document");
   const base=rawName.split("/").pop()||rawName;
   const label=base.length>26?base.slice(0,23)+"…":base;
-  const family=ext==="PDF"?"PDF":(["DOC","DOCX","ODT","RTF","TXT"].includes(ext)?"DOCUMENT":(["XLS","XLSX","ODS","CSV"].includes(ext)?"SPREADSHEET":(["PPT","PPTX","ODP"].includes(ext)?"PRESENTATION":(["ZIP","RAR","7Z"].includes(ext)?"ARCHIVE":"FILE"))));
+  const family=ext==="PDF"?"PDF":(["DOC","DOCX","ODT","RTF","TXT"].includes(ext)?"DOCUMENT":(["XLS","XLSX","ODS","CSV"].includes(ext)?"SPREADSHEET":(["PPT","PPTX","ODP"].includes(ext)?"PRESENTATION":(["ZIP","RAR","7Z"].includes(ext)?"ARCHIVE":(["PSD","PSB"].includes(ext)?"PHOTOSHOP":(ext==="AI"?"ILLUSTRATOR":(ext==="EPS"?"VECTOR EPS":(["INDD","IDML"].includes(ext)?"INDESIGN":(["SKETCH","XD","FIG"].includes(ext)?"UI DESIGN":(["AFPHOTO","AFDESIGN"].includes(ext)?"AFFINITY":(ext==="CDR"?"CORELDRAW":"FILE")))))))))));
   const w=Math.max(240,Math.min(900,Number(width)||360)),h=Math.round(w*1.25);
   const line1=label.length>18?label.slice(0,18)+"…":label;
   return Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'">'+
@@ -243,6 +281,14 @@ async function generateThumbnail(file,width,height){
   const kind=thumbKind(file);
   if(kind==="raw")return generateRawThumbnail(file,width,height);
   if(kind==="document")return sharp(documentThumbSvg(file,width)).webp({quality:86,method:4}).toBuffer();
+  if(kind==="design"){
+    const ext=thumbExt(file);
+    if(ext==="PSD"||ext==="PSB"){
+      try{const p=await psdEmbeddedPreview(file,width,height);if(p)return p;}
+      catch(e){console.warn("PSD embedded preview unavailable; using card:",file?.original_name,e?.message||e);}
+    }
+    return sharp(documentThumbSvg(file,width)).webp({quality:86,method:4}).toBuffer();
+  }
   if(kind==="audio")return sharp(audioThumbSvg(file,width)).webp({quality:84,method:4}).toBuffer();
   if(kind==="video"){
     try{
@@ -262,7 +308,12 @@ async function generateThumbnail(file,width,height){
   }
   const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:file.storage_path}));
   const input=obj.Body?.transformToByteArray?Buffer.from(await obj.Body.transformToByteArray()):Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject)}));
-  return sharp(input).rotate().resize({width:width,height:height,fit:"inside",withoutEnlargement:true}).webp({quality:68,method:4}).toBuffer();
+  try{
+    return await sharp(input).rotate().resize({width:width,height:height,fit:"inside",withoutEnlargement:true}).webp({quality:68,method:4}).toBuffer();
+  }catch(e){
+    console.warn("Image thumbnail could not be decoded; using file card:",file?.original_name,e?.message||e);
+    return sharp(documentThumbSvg(file,width)).webp({quality:86,method:4}).toBuffer();
+  }
 }
 
 const app=express();
@@ -4427,10 +4478,18 @@ async function buildPreviewImage(f,width,height,creative){
   let webp;
   if(isRawPhoto(f)){
     webp=await generateRawPreview(f,width,height);
+  }else if(thumbKind(f)==="image"){
+    try{
+      const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}));
+      const input=await bodyToBuffer(obj.Body);
+      webp=await sharp(input).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:84,method:4}).toBuffer();
+    }catch(e){
+      console.warn("Preview could not be decoded; using file card:",f?.original_name,e?.message||e);
+      webp=await generateThumbnail(f,width,height);
+    }
   }else{
-    const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}));
-    const input=await bodyToBuffer(obj.Body);
-    webp=await sharp(input).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:84,method:4}).toBuffer();
+    // design / document / audio / video → branded card or media sheet (never a 500)
+    webp=await generateThumbnail(f,width,height);
   }
   if(!isRawPhoto(f)&&/^image\/(jpeg|png|webp)$/i.test(f.mime_type||"")&&creative.watermark_enabled){const wm=await applyCreativeWatermark(webp,creative);webp=wm.buffer;}
   return webp;
