@@ -520,7 +520,7 @@ async function finalizeStoredUpload(u){
       "INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING *",
       [uid(),projectId,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,expectedSize,u.relative_path,u.content_fingerprint||null]
     );
-    const fileRow=ins.rows[0]||(await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key])).rows[0];
+    const fileRow=ins.rows[0]||(await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key])).rows[0];warmMediaCache(fileRow);
     if(!fileRow)throw new Error("Stored object is ready but the file record could not be created.");
     await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
     await pool.query("UPDATE projects SET updated_at=now() WHERE id=$1",[projectId]);
@@ -568,7 +568,7 @@ async function finalizeStoredUpload(u){
     "INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING *",
     [uid(),projectId,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,actualSize,u.relative_path,u.content_fingerprint||null]
   );
-  const fileRow=ins.rows[0]||(await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key])).rows[0];
+  const fileRow=ins.rows[0]||(await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key])).rows[0];warmMediaCache(fileRow);
   if(!fileRow)throw new Error("Stored object is ready but the file record could not be created.");
 
   await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
@@ -711,6 +711,16 @@ async function initDb(){
     ALTER TABLE downloads ADD COLUMN IF NOT EXISTS client_email text DEFAULT '';
     CREATE INDEX IF NOT EXISTS idx_files_project ON files(project_id);
     CREATE INDEX IF NOT EXISTS idx_downloads_project ON downloads(project_id);
+    CREATE TABLE IF NOT EXISTS client_selections(
+      id uuid PRIMARY KEY,
+      project_id uuid REFERENCES projects(id) ON DELETE CASCADE,
+      client_name text DEFAULT '',
+      client_email text DEFAULT '',
+      note text DEFAULT '',
+      file_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_client_selections_project ON client_selections(project_id,created_at DESC);
 
     CREATE TABLE IF NOT EXISTS upload_sessions(
       id uuid PRIMARY KEY,
@@ -1705,6 +1715,16 @@ app.get("/api/portal/projects/:id",portalUser,async(req,res)=>{
 app.patch("/api/portal/projects/:id",portalUser,async(req,res)=>{
  try{const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const fields=[],values=[];let n=1;for(const k of ["name","client_name","client_email","note","expires_at","shared","archived"])if(Object.prototype.hasOwnProperty.call(req.body,k)){fields.push(k+"=$"+n++);values.push(k==="shared"||k==="archived"?Boolean(req.body[k]):req.body[k]===null?null:String(req.body[k]).trim())}if(!fields.length)return res.status(400).json({error:"Nothing to update."});fields.push("updated_at=now()");values.push(p.id,req.portalUser.id);const r=await pool.query("UPDATE projects SET "+fields.join(",")+" WHERE id=$"+n+" AND owner_id=$"+(n+1)+" RETURNING *",values);if(!r.rowCount)return res.status(404).json({error:"Project not found."});res.json({project:r.rows[0]});}
  catch(e){console.error(e);res.status(500).json({error:"Could not update project."})}
+});
+app.get("/api/portal/projects/:id/selections",portalUser,async(req,res)=>{
+ try{
+  const p=await portalProjectAccessible(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});
+  const r=await pool.query("SELECT id,client_name,client_email,note,file_ids,created_at FROM client_selections WHERE project_id=$1 ORDER BY created_at DESC LIMIT 50",[p.id]);
+  const allIds=[...new Set(r.rows.flatMap(x=>Array.isArray(x.file_ids)?x.file_ids:[]))];
+  const names=new Map();
+  if(allIds.length){const f=await pool.query("SELECT id,original_name FROM files WHERE project_id=$1 AND id::text = ANY($2::text[])",[p.id,allIds]);f.rows.forEach(x=>names.set(String(x.id),x.original_name))}
+  res.json({selections:r.rows.map(x=>({id:x.id,client_name:x.client_name,client_email:x.client_email,note:x.note,created_at:x.created_at,files:(x.file_ids||[]).map(id=>({id,name:names.get(String(id))||"(removed file)"}))}))});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load client picks."})}
 });
 app.post("/api/portal/projects/:id/share",portalUser,async(req,res)=>{
  try{const p=await portalProjectOwned(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const r=await pool.query("UPDATE projects SET share_token=$1,shared=true,updated_at=now() WHERE id=$2 AND owner_id=$3 RETURNING *",[token(),p.id,req.portalUser.id]);res.json({project:r.rows[0],share_url:(req.protocol+"://"+req.get("host"))+"/share/"+r.rows[0].share_token});}
@@ -3236,7 +3256,7 @@ app.post("/api/uploads/:id/finalize-pending",admin,async(req,res)=>{
       "INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING *",
       [uid(),u.project_id,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,actualSize,u.relative_path,u.content_fingerprint||null]
     );
-    const fileRow=ins.rows[0]||(await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key])).rows[0];
+    const fileRow=ins.rows[0]||(await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key])).rows[0];warmMediaCache(fileRow);
     if(!fileRow)throw new Error("Stored object is ready but the file record could not be created.");
 
     await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
@@ -3613,7 +3633,7 @@ app.post("/api/uploads/init",admin,async(req,res)=>{
               "INSERT INTO files(id,project_id,original_name,storage_name,storage_path,mime_type,size_bytes,relative_path,content_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING *",
               [uid(),u.project_id,u.original_name,path.basename(u.storage_key),u.storage_key,u.mime_type,Number(recoveredObject.ContentLength),u.relative_path,u.content_fingerprint||null]
             );
-            fileRow=ins.rows[0]||(await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key])).rows[0];
+            fileRow=ins.rows[0]||(await pool.query("SELECT * FROM files WHERE storage_path=$1 LIMIT 1",[u.storage_key])).rows[0];warmMediaCache(fileRow);
           }
           if(fileRow){
             await pool.query("UPDATE upload_sessions SET status='completed',updated_at=now() WHERE id=$1",[u.id]);
@@ -4141,6 +4161,24 @@ app.post("/api/public/share/:token/access",async(req,res)=>{
  }catch(e){console.error("Client email access failed:",e);res.status(500).json({error:"Could not authorize gallery access."})}
 });
 
+app.post("/api/public/share/:token/selections",async(req,res)=>{
+ try{
+  const q=await pool.query("SELECT id,expires_at FROM projects WHERE share_token=$1 AND shared=true",[req.params.token]);
+  if(!q.rowCount)return res.status(404).json({error:"This delivery link is invalid or disabled."});
+  const p=q.rows[0];if(p.expires_at&&new Date(p.expires_at).getTime()<Date.now())return res.status(404).json({error:"This delivery link has expired."});
+  const session=validShareSession(req,req.params.token);
+  if(!session)return res.status(401).json({error:"Client email required.",code:"CLIENT_EMAIL_REQUIRED"});
+  const wanted=Array.isArray(req.body?.file_ids)?[...new Set(req.body.file_ids.map(String))].slice(0,5000):[];
+  if(!wanted.length)return res.status(400).json({error:"Choose at least one favorite first."});
+  const valid=await pool.query("SELECT id FROM files WHERE project_id=$1 AND id::text = ANY($2::text[])",[p.id,wanted]);
+  const ids=valid.rows.map(r=>String(r.id));
+  if(!ids.length)return res.status(400).json({error:"Those files are not part of this gallery."});
+  const name=String(req.body?.name||"").trim().slice(0,160),note=String(req.body?.note||"").trim().slice(0,2000);
+  const email=String(session.email||req.body?.email||"").trim().slice(0,200);
+  await pool.query("INSERT INTO client_selections(id,project_id,client_name,client_email,note,file_ids) VALUES($1,$2,$3,$4,$5,$6::jsonb)",[uid(),p.id,name,email,note,JSON.stringify(ids)]);
+  res.json({ok:true,count:ids.length});
+ }catch(e){console.error("Client selection failed",e);res.status(500).json({error:"Could not send your picks. Please try again."})}
+});
 app.get("/api/public/share/:token",async(req,res)=>{
  try{
   const q=await pool.query("SELECT id,name,client_name,client_email,note,expires_at FROM projects WHERE share_token=$1 AND shared=true",[req.params.token]);
@@ -4256,33 +4294,100 @@ app.get("/api/public/video-preview/:id",async(req,res)=>{
     res.status(500).send("Unable to generate video highlight preview.");
   }
 });
+// ---- Serving media from the bucket instead of through this server ----
+// On Railway, bucket egress (including presigned URLs) is free while service
+// egress is billed. Wherever a stored object can be handed to the browser
+// as-is, redirect to a presigned bucket URL instead of piping the bytes.
+const PRESIGN_WINDOW_MS=6*3600*1000;
+async function presignedGet(key){
+  // Signing inside fixed 6-hour windows keeps the URL identical for a while,
+  // so browsers can cache the bucket response between page views.
+  const signingDate=new Date(Math.floor(Date.now()/PRESIGN_WINDOW_MS)*PRESIGN_WINDOW_MS);
+  return getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:key}),{expiresIn:12*3600,signingDate});
+}
+async function storedObjectExists(key){
+  try{const h=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:key}));return Number(h.ContentLength||0)>0}catch(_e){return false}
+}
+async function redirectToBucket(res,key){
+  const url=await presignedGet(key);
+  // Short cache on the redirect itself: always well inside the URL's validity.
+  res.set("Cache-Control","private, max-age=3600");
+  return res.redirect(302,url);
+}
+function thumbObjectKey(f,width,height){
+  const kind=thumbKind(f),cacheKind=kind==="video"?"video-v3":kind==="raw"?"raw-v1":kind;
+  return "__thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+cacheKind+"|"+width+"|"+height+"|natural").digest("hex")+".webp";
+}
+function previewObjectKey(f,width,height){
+  return "__previews/"+crypto.createHash("sha1").update(String(f.id)+"|"+width+"|"+height).digest("hex")+".webp";
+}
+async function persistDerivedImage(key,buf,fileId){
+  try{
+    await s3.send(new PutObjectCommand({Bucket:bucket(),Key:key,Body:buf,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(fileId),generated_by:"fbi-client-file-studio"}}));
+    return true;
+  }catch(err){console.warn("Could not persist derived image",err?.message||err);return false}
+}
+async function buildThumbImage(f,width,height,creative){
+  let webp=await generateThumbnail(f,width,height);
+  if(/^image\/(jpeg|png|webp)$/i.test(f.mime_type||"")&&creative.watermark_enabled){const wm=await applyCreativeWatermark(webp,creative);webp=wm.buffer;}
+  return webp;
+}
+async function buildPreviewImage(f,width,height,creative){
+  let webp;
+  if(isRawPhoto(f)){
+    webp=await generateRawPreview(f,width,height);
+  }else{
+    const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}));
+    const input=await bodyToBuffer(obj.Body);
+    webp=await sharp(input).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:84,method:4}).toBuffer();
+  }
+  if(!isRawPhoto(f)&&/^image\/(jpeg|png|webp)$/i.test(f.mime_type||"")&&creative.watermark_enabled){const wm=await applyCreativeWatermark(webp,creative);webp=wm.buffer;}
+  return webp;
+}
+function clampThumbSize(q){
+  return {width:Math.max(240,Math.min(720,Number(q.w||420))),height:Math.max(160,Math.min(720,Number(q.h||540)))};
+}
+function clampPreviewSize(q){
+  const wv=Number(Array.isArray(q.w)?q.w[0]:(q.w||1400)),hv=Number(Array.isArray(q.h)?q.h[0]:(q.h||1000));
+  return {width:Number.isFinite(wv)?Math.max(600,Math.min(2400,wv)):1400,height:Number.isFinite(hv)?Math.max(400,Math.min(2400,hv)):1000};
+}
+// The sizes the client gallery asks for most; pre-built right after upload.
+const WARM_THUMB={width:720,height:720},WARM_PREVIEW={width:2000,height:2000};
+const warmQueue=[];let warmRunning=false;
+function warmMediaCache(f){
+  try{
+    if(!f||!s3Ready())return;
+    if(!/^image\//i.test(f.mime_type||"")&&!isRawPhoto(f))return;
+    warmQueue.push(f);
+    if(!warmRunning)runWarmQueue();
+  }catch(_e){}
+}
+async function runWarmQueue(){
+  warmRunning=true;
+  while(warmQueue.length){
+    const f=warmQueue.shift();
+    try{
+      const creative=await creativeBrandingForProject(f.project_id);
+      const tk=thumbObjectKey(f,WARM_THUMB.width,WARM_THUMB.height);
+      if(!(await storedObjectExists(tk)))await persistDerivedImage(tk,await buildThumbImage(f,WARM_THUMB.width,WARM_THUMB.height,creative),f.id);
+      const pk=previewObjectKey(f,WARM_PREVIEW.width,WARM_PREVIEW.height);
+      if(!(await storedObjectExists(pk)))await persistDerivedImage(pk,await buildPreviewImage(f,WARM_PREVIEW.width,WARM_PREVIEW.height,creative),f.id);
+    }catch(err){console.warn("Preview warm-up skipped for",f&&f.id,err?.message||err)}
+    // Keep the server responsive for uploads and visitors.
+    await new Promise(r=>setTimeout(r,150));
+  }
+  warmRunning=false;
+}
 app.get("/api/public/thumb/:id",async(req,res)=>{
  try{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));
   if(!out)return res.status(404).send("Invalid or expired delivery link.");
-  const width=Math.max(240,Math.min(720,Number(req.query.w||420))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
-  const kind=thumbKind(out.f),cacheKind=kind==="video"?"video-v3":kind==="raw"?"raw-v1":kind;
-  const wmCreative=await creativeBrandingForProject(out.f.project_id);
-  const wmSig=wmCreative.watermark_enabled?crypto.createHash("sha1").update(JSON.stringify({e:wmCreative.watermark_enabled,t:wmCreative.watermark_type,x:wmCreative.watermark_text,o:wmCreative.watermark_opacity,p:wmCreative.watermark_position,z:wmCreative.watermark_size,l:wmCreative.logo_key})).digest("hex").slice(0,12):"none";
-  const cacheKey=out.f.id+":"+cacheKind+":"+width+"x"+height+":natural:"+wmSig;
-  const cached=getThumbCache(cacheKey);
-  if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(cached.buffer);
-  const thumbKey="__thumbnails/"+crypto.createHash("sha1").update(String(out.f.id)+"|"+cacheKind+"|"+width+"|"+height+"|natural").digest("hex")+".webp";
-  try{
-    const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:thumbKey}));
-    if(head.ContentLength){
-      const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:thumbKey}));
-      const bytes=got.Body?.transformToByteArray?Buffer.from(await got.Body.transformToByteArray()):Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject)}));
-      setThumbCache(cacheKey,bytes);
-      return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(bytes);
-    }
-  }catch(_e){}
-  let webp=await generateThumbnail(out.f,width,height);
-  if(/^image\/(jpeg|png|webp)$/i.test(out.f.mime_type||"")&&wmCreative.watermark_enabled){const wm=await applyCreativeWatermark(webp,wmCreative);webp=wm.buffer;}
-  setThumbCache(cacheKey,webp);
-  try{
-    await s3.send(new PutObjectCommand({Bucket:bucket(),Key:thumbKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(out.f.id),generated_by:"fbi-client-file-studio-media-aware"}}));
-  }catch(err){console.warn("Could not persist public thumbnail",err?.message||err)}
+  const {width,height}=clampThumbSize(req.query);
+  const key=thumbObjectKey(out.f,width,height);
+  if(await storedObjectExists(key))return redirectToBucket(res,key);
+  const creative=await creativeBrandingForProject(out.f.project_id);
+  const webp=await buildThumbImage(out.f,width,height,creative);
+  await persistDerivedImage(key,webp,out.f.id);
   res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(webp);
  }catch(e){console.error("Thumbnail generation failed",e?.stack||e);res.status(500).send("Unable to generate thumbnail");}
 });
@@ -4291,45 +4396,12 @@ app.get("/api/public/preview/:id",async(req,res)=>{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));
   if(!out)return res.status(404).send("Invalid or expired delivery link.");
   if(!/^image\//i.test(out.f.mime_type||"")&&!isRawPhoto(out.f))return res.status(415).send("Image preview only.");
-  const widthValue=Array.isArray(req.query.w)?req.query.w[0]:req.query.w;
-  const widthNumber=Number(widthValue||1400);
-  const width=Number.isFinite(widthNumber)?Math.max(600,Math.min(2400,widthNumber)):1400;
+  const {width,height}=clampPreviewSize(req.query);
+  const key=previewObjectKey(out.f,width,height);
+  if(await storedObjectExists(key))return redirectToBucket(res,key);
   const creative=await creativeBrandingForProject(out.f.project_id);
-  const heightValue=Array.isArray(req.query.h)?req.query.h[0]:req.query.h;
-  const heightNumber=Number(heightValue||1000);
-  const height=Number.isFinite(heightNumber)?Math.max(400,Math.min(2400,heightNumber)):1000;
-  const wmSig=creative.watermark_enabled?crypto.createHash("sha1").update(JSON.stringify({e:creative.watermark_enabled,t:creative.watermark_type,x:creative.watermark_text,o:creative.watermark_opacity,p:creative.watermark_position,z:creative.watermark_size,l:creative.logo_key})).digest("hex").slice(0,12):"none";
-  const cacheKind=isRawPhoto(out.f)?"raw":thumbKind(out.f);
-  const cacheKey=out.f.id+":preview:"+cacheKind+":"+width+"x"+height+":"+wmSig;
-  const cached=getThumbCache(cacheKey);
-  if(cached){
-    return res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(cached.buffer);
-  }
-  const previewKey="__previews/"+crypto.createHash("sha1").update(String(out.f.id)+"|"+width+"|"+height).digest("hex")+".webp";
-  try{
-    const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:previewKey}));
-    if(head.ContentLength){
-      const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:previewKey}));
-      const bytes=got.Body?.transformToByteArray ? Buffer.from(await got.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
-        const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject);
-      }));
-      setThumbCache(cacheKey,bytes);
-      return res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(bytes);
-    }
-  }catch(_e){}
-  let webp;
-  if(isRawPhoto(out.f)){
-    webp=await generateRawPreview(out.f,width,height);
-  }else{
-    const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}));
-    const input=obj.Body?.transformToByteArray ? Buffer.from(await obj.Body.transformToByteArray()) : Buffer.from(await new Promise((resolve,reject)=>{
-      const chunks=[];obj.Body.on("data",c=>chunks.push(c));obj.Body.on("end",()=>resolve(Buffer.concat(chunks)));obj.Body.on("error",reject);
-    }));
-    webp=await sharp(input).rotate().resize({width,height,fit:"inside",withoutEnlargement:true}).webp({quality:82,method:4}).toBuffer();
-  }
-  if(!isRawPhoto(out.f)&&/^image\/(jpeg|png|webp)$/i.test(out.f.mime_type||"")&&creative.watermark_enabled){const wm=await applyCreativeWatermark(webp,creative);webp=wm.buffer;}
-  setThumbCache(cacheKey,webp);
-  try{await s3.send(new PutObjectCommand({Bucket:bucket(),Key:previewKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(out.f.id),generated_by:"fbi-client-file-studio"}}))}catch(err){console.warn("Could not persist preview",err?.message||err)}
+  const webp=await buildPreviewImage(out.f,width,height,creative);
+  await persistDerivedImage(key,webp,out.f.id);
   res.status(200).type("image/webp").set("Cache-Control","private, max-age=3600, stale-while-revalidate=86400").send(webp);
  }catch(e){
   console.error("Image preview generation failed",e?.stack||e);
@@ -4341,6 +4413,9 @@ app.get("/api/public/media/:id",async(req,res)=>{
   try{
     const f=await publicFileRecord(req.params.id,String(req.query.token||""),req);
     if(!f)return res.status(404).send("Invalid or expired delivery link.");
+    // Videos/audio play straight from the bucket (free egress); the player
+    // sends its range requests there too. .ts files still need remuxing here.
+    if(!isTransportStreamVideo(f)&&s3Ready())return redirectToBucket(res,f.storage_path);
     await streamStoredObject(req,res,f);
   }catch(e){console.error("Public media stream failed:",e?.stack||e);res.status(500).send("Unable to stream file")}
 });
@@ -4351,15 +4426,48 @@ app.head("/api/public/media/:id",async(req,res)=>{
     await streamStoredObject(req,res,f);
   }catch(e){console.error("Public media HEAD failed:",e?.stack||e);res.status(500).end()}
 });
+async function logPublicDownload(req,f,tokenValue,settings){
+  try{
+    settings=settings||await loadSettings();
+    if(!settingBool(settings.log_downloads))return;
+    const share=validShareSession(req,tokenValue);
+    await pool.query("INSERT INTO downloads(project_id,file_id,user_agent,ip_address,client_email) VALUES($1,$2,$3,$4,$5)",[f.project_id,f.id,String(req.headers["user-agent"]||"").slice(0,1000),clientIp(req),String(share?.email||"")]);
+  }catch(e){console.warn("Download log failed",e?.message||e)}
+}
+// Describe how the browser should fetch a file for download. Normally a
+// presigned bucket URL (free egress); the server route is only used when the
+// file must be changed on the way out (watermark on download).
+async function publicDownloadInfo(req,f,tokenValue,settings){
+  const creative=await creativeBrandingForProject(f.project_id);
+  const mustProxy=/^image\/(jpeg|png|webp)$/i.test(f.mime_type||"")&&creative.watermark_enabled&&creative.watermark_on_download;
+  await logPublicDownload(req,f,tokenValue,settings);
+  const server="/api/public/file/"+encodeURIComponent(f.id)+"?token="+encodeURIComponent(tokenValue)+"&download=1&logged=1";
+  const url=mustProxy?null:await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:3*3600});
+  return {id:f.id,name:f.original_name||"file",size:Number(f.size_bytes||0),type:f.mime_type||"application/octet-stream",url,server};
+}
+app.get("/api/public/file/:id/link",async(req,res)=>{
+ try{
+  const tokenValue=String(req.query.token||"");
+  const out=await signedFileUrl(req.params.id,tokenValue);if(!out)return res.status(404).json({error:"Invalid or expired delivery link."});
+  res.set("Cache-Control","no-store").json(await publicDownloadInfo(req,out.f,tokenValue));
+ }catch(e){console.error(e);res.status(500).json({error:"Unable to prepare download"})}
+});
+app.post("/api/public/share/:token/links",async(req,res)=>{
+ try{
+  const tokenValue=String(req.params.token||"");
+  const ids=Array.isArray(req.body?.ids)?req.body.ids.map(String).slice(0,5000):[];
+  const settings=await loadSettings();
+  const items=[];
+  for(const id of ids){const out=await signedFileUrl(id,tokenValue);if(out)items.push(await publicDownloadInfo(req,out.f,tokenValue,settings))}
+  res.set("Cache-Control","no-store").json({items});
+ }catch(e){console.error(e);res.status(500).json({error:"Unable to prepare downloads"})}
+});
 app.get("/api/public/file/:id",async(req,res)=>{
  try{
   const out=await signedFileUrl(req.params.id,String(req.query.token||""));if(!out)return res.status(404).send("Invalid or expired delivery link.");
   const settings=await loadSettings();
   const creative=await creativeBrandingForProject(out.f.project_id);
-  if(settingBool(settings.log_downloads)){
-    const share=validShareSession(req,String(req.query.token||""));
-    await pool.query("INSERT INTO downloads(project_id,file_id,user_agent,ip_address,client_email) VALUES($1,$2,$3,$4,$5)",[out.f.project_id,out.f.id,String(req.headers["user-agent"]||"").slice(0,1000),clientIp(req),String(share?.email||"")]);
-  }
+  if(req.query.logged!=="1")await logPublicDownload(req,out.f,String(req.query.token||""),settings);
   if(/^image\/(jpeg|png|webp)$/i.test(out.f.mime_type||"")&&creative.watermark_enabled&&creative.watermark_on_download){
     const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:out.f.storage_path}));const input=await bodyToBuffer(obj.Body);const wm=await applyCreativeWatermark(input,creative);
     if(wm.applied){let bytes=wm.buffer;const ct=/png/i.test(out.f.mime_type)?"image/png":/webp/i.test(out.f.mime_type)?"image/webp":"image/jpeg";if(ct==="image/jpeg")bytes=await sharp(bytes).jpeg({quality:92}).toBuffer();else if(ct==="image/png")bytes=await sharp(bytes).png().toBuffer();else bytes=await sharp(bytes).webp({quality:92}).toBuffer();return res.status(200).set("Content-Type",ct).set("Content-Disposition",(req.query.download==="1"?"attachment":"inline")+"; filename*=UTF-8''"+encodeURIComponent(out.f.original_name)).set("Cache-Control","private, no-store").send(bytes);}

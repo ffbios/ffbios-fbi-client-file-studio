@@ -530,6 +530,25 @@
 @media(max-width:560px){.fbi-gallery-title{font-size:40px}.fbi-gallery-subtitle{font-size:15px}.fbi-gallery-statline{gap:8px}.fbi-gallery-statline span{font-size:13px}.fbi-gallery-topbtn{font-size:13px;padding:10px 14px}.fbi-gallery-card{border-radius:10px;margin-bottom:8px}.fbi-gallery-guide{font-size:13px;gap:8px 16px}.fbi-gallery-guide button{margin-left:0}.fbi-lightbox-title{max-width:40vw}.fbi-lightbox-btn{padding:9px 12px;font-size:13px}.fbi-gallery-totop{bottom:84px}}
 @media(max-width:560px){.fbi-gallery-scrollcue{display:none}}
 @media(min-width:1251px){.fbi-gallery-grid.few{column-count:3}}
+.fbi-gallery-toplink{display:inline-flex;align-items:center;gap:7px}
+.fbi-gallery-toplink.on{background:#f4f3ef;color:#121212}
+.fbi-gallery-toplink .cnt:empty{display:none}
+.fbi-gallery-sticky button.ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35)}
+.fbi-picks-modal{position:fixed;inset:0;z-index:150;display:none;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.6);backdrop-filter:blur(6px)}
+.fbi-picks-modal.show{display:flex}
+.fbi-picks-card{width:min(440px,100%);background:#141416;border:1px solid rgba(255,255,255,.14);border-radius:20px;padding:24px;color:#f4f3ef;display:flex;flex-direction:column;gap:8px;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.fbi-picks-card h3{margin:0;font-family:Georgia,"Times New Roman",serif;font-weight:500;font-size:26px}
+.fbi-picks-card p{margin:0 0 8px;color:#bdbbb5;font-size:15px;line-height:1.5}
+.fbi-picks-card label{font-size:13px;color:#d6d4ce;margin-top:6px}
+.fbi-picks-card input,.fbi-picks-card textarea{font:inherit;font-size:15px;color:#f4f3ef;background:#0e0e10;border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:12px 14px;outline:none}
+.fbi-picks-card input:focus,.fbi-picks-card textarea:focus{border-color:#f1d98a}
+.fbi-picks-card .fbi-picks-err{color:#ffb4a8;font-size:14px;margin:4px 0 0;min-height:1em}
+.fbi-picks-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:8px}
+.fbi-picks-actions button{min-height:46px;padding:0 20px;border-radius:999px;border:1px solid rgba(255,255,255,.2);background:transparent;color:#f4f3ef;font-size:15px;font-weight:700;cursor:pointer}
+.fbi-picks-actions button.primary{background:#f1d98a;border-color:#f1d98a;color:#151514}
+.fbi-picks-actions button:disabled{opacity:.6;cursor:default}
+@media(max-width:850px){.fbi-gallery-toplink{display:inline-flex;padding:10px;min-width:44px;justify-content:center}.fbi-gallery-toplink .lbl{display:none}.fbi-gallery-toplink .cnt{font-size:12px}}
+@media(max-width:560px){.fbi-gallery-sticky{gap:8px;padding:8px 8px 8px 14px;max-width:calc(100vw - 24px)}.fbi-gallery-sticky strong{font-size:13px;white-space:nowrap}.fbi-gallery-sticky button{padding:10px 12px;font-size:13px;white-space:nowrap}}
 @media(prefers-reduced-motion:reduce){.fbi-gallery-scrollcue{animation:none}.fbi-gallery-card,.fbi-gallery-card:hover{transform:none}}
 </style></head>
 <body>
@@ -2115,8 +2134,8 @@ async function clientView(token){
         '<div class="fbi-gallery-topbar">'+
           '<div class="fbi-gallery-brand"><img src="'+galleryLogo+'" alt="FBI"><span>Film Beyond Imagination</span></div>'+
           '<div class="fbi-gallery-spacer"></div>'+
-          '<button class="fbi-gallery-toplink" id="favTop">♡ Favorites <span id="favTopCount"></span></button>'+
-          '<button class="fbi-gallery-toplink" id="slideTop">Slideshow</button>'+
+          '<button type="button" class="fbi-gallery-toplink" id="favTop" aria-label="Favorites"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20s-7-4.4-9.2-8.6C1.3 8.4 3 5 6.4 5c2 0 3.5 1.1 4.3 2.6h2.6C14.1 6.1 15.6 5 17.6 5 21 5 22.7 8.4 21.2 11.4 19 15.6 12 20 12 20z"></path></svg><span class="lbl" id="favTopLabel">Favorites</span><span class="cnt" id="favTopCount"></span></button>'+
+          '<button type="button" class="fbi-gallery-toplink" id="slideTop" aria-label="Slideshow"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 5l12 7-12 7z"></path></svg><span class="lbl">Slideshow</span></button>'+
           '<button class="fbi-gallery-topbtn primary" id="downloadTop">Download Gallery</button>'+
         '</div>'+
       '</header>'+
@@ -2154,7 +2173,8 @@ async function clientView(token){
         '<div class="fbi-gallery-footer">FILM BEYOND IMAGINATION • SECURE CLIENT DELIVERY</div>'+
       '</main>'+
       '<button type="button" id="galleryToTop" class="fbi-gallery-totop" aria-label="Back to top">↑</button>'+
-      '<div id="favoriteBar" class="fbi-gallery-sticky"><strong id="favoriteLabel">0 favorites</strong><button id="downloadFavorites">Download Favorites</button></div>'+
+      '<div id="favoriteBar" class="fbi-gallery-sticky"><strong id="favoriteLabel">0 favorites</strong><button type="button" class="ghost" id="sendPicks">Send to photographer</button><button type="button" id="downloadFavorites">Download</button></div>'+
+      '<div id="picksModal" class="fbi-picks-modal" role="dialog" aria-modal="true" aria-labelledby="picksTitle"><div class="fbi-picks-card"><h3 id="picksTitle">Send your favorites</h3><p id="picksIntro"></p><label for="picksName">Your name</label><input id="picksName" autocomplete="name" placeholder="e.g. Naomi"><label for="picksNote">Note (optional)</label><textarea id="picksNote" rows="3" placeholder="e.g. Please edit these for our album"></textarea><p class="fbi-picks-err" id="picksErr" role="alert"></p><div class="fbi-picks-actions"><button type="button" id="picksCancel">Cancel</button><button type="button" class="primary" id="picksSend">Send picks</button></div></div></div>'+
       '<div id="clientLightbox" class="fbi-lightbox"><div class="fbi-lightbox-top"><div style="display:flex;align-items:center;min-width:0"><div class="fbi-lightbox-title" id="lightTitle"></div><span class="fbi-lightbox-count" id="lightCount"></span></div><div class="fbi-lightbox-tools"><button class="fbi-lightbox-btn" id="lightFav">♡ Favorite</button><button class="fbi-lightbox-btn primary" id="lightDownload">Download</button><button class="fbi-lightbox-btn" id="lightClose">Close</button></div></div><button type="button" class="fbi-lightbox-arrow prev" id="lightPrev" aria-label="Previous">‹</button><div class="fbi-lightbox-stage" id="lightStage"></div><button type="button" class="fbi-lightbox-arrow next" id="lightNext" aria-label="Next">›</button></div>'+
     '</div>';
 
@@ -2364,7 +2384,7 @@ async function clientView(token){
       ?('/api/public/thumb/'+mediaId+'?token='+encodeURIComponent(token)+'&w=720&h=900')
       :('/api/public/media/'+mediaId+'?token='+encodeURIComponent(token));
     const highSrc=t==='image'
-      ?('/api/public/preview/'+mediaId+'?token='+encodeURIComponent(token)+'&w=1600&h=1600')
+      ?('/api/public/preview/'+mediaId+'?token='+encodeURIComponent(token)+'&w=2000&h=2000')
       :quickSrc;
 
     document.querySelector('#lightTitle').textContent=f.original_name;
@@ -2421,7 +2441,10 @@ async function clientView(token){
     box.classList.add('show');
   }
   function moveLight(delta){const list=window.__fbiPreviewFiles||[];if(list.length)openLocalLightbox(currentLightIndex+delta)}
-  // Same-origin download URL (relative, so fetch() never hits CORS).
+  // ---- Downloads ----
+  // Files come straight from cloud storage (free on Railway) instead of
+  // through the server (billed). The server only hands out short-lived links.
+  const isMobileDevice=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent));
   function sameOriginDownload(f){return '/api/public/file/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&download=1'}
   function saveBlobAs(blob,name){
     const href=URL.createObjectURL(blob);
@@ -2435,59 +2458,159 @@ async function clientView(token){
     a.href=url;a.rel='noreferrer';a.setAttribute('download',name||'');a.style.display='none';
     document.body.appendChild(a);a.click();a.remove();
   }
-  // Fetch the file ourselves, then hand the finished file to the browser to
-  // save. This works the same in every browser (including iPhone Safari) and
-  // lets the client see progress instead of "nothing happening".
-  async function downloadOne(f,label){
-    const name=f.original_name||'download';
-    const url=sameOriginDownload(f);
-    const size=Number(f.size_bytes||0);
-    // Very large files (long videos) would use too much memory as a blob,
-    // so let the browser stream those straight to disk.
-    if(size>300*1024*1024||!window.fetch||!window.ReadableStream||!window.Blob||!window.URL){
-      galleryToast(label+'Your download is starting…');
-      directDownload(url,name);return true;
+  async function getDownloadInfo(f){
+    const r=await fetch('/api/public/file/'+encodeURIComponent(f.id)+'/link?token='+encodeURIComponent(token),{credentials:'same-origin',cache:'no-store'});
+    if(!r.ok)throw new Error('link '+r.status);
+    return r.json();
+  }
+  async function getDownloadInfos(list){
+    const r=await fetch('/api/public/share/'+encodeURIComponent(token)+'/links',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:list.map(function(f){return f.id})})});
+    if(!r.ok)throw new Error('links '+r.status);
+    const d=await r.json();return d.items||[];
+  }
+  async function readAll(url,onBytes,opts){
+    const res=await fetch(url,Object.assign({cache:'no-store'},opts||{}));
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    if(!res.body||!res.body.getReader){const b=new Uint8Array(await res.arrayBuffer());if(onBytes)onBytes(b.length);return [b]}
+    const reader=res.body.getReader(),chunks=[];
+    for(;;){const r=await reader.read();if(r.done)break;chunks.push(r.value);if(onBytes)onBytes(r.value.length)}
+    return chunks;
+  }
+  // Bucket first; the server is only a safety net if storage can't be reached.
+  async function readFileChunks(info,onBytes){
+    if(info.url){
+      try{return await readAll(info.url,onBytes,{mode:'cors',credentials:'omit'})}
+      catch(e){console.warn('Storage download failed, using server instead',e)}
     }
+    return readAll(info.server,onBytes,{credentials:'same-origin'});
+  }
+  async function downloadOne(f,label,info){
+    label=label||'';
+    const name=f.original_name||'download',size=Number(f.size_bytes||0);
+    if(!info){try{info=await getDownloadInfo(f)}catch(e){info={url:null,server:sameOriginDownload(f)+'&logged=0',type:f.mime_type}}}
+    // Very large files on phones: let the browser save them directly to avoid memory limits.
+    if(isMobileDevice&&size>500*1024*1024){galleryToast(label+'Your download is starting…');directDownload(info.server,name);return true}
     try{
-      const res=await fetch(url,{credentials:'same-origin',cache:'no-store'});
-      if(!res.ok)throw new Error('HTTP '+res.status);
-      const total=Number(res.headers.get('content-length'))||size;
-      const type=res.headers.get('content-type')||'application/octet-stream';
-      let blob;
-      if(res.body&&res.body.getReader){
-        const reader=res.body.getReader();const chunks=[];let got=0,lastPct=-1;
-        for(;;){
-          const r=await reader.read();if(r.done)break;
-          chunks.push(r.value);got+=r.value.length;
-          const pct=total?Math.min(99,Math.floor(got/total*100)):0;
-          if(pct!==lastPct){lastPct=pct;galleryToast(label+'Downloading… '+(total?pct+'%':fmt(got)))}
-        }
-        blob=new Blob(chunks,{type});
-      }else{
-        galleryToast(label+'Downloading…');
-        blob=await res.blob();
-      }
-      saveBlobAs(blob,name);
+      let got=0,last=-1;
+      const chunks=await readFileChunks(info,function(n){
+        got+=n;const pct=size?Math.min(99,Math.floor(got/size*100)):-2;
+        if(pct!==last){last=pct;galleryToast(label+'Downloading… '+(size?pct+'%':fmt(got)))}
+      });
+      saveBlobAs(new Blob(chunks,{type:info.type||'application/octet-stream'}),name);
       return true;
     }catch(err){
-      console.warn('Download via fetch failed, falling back to direct link',err);
+      console.warn('Download failed, falling back to direct link',err);
       galleryToast(label+'Your download is starting…');
-      directDownload(url,name);
+      directDownload(info.server,name);
       return false;
     }
   }
-  async function startDownload(list){
+  // ---- ZIP built in the browser (no server work, no server bandwidth) ----
+  const CRC_TABLE=(function(){const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0}return t})();
+  function crc32Update(crc,buf){let c=(crc^0xFFFFFFFF)>>>0;for(let i=0;i<buf.length;i++)c=CRC_TABLE[(c^buf[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
+  function dosDateTime(d){
+    if(!(d instanceof Date)||isNaN(d))d=new Date();
+    return {t:(d.getHours()<<11)|(d.getMinutes()<<5)|Math.floor(d.getSeconds()/2),dt:((Math.max(1980,d.getFullYear())-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate()};
+  }
+  function uniqueZipName(name,used){
+    name=String(name||'file').replace(/[\\/]+/g,'_').replace(/^\.+/,'')||'file';
+    let out=name,n=2;const dot=name.lastIndexOf('.'),stem=dot>0?name.slice(0,dot):name,ext=dot>0?name.slice(dot):'';
+    while(used.has(out.toLowerCase())){out=stem+' ('+n+')'+ext;n++}
+    used.add(out.toLowerCase());return out;
+  }
+  // Minimal "stored" (no compression) ZIP writer: photos and videos are
+  // already compressed, so storing keeps it fast and light on phones.
+  function makeZipWriter(write){
+    const enc=new TextEncoder(),entries=[];let offset=0;
+    async function put(u8){await write(u8);offset+=u8.length}
+    return {
+      async addFile(name,chunks,size,crc,date){
+        const nb=enc.encode(name),tm=dosDateTime(date),h=new DataView(new ArrayBuffer(30)),at=offset;
+        h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x0800,true);h.setUint16(8,0,true);
+        h.setUint16(10,tm.t,true);h.setUint16(12,tm.dt,true);h.setUint32(14,crc,true);h.setUint32(18,size,true);h.setUint32(22,size,true);
+        h.setUint16(26,nb.length,true);h.setUint16(28,0,true);
+        await put(new Uint8Array(h.buffer));await put(nb);
+        for(const c of chunks)await put(c);
+        entries.push({nb,tm,crc,size,at});
+      },
+      async finish(){
+        const start=offset;
+        for(const e of entries){
+          const c=new DataView(new ArrayBuffer(46));
+          c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint16(8,0x0800,true);c.setUint16(10,0,true);
+          c.setUint16(12,e.tm.t,true);c.setUint16(14,e.tm.dt,true);c.setUint32(16,e.crc,true);c.setUint32(20,e.size,true);c.setUint32(24,e.size,true);
+          c.setUint16(28,e.nb.length,true);c.setUint16(30,0,true);c.setUint16(32,0,true);c.setUint16(34,0,true);c.setUint16(36,0,true);c.setUint32(38,0,true);c.setUint32(42,e.at,true);
+          await put(new Uint8Array(c.buffer));await put(e.nb);
+        }
+        const end=new DataView(new ArrayBuffer(22));
+        end.setUint32(0,0x06054b50,true);end.setUint16(4,0,true);end.setUint16(6,0,true);end.setUint16(8,entries.length,true);end.setUint16(10,entries.length,true);
+        end.setUint32(12,offset-start,true);end.setUint32(16,start,true);end.setUint16(20,0,true);
+        await put(new Uint8Array(end.buffer));
+      }
+    };
+  }
+  async function downloadZip(list,baseName){
+    const GB=1024*1024*1024,MB=1024*1024;
+    const STREAM_LIMIT=3.5*GB,PART_LIMIT=isMobileDevice?400*MB:1.5*GB,SOLO_LIMIT=isMobileDevice?300*MB:GB;
+    const total=list.reduce(function(a,f){return a+Number(f.size_bytes||0)},0);
+    const safeBase=String(baseName||'Gallery').replace(/[\\/:*?"<>|]+/g,' ').trim()||'Gallery';
+    // On desktop Chrome/Edge, ask where to save first (needs the click) and
+    // write the ZIP straight to disk, so even big galleries use little memory.
+    let handle=null;
+    if(window.showSaveFilePicker&&!isMobileDevice&&total<=STREAM_LIMIT&&!list.some(function(f){return Number(f.size_bytes||0)>SOLO_LIMIT})){
+      try{handle=await window.showSaveFilePicker({suggestedName:safeBase+'.zip',types:[{description:'ZIP archive',accept:{'application/zip':['.zip']}}]})}
+      catch(e){if(e&&e.name==='AbortError'){galleryToast('Download cancelled');return}handle=null}
+    }
+    galleryToast('Preparing your ZIP…');
+    let infos;
+    try{infos=await getDownloadInfos(list)}
+    catch(e){galleryToast('Downloading files one by one…');for(let i=0;i<list.length;i++)await downloadOne(list[i],'File '+(i+1)+' of '+list.length+' · ');return}
+    const byId=new Map(infos.map(function(x){return [String(x.id),x]}));
+    const solo=[],zippable=[];
+    list.forEach(function(f){const info=byId.get(String(f.id));if(!info)return;(Number(f.size_bytes||0)>SOLO_LIMIT?solo:zippable).push({f,info})});
+    const parts=[];let cur=[],curBytes=0;const limit=handle?STREAM_LIMIT:PART_LIMIT;
+    zippable.forEach(function(x){const sz=Number(x.f.size_bytes||0);if(cur.length&&curBytes+sz>limit){parts.push(cur);cur=[];curBytes=0}cur.push(x);curBytes+=sz});
+    if(cur.length)parts.push(cur);
+    const grand=zippable.reduce(function(a,x){return a+Number(x.f.size_bytes||0)},0);let done=0,lastMsg='';
+    try{
+      for(let pi=0;pi<parts.length;pi++){
+        const part=parts[pi],partLabel=parts.length>1?' · part '+(pi+1)+' of '+parts.length:'';
+        const writable=(handle&&parts.length===1)?await handle.createWritable():null;
+        const blobParts=writable?null:[];
+        const zip=makeZipWriter(writable?function(u8){return writable.write(u8)}:function(u8){blobParts.push(u8)});
+        const used=new Set();
+        for(let i=0;i<part.length;i++){
+          const x=part[i];
+          const chunks=await readFileChunks(x.info,function(n){
+            done+=n;const msg='Building your ZIP… '+(grand?Math.min(99,Math.floor(done/grand*100)):0)+'%'+partLabel;
+            if(msg!==lastMsg){lastMsg=msg;galleryToast(msg)}
+          });
+          let crc=0,size=0;for(const c of chunks){crc=crc32Update(crc,c);size+=c.length}
+          await zip.addFile(uniqueZipName(x.info.name||x.f.original_name,used),chunks,size,crc,x.f.created_at?new Date(x.f.created_at):new Date());
+        }
+        await zip.finish();
+        if(writable)await writable.close();
+        else saveBlobAs(new Blob(blobParts,{type:'application/zip'}),safeBase+(parts.length>1?' (part '+(pi+1)+' of '+parts.length+')':'')+'.zip');
+      }
+    }catch(err){
+      console.warn('ZIP failed, downloading files one by one',err);
+      galleryToast('Downloading files one by one…');
+      for(let i=0;i<zippable.length;i++)await downloadOne(zippable[i].f,'File '+(i+1)+' of '+zippable.length+' · ',zippable[i].info);
+    }
+    // Very large single files (long videos) are saved on their own.
+    for(let i=0;i<solo.length;i++)await downloadOne(solo[i].f,'Large file '+(i+1)+' of '+solo.length+' · ',solo[i].info);
+    galleryToast(parts.length>1?'Saved '+parts.length+' ZIP files to your Downloads ✓':'Your ZIP is saved to your Downloads ✓');
+  }
+  const galleryZipBase=(d.project&&d.project.name)||'Gallery';
+  async function startDownload(list,zipName){
     if(!list.length)return;
-    if(list.length>1){
-      if(!confirm('Download '+list.length+' files? Your browser may ask once to allow multiple downloads.'))return;
+    if(list.length===1){
+      galleryToast('Preparing your download…');
+      await downloadOne(list[0],'');
+      galleryToast('Saved to your Downloads ✓');
+      return;
     }
-    galleryToast(list.length===1?'Preparing your download…':'Preparing '+list.length+' downloads…');
-    for(let i=0;i<list.length;i++){
-      const label=list.length>1?('File '+(i+1)+' of '+list.length+' · '):'';
-      await downloadOne(list[i],label);
-      if(i<list.length-1)await new Promise(r=>setTimeout(r,400));
-    }
-    galleryToast(list.length===1?'Saved to your Downloads ✓':'All '+list.length+' files saved to your Downloads ✓');
+    await downloadZip(list,zipName||galleryZipBase);
   }
   function galleryToast(msg){
     let t=document.querySelector('#galleryToast');
@@ -2537,7 +2660,7 @@ async function clientView(token){
     },{passive:true});
   })();
   document.querySelectorAll('.fbi-gallery-chip').forEach(function(btn){
-    btn.onclick=function(){favoritesOnly.value=false;selectedFilter.value=btn.dataset.filter;document.querySelectorAll('.fbi-gallery-chip').forEach(b=>b.classList.toggle('active',b===btn));document.querySelector('#favTop').textContent='♡ Favorites'+(favorites.size?' ('+favorites.size+')':'');renderGrid()}
+    btn.onclick=function(){favoritesOnly.value=false;selectedFilter.value=btn.dataset.filter;document.querySelectorAll('.fbi-gallery-chip').forEach(b=>b.classList.toggle('active',b===btn));document.querySelector('#favTopLabel').textContent='Favorites';document.querySelector('#favTop').classList.remove('on');renderGrid()}
   });
   document.querySelector('#gallerySort').onchange=function(e){sortBy.value=e.target.value;renderGrid()};
   document.querySelector('#viewGallery').onclick=function(){document.querySelector('#galleryBody').scrollIntoView({behavior:'smooth',block:'start'})};
@@ -2546,12 +2669,40 @@ async function clientView(token){
     favoritesOnly.value=!favoritesOnly.value;
     selectedFilter.value='all';
     document.querySelectorAll('.fbi-gallery-chip').forEach(function(b){b.classList.toggle('active',b.dataset.filter==='all')});
-    document.querySelector('#favTop').textContent=favoritesOnly.value?'♥ Favorites (showing)':'♡ Favorites'+(favorites.size?' ('+favorites.size+')':'');
+    document.querySelector('#favTopLabel').textContent=favoritesOnly.value?'Showing favorites':'Favorites';
+    document.querySelector('#favTop').classList.toggle('on',favoritesOnly.value);
     renderGrid();
     document.querySelector('#galleryBody').scrollIntoView({behavior:'smooth',block:'start'});
   };
   document.querySelector('#slideTop').onclick=startSlideshow;
-  document.querySelector('#downloadFavorites').onclick=function(){startDownload(files.filter(f=>favorites.has(f.id)))};
+  document.querySelector('#downloadFavorites').onclick=function(){startDownload(files.filter(f=>favorites.has(f.id)),galleryZipBase+' - Favorites')};
+  // Send favorites to the photographer
+  const picksModal=document.querySelector('#picksModal');
+  const studioName=(d.settings&&d.settings.business_name)||'your photographer';
+  try{const nm=localStorage.getItem('fbi:client-name');if(nm)document.querySelector('#picksName').value=nm}catch{}
+  function closePicks(){picksModal.classList.remove('show')}
+  document.querySelector('#sendPicks').onclick=function(){
+    document.querySelector('#picksIntro').textContent='We will send your '+favorites.size+' favorite'+(favorites.size===1?'':'s')+' to '+studioName+'.';
+    document.querySelector('#picksErr').textContent='';
+    picksModal.classList.add('show');setTimeout(function(){document.querySelector('#picksName').focus()},50);
+  };
+  document.querySelector('#picksCancel').onclick=closePicks;
+  picksModal.addEventListener('click',function(e){if(e.target===picksModal)closePicks()});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&picksModal.classList.contains('show'))closePicks()});
+  document.querySelector('#picksSend').onclick=async function(){
+    const btn=this,name=document.querySelector('#picksName').value.trim(),note=document.querySelector('#picksNote').value.trim();
+    const err=document.querySelector('#picksErr');err.textContent='';
+    btn.disabled=true;btn.textContent='Sending…';
+    try{
+      try{localStorage.setItem('fbi:client-name',name)}catch{}
+      const r=await fetch('/api/public/share/'+encodeURIComponent(token)+'/selections',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,note,file_ids:Array.from(favorites)})});
+      const out=await r.json().catch(function(){return {}});
+      if(!r.ok)throw new Error(out.error||'Could not send your picks.');
+      closePicks();document.querySelector('#picksNote').value='';
+      galleryToast('Sent! '+studioName.charAt(0).toUpperCase()+studioName.slice(1)+' can now see your '+out.count+' pick'+(out.count===1?'':'s')+' ✓');
+    }catch(e){err.textContent=e.message||'Could not send your picks. Please try again.'}
+    finally{btn.disabled=false;btn.textContent='Send picks'}
+  };
   document.querySelector('#lightClose').onclick=closeLightbox;
   document.querySelector('#lightPrev').onclick=function(){moveLight(-1)};
   document.querySelector('#lightNext').onclick=function(){moveLight(1)};
@@ -2569,10 +2720,9 @@ async function clientView(token){
   // into the gallery and comes back up to the top.
   let coverQueue=[],coverPos=0,coverBusy=false;
   function coverSrc(f){
-    const wide=window.innerWidth>=window.innerHeight;
     // Large preview (not the 720px thumbnail) so the cover stays sharp on
     // big and high-density screens.
-    return '/api/public/preview/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+(wide?'&w=2400&h=1600':'&w=1400&h=2400');
+    return '/api/public/preview/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w=2000&h=2000';
   }
   function showCover(f){
     return new Promise(function(resolve){
@@ -2614,9 +2764,9 @@ async function clientView(token){
     const scored=[];
     await Promise.all(testCandidates.map(async function(f){
       try{
-        const src='/api/public/thumb/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w=520&h=420';
+        const src='/api/public/thumb/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w=720&h=720';
         const img=await new Promise((resolve,reject)=>{
-          const im=new Image();im.onload=()=>resolve(im);im.onerror=reject;im.src=src;
+          const im=new Image();im.crossOrigin='anonymous';im.onload=()=>resolve(im);im.onerror=reject;im.src=src;
         });
         const w=img.naturalWidth||1,h=img.naturalHeight||1,ratio=w/h;
         let score=Math.min(1.25,Number(f.size_bytes||0)/Math.max(1,heroCandidates[0].size_bytes||1))*.5;
