@@ -2340,6 +2340,45 @@ async function runEditorRender(jobId,projectId,state,settings){
   }
 }
 
+function runFfmpegCapture(args,timeoutMs){
+  return new Promise(function(resolve,reject){
+    if(!ffmpegPath)return reject(new Error("FFmpeg is not available."));
+    var p=spawn(ffmpegPath,args,{stdio:["ignore","ignore","pipe"]}),err="",done=false;
+    var t=setTimeout(function(){if(!done){done=true;try{p.kill("SIGKILL")}catch(e){}resolve(err)}},timeoutMs||150000);
+    p.stderr.on("data",function(c){err+=c.toString();if(err.length>2000000)err=err.slice(-1000000);});
+    p.on("error",function(e){if(!done){done=true;clearTimeout(t);reject(e)}});
+    p.on("close",function(){if(!done){done=true;clearTimeout(t);resolve(err)}});
+  });
+}
+function parseDurationSec(s){var m=/Duration:\s*(\d+):(\d+):(\d+\.?\d*)/.exec(s||"");return m?((+m[1])*3600+(+m[2])*60+parseFloat(m[3])):0;}
+// AI Auto-Cut / Scene-split analysis — runs on our own server (ffmpeg), no external AI cost.
+app.post("/api/editor/analyze/:projectId",admin,async(req,res)=>{
+  try{
+    if(!ffmpegPath)return res.status(503).json({error:"FFmpeg is not available on this deployment."});
+    if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
+    var fileId=String(req.body&&req.body.fileId||""),kind=String(req.body&&req.body.kind||"silence");
+    var f=(await pool.query("SELECT * FROM files WHERE id=$1 AND project_id=$2",[fileId,req.params.projectId])).rows[0];
+    if(!f)return res.status(404).json({error:"That file is not in this project."});
+    var url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:3600});
+    if(kind==="scenes"){
+      var thr=Math.max(0.1,Math.min(0.9,Number(req.body.threshold)||0.35));
+      var out=await runFfmpegCapture(["-hide_banner","-nostats","-i",url,"-filter:v","select='gt(scene,"+thr+")',showinfo","-an","-f","null","-"],150000);
+      var cuts=[...out.matchAll(/pts_time:([0-9.]+)/g)].map(function(m){return parseFloat(m[1])}).filter(function(x){return x>0.25});
+      return res.json({kind:"scenes",duration:parseDurationSec(out),cuts:cuts});
+    }
+    var noise=Math.max(-60,Math.min(-10,Number(req.body.noise)||-30));
+    var minSil=Math.max(0.2,Math.min(5,Number(req.body.minSilence)||0.5));
+    var out2=await runFfmpegCapture(["-hide_banner","-nostats","-i",url,"-af","silencedetect=noise="+noise+"dB:d="+minSil,"-f","null","-"],150000);
+    var dur=parseDurationSec(out2);
+    var starts=[...out2.matchAll(/silence_start:\s*(-?[0-9.]+)/g)].map(function(m){return Math.max(0,parseFloat(m[1]))});
+    var ends=[...out2.matchAll(/silence_end:\s*([0-9.]+)/g)].map(function(m){return parseFloat(m[1])});
+    var sil=[];for(var i=0;i<starts.length;i++){sil.push([starts[i],ends[i]!=null?ends[i]:(dur||starts[i]+minSil)]);}
+    var seg=[],cur=0;sil.forEach(function(iv){if(iv[0]-cur>0.2)seg.push([Math.max(0,cur),iv[0]]);cur=Math.max(cur,iv[1]);});
+    if((dur||0)-cur>0.2)seg.push([cur,dur]);
+    if(!seg.length&&dur>0)seg.push([0,dur]);
+    return res.json({kind:"silence",duration:dur,segments:seg});
+  }catch(e){console.error("Editor analyze failed:",e);res.status(500).json({error:"Analysis failed: "+(e&&e.message||e)})}
+});
 app.post("/api/editor/render/:projectId",admin,async(req,res)=>{
   try{
     var p=await pool.query("SELECT id FROM projects WHERE id=$1",[req.params.projectId]);
