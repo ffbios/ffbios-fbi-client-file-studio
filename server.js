@@ -2028,6 +2028,20 @@ app.post("/api/portal/push/unsubscribe",portalUser,async(req,res)=>{
   res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not turn off notifications."})}
 });
+app.post("/api/portal/push/test",portalUser,async(req,res)=>{
+ try{
+  if(!pushReady)return res.status(503).json({error:"Push is not configured."});
+  const subs=(await pool.query("SELECT id,endpoint,p256dh,auth FROM push_subscriptions WHERE user_id=$1",[req.portalUser.id])).rows;
+  if(!subs.length)return res.json({ok:true,sent:0,note:"No device is subscribed on your account yet."});
+  const data=JSON.stringify({title:"FBI Creative Portal",body:"Notifications are working — this is how you'll hear about new updates.",url:"/portal",tag:"fbi-test"});
+  let sent=0;
+  await Promise.all(subs.map(async s=>{
+    try{await webpush.sendNotification({endpoint:s.endpoint,keys:{p256dh:s.p256dh,auth:s.auth}},data);sent++;}
+    catch(err){const c=err&&err.statusCode;if(c===404||c===410)await pool.query("DELETE FROM push_subscriptions WHERE id=$1",[s.id]).catch(()=>{});}
+  }));
+  res.json({ok:true,sent,devices:subs.length});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not send the test notification."})}
+});
 app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
  try{
   const q=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
