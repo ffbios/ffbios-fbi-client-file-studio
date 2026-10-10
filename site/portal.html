@@ -403,7 +403,15 @@ body.creative-studio .studio-empty-projects span{color:var(--studio-muted);font-
 
 /* ===== Creative Settings: Brand Studio ===== */
 #creativeSettingsModal.cs2-modal{display:none;position:fixed;inset:0;z-index:120;padding:24px;background:rgba(5,5,6,.72);backdrop-filter:blur(8px);align-items:center;justify-content:center}
-#creativeSettingsModal.cs2-modal.show{display:flex}
+#creativeSettingsModal.cs2-modal.show{display:flex;animation:cs2Fade .3s ease both}
+#creativeSettingsModal.cs2-modal.show .cs2-card{animation:cs2SlideIn .48s cubic-bezier(.16,.84,.24,1) both}
+#creativeSettingsModal.cs2-modal.cs2-closing{animation:cs2FadeOut .32s ease both}
+#creativeSettingsModal.cs2-modal.cs2-closing .cs2-card{animation:cs2SlideOut .32s cubic-bezier(.5,0,.75,0) both}
+@keyframes cs2SlideIn{from{transform:translateX(calc(50vw + 60%));opacity:.4}to{transform:translateX(0);opacity:1}}
+@keyframes cs2SlideOut{from{transform:translateX(0);opacity:1}to{transform:translateX(calc(50vw + 60%));opacity:.4}}
+@keyframes cs2Fade{from{background:rgba(5,5,6,0);backdrop-filter:blur(0)}to{background:rgba(5,5,6,.72);backdrop-filter:blur(8px)}}
+@keyframes cs2FadeOut{from{background:rgba(5,5,6,.72)}to{background:rgba(5,5,6,0)}}
+@media(prefers-reduced-motion:reduce){#creativeSettingsModal.cs2-modal.show,#creativeSettingsModal.cs2-modal.show .cs2-card{animation:none}}
 #creativeSettingsModal .cs2-card{--cs-accent:#d4af37;position:relative;right:auto;top:auto;transform:none;transition:none;width:min(1240px,100%);max-width:none;height:min(860px,100%);border-radius:24px;border:1px solid rgba(255,255,255,.1);background:#111112;box-shadow:0 40px 120px rgba(0,0,0,.6);display:flex;flex-direction:column;overflow:hidden;font-family:Manrope,system-ui,sans-serif;color:#f4f2ec;font-size:15px}
 #creativeSettingsModal .cs2-head{display:flex;align-items:center;gap:14px;padding:22px 26px;border-bottom:1px solid rgba(255,255,255,.08);background:#121213;position:static}
 #creativeSettingsModal .cs2-head h3{font-family:Fraunces,Georgia,serif;font-weight:500;font-size:28px;letter-spacing:-.01em;margin:0}
@@ -1469,7 +1477,15 @@ async function startBillingCheckout(planId){
 }
 
 async function loadCollaborators(){if(!current||!$("#collaboratorList"))return;try{const d=await api("/api/portal/projects/"+encodeURIComponent(current.id)+"/collaborators"),rows=d.collaborators||[];$("#collaboratorList").innerHTML=rows.length?rows.map(function(x){return '<div style="display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-top:1px solid var(--border);font-size:8px"><div><b>'+esc(x.full_name||x.email)+'</b><span style="display:block;color:var(--muted);margin-top:2px">'+esc(x.email)+'</span></div><button class="btn danger" data-remove-collab="'+esc(x.user_id)+'">Remove</button></div>'}).join(""):'<div style="font-size:8px;color:var(--muted)">No collaborators yet.</div>';$("#collaboratorList").querySelectorAll("[data-remove-collab]").forEach(function(b){b.onclick=async function(){try{await api("/api/portal/projects/"+encodeURIComponent(current.id)+"/collaborators/"+encodeURIComponent(b.dataset.removeCollab),{method:"DELETE"});loadCollaborators()}catch(e){toastPortal(e.message)}}})}catch(e){console.warn(e)}}function openCreativeSettings(){api("/api/portal/settings").then(d=>{creativeSettings=d.settings||{};renderCreativeSettings();document.querySelectorAll("[data-cstab]").forEach(x=>x.classList.remove("active"));document.querySelectorAll("[data-cspane]").forEach(x=>x.classList.remove("active"));const first=document.querySelector("[data-cstab=branding]"),pane=document.querySelector("[data-cspane=branding]");if(first)first.classList.add("active");if(pane)pane.classList.add("active");$("#creativeSettingsModal").classList.add("show");setTimeout(()=>$("#csBusinessName")?.focus(),320)}).catch(e=>toastPortal(e.message||"Could not load settings."))}
-function closeCreativeSettings(){$("#creativeSettingsModal").classList.remove("show")}
+function closeCreativeSettings(){
+  // Slide the window back out to the right before hiding it.
+  const m=$("#creativeSettingsModal");if(!m||!m.classList.contains("show"))return;
+  const reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if(reduce){m.classList.remove("show");return}
+  m.classList.add("cs2-closing");
+  clearTimeout(window.__csCloseTimer);
+  window.__csCloseTimer=setTimeout(function(){m.classList.remove("show","cs2-closing")},320);
+}
 async function saveCreativeSettings(){
   const existingPresets=Array.isArray(creativeSettings?.watermark_presets)?creativeSettings.watermark_presets:[];
   creativeSettings={...creativeSettings,
