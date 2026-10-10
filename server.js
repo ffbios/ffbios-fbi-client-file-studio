@@ -1487,12 +1487,61 @@ const streamMonitor=setInterval(async()=>{
 },5000);
 if(streamMonitor.unref)streamMonitor.unref();
 
+// Railway terminates TLS at one trusted proxy hop; use the client IP for throttling.
+app.set("trust proxy",1);
 app.use(express.json({limit:"2mb"}));
 app.use(express.urlencoded({extended:true}));
 
+// Small, bounded in-process rate limiter. It deliberately avoids a new dependency
+// and protects password hashing / payment creation on the current app instance.
+// If the service is scaled to multiple replicas, move this store to a shared limiter.
+const requestRateLimitStore=new Map();
+function rateLimit(options){
+  const scope=String(options.scope||"api");
+  const windowMs=Math.max(1000,Number(options.windowMs)||60000);
+  const max=Math.max(1,Number(options.max)||10);
+  return function(req,res,next){
+    const now=Date.now();
+    let identity="unknown";
+    try{identity=String(typeof options.key==="function"?options.key(req):(req.ip||req.socket?.remoteAddress||"unknown")||"unknown")}catch{}
+    const key=scope+":"+identity.slice(0,240);
+    let state=requestRateLimitStore.get(key);
+    if(!state||state.resetAt<=now){
+      if(!state){
+        for(const [oldKey,oldState] of requestRateLimitStore){
+          if(oldState.resetAt<=now)requestRateLimitStore.delete(oldKey);
+          if(requestRateLimitStore.size<10000)break;
+        }
+        while(requestRateLimitStore.size>=10000){
+          const oldest=requestRateLimitStore.keys().next().value;
+          if(oldest===undefined)break;
+          requestRateLimitStore.delete(oldest);
+        }
+      }
+      state={count:0,resetAt:now+windowMs};
+      requestRateLimitStore.set(key,state);
+    }
+    state.count+=1;
+    const remaining=Math.max(0,max-state.count);
+    res.setHeader("RateLimit-Limit",String(max));
+    res.setHeader("RateLimit-Remaining",String(remaining));
+    res.setHeader("RateLimit-Reset",String(Math.ceil(state.resetAt/1000)));
+    if(state.count>max){
+      res.setHeader("Retry-After",String(Math.max(1,Math.ceil((state.resetAt-now)/1000))));
+      return res.status(429).json({error:"Too many attempts. Please wait a little and try again."});
+    }
+    next();
+  };
+}
+const adminLoginRateLimit=rateLimit({scope:"admin-login",windowMs:15*60*1000,max:8});
+const portalLoginRateLimit=rateLimit({scope:"portal-login",windowMs:15*60*1000,max:10});
+const portalRegisterRateLimit=rateLimit({scope:"portal-register",windowMs:60*60*1000,max:5});
+const galleryAccessRateLimit=rateLimit({scope:"gallery-access",windowMs:15*60*1000,max:20});
+const billingCheckoutRateLimit=rateLimit({scope:"billing-checkout",windowMs:15*60*1000,max:5,key:req=>req.portalUser?.id||req.ip||"unknown"});
+
 app.get("/health",(req,res)=>res.json({ok:true,service:"FBI Client File Studio",storage:s3Ready()?"railway-object-storage":"not-ready",time:new Date().toISOString()}));
 
-app.post("/api/auth/login",async(req,res)=>{
+app.post("/api/auth/login",adminLoginRateLimit,async(req,res)=>{
   try{
     const email=String(req.body.email||"").trim().toLowerCase();
     const password=String(req.body.password||"");
@@ -1506,7 +1555,7 @@ app.post("/api/auth/logout",(req,res)=>{
   res.json({ok:true});
 });
 app.get("/api/auth/me",(req,res)=>res.json(validSession(req)?{authenticated:true,email:ADMIN_EMAIL}:{authenticated:false}));
-app.post("/api/portal/register",async(req,res)=>{
+app.post("/api/portal/register",portalRegisterRateLimit,async(req,res)=>{
  try{
   const fullName=String(req.body.full_name||"").trim().slice(0,120);
   const email=String(req.body.email||"").trim().toLowerCase();
@@ -1523,7 +1572,7 @@ app.post("/api/portal/register",async(req,res)=>{
   res.json({ok:true,user:r.rows[0]});
  }catch(e){console.error(e);res.status(500).json({error:"Could not create your account."})}
 });
-app.post("/api/portal/login",async(req,res)=>{
+app.post("/api/portal/login",portalLoginRateLimit,async(req,res)=>{
  try{
   const email=String(req.body.email||"").trim().toLowerCase(),password=String(req.body.password||"");
   const r=await pool.query("SELECT id,email,full_name,password_hash FROM users WHERE email=$1",[email]);
@@ -1563,7 +1612,7 @@ app.get("/api/portal/billing",portalUser,async(req,res)=>{
   });
  }catch(e){console.error("Portal billing load failed:",e);res.status(500).json({error:"Could not load subscription details."})}
 });
-app.post("/api/portal/billing/checkout",portalUser,async(req,res)=>{
+app.post("/api/portal/billing/checkout",portalUser,billingCheckoutRateLimit,async(req,res)=>{
  try{
   const planId=String(req.body.plan_id||"").trim();
   if(!CREATOR_PLAN_IDS.includes(planId))return res.status(400).json({error:"Select a valid storage plan."});
@@ -1819,21 +1868,22 @@ app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
   const f=q.rows[0];
   const width=Math.max(160,Math.min(640,Number(req.query.w||360))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
   const kind=thumbKind(f),cacheKind=kind==="video"?"video-v3":kind;
-  const cacheKey="portal:"+f.id+":"+cacheKind+":"+width+"x"+height, cached=getThumbCache(cacheKey);
-  if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").send(cached.buffer);
+  const cacheKey="portal:"+f.id+":"+cacheKind+":"+width+"x"+height;
   const key="__portal-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+cacheKind+"|"+width+"|"+height).digest("hex")+".webp";
-  try{
-   const head=await s3.send(new HeadObjectCommand({Bucket:bucket(),Key:key}));
-   if(head.ContentLength){
-    const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:key}));
-    const bytes=got.Body?.transformToByteArray?Buffer.from(await got.Body.transformToByteArray()):Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject)}));
-    setThumbCache(cacheKey,bytes);return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").send(bytes);
-   }
-  }catch(_e){}
+  // Keep ownership checks here, then serve the image from the private bucket to
+  // avoid routing repeat thumbnail bytes through the paid app-egress path.
+  if(s3Ready()&&await storedObjectExists(key))return redirectToBucket(res,key,"private, no-store");
+  const cached=getThumbCache(cacheKey);
+  if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, no-store").set("X-Content-Type-Options","nosniff").send(cached.buffer);
   const webp=await generateThumbnail(f,width,height);
   setThumbCache(cacheKey,webp);
-  await s3.send(new PutObjectCommand({Bucket:bucket(),Key:key,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(f.id),generated_by:"fbi-client-file-studio-portal-media-aware"}})).catch(function(){});
-  res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").send(webp);
+  try{
+    await s3.send(new PutObjectCommand({Bucket:bucket(),Key:key,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(f.id),generated_by:"fbi-client-file-studio-portal-media-aware"}}));
+    return redirectToBucket(res,key,"private, no-store");
+  }catch(storageError){
+    console.warn("Portal thumbnail bucket write failed; serving the generated preview once:",storageError?.message||storageError);
+    return res.status(200).type("image/webp").set("Cache-Control","private, no-store").set("X-Content-Type-Options","nosniff").send(webp);
+  }
  }catch(e){console.error(e);res.status(500).send("Unable to generate thumbnail.")}
 });
 app.delete("/api/portal/projects/:id",portalUser,async(req,res)=>{
@@ -4172,24 +4222,20 @@ app.get("/api/admin/thumb/:id",admin,async(req,res)=>{
   const cacheKey="admin:"+f.id+":"+cacheKind+":"+width+"x"+height;
   const thumbKey="__admin-thumbnails/"+crypto.createHash("sha1").update(String(f.id)+"|"+cacheKind+"|"+width+"|"+height).digest("hex")+".webp";
   if(s3Ready()&&await storedObjectExists(thumbKey))return redirectToBucket(res,thumbKey,"private, no-store");
-  try{
-    const head=null;
-    if(head&&head.ContentLength){
-      const got=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:thumbKey}));
-      const bytes=got.Body?.transformToByteArray?Buffer.from(await got.Body.transformToByteArray()):Buffer.from(await new Promise((resolve,reject)=>{const chunks=[];got.Body.on("data",c=>chunks.push(c));got.Body.on("end",()=>resolve(Buffer.concat(chunks)));got.Body.on("error",reject)}));
-      setThumbCache(cacheKey,bytes);
-      return res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(bytes);
-    }
-  }catch(_e){}
+  const cached=getThumbCache(cacheKey);
+  if(cached)return res.status(200).type("image/webp").set("Cache-Control","private, no-store").set("X-Content-Type-Options","nosniff").send(cached.buffer);
   const webp=await generateThumbnail(f,width,height);
   setThumbCache(cacheKey,webp);
   try{
     await s3.send(new PutObjectCommand({Bucket:bucket(),Key:thumbKey,Body:webp,ContentType:"image/webp",CacheControl:"private, max-age=31536000, immutable",Metadata:{source_file_id:String(f.id),generated_by:"fbi-client-file-studio-admin-media-aware"}}));
-  }catch(err){console.warn("Could not persist admin thumbnail",err?.message||err)}
-  res.status(200).type("image/webp").set("Cache-Control","private, max-age=31536000, immutable").set("X-Content-Type-Options","nosniff").send(webp);
+    return redirectToBucket(res,thumbKey,"private, no-store");
+  }catch(err){
+    console.warn("Admin thumbnail bucket write failed; serving the generated preview once:",err?.message||err);
+    return res.status(200).type("image/webp").set("Cache-Control","private, no-store").set("X-Content-Type-Options","nosniff").send(webp);
+  }
  }catch(e){console.error("Admin thumbnail generation failed",e?.stack||e);res.status(500).send("Unable to generate thumbnail");}
 });
-app.post("/api/public/share/:token/access",async(req,res)=>{
+app.post("/api/public/share/:token/access",galleryAccessRateLimit,async(req,res)=>{
  try{
   const email=String(req.body?.email||"").trim().toLowerCase();
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({error:"Enter a valid email address."});
@@ -4197,10 +4243,9 @@ app.post("/api/public/share/:token/access",async(req,res)=>{
   if(!q.rowCount||!q.rows[0].shared)return res.status(404).json({error:"This delivery link is invalid or disabled."});
   const p=q.rows[0];
   if(p.expires_at&&new Date(p.expires_at).getTime()<Date.now())return res.status(404).json({error:"This delivery link has expired."});
-  // The share link itself grants access. The email entered here is the client's
-  // contact email and is written to the project/client registry. It is NOT
-  // required to have been pre-authorized in the project before the gallery opens.
-  await pool.query("UPDATE projects SET client_email=$1,updated_at=now() WHERE id=$2",[email,p.id]);
+  // The bearer share link grants access. The email entered here is attached to
+  // this visitor's signed session and later selections only; it is unverified and
+  // must not overwrite the owner's saved client contact email.
   res.setHeader("Set-Cookie","fbi_share_session="+encodeURIComponent(shareSession(req.params.token,email))+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000");
   res.json({ok:true,email});
  }catch(e){console.error("Client email access failed:",e);res.status(500).json({error:"Could not authorize gallery access."})}
