@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="/manifest.webmanifest">
-<title>FBI Client File Studio</title><script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet"><title>FBI Client File Studio</title><script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <style>
 :root{--bg:#09090a;--panel:#141416;--panel2:#1b1b1e;--border:#29292e;--text:#f6f6f7;--muted:#9b9ba4;--gold:#d4af37;--gold2:#f4d56d;--green:#4ade80;--red:#fb7185;--blue:#60a5fa;--shadow:0 18px 50px rgba(0,0,0,.28);--r:18px}
 *{box-sizing:border-box}html,body{margin:0;background:linear-gradient(180deg,#080809,#111114);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif}button,input,textarea{font:inherit}button{cursor:pointer}body{min-height:100vh}
@@ -550,7 +550,149 @@
 @media(max-width:850px){.fbi-gallery-toplink{display:inline-flex;padding:10px;min-width:44px;justify-content:center}.fbi-gallery-toplink .lbl{display:none}.fbi-gallery-toplink .cnt{font-size:12px}}
 @media(max-width:560px){.fbi-gallery-sticky{gap:8px;padding:8px 8px 8px 14px;max-width:calc(100vw - 24px)}.fbi-gallery-sticky strong{font-size:13px;white-space:nowrap}.fbi-gallery-sticky button{padding:10px 12px;font-size:13px;white-space:nowrap}}
 @media(prefers-reduced-motion:reduce){.fbi-gallery-scrollcue{animation:none}.fbi-gallery-card,.fbi-gallery-card:hover{transform:none}}
-</style></head>
+</style><style id="adm-refresh">
+/* Admin portal refresh: consistent type scale, icon nav, softer cards */
+.app{--adm-bg:#0c0c0d;--adm-card:#141415;--adm-card2:#1a1a1c;--adm-line:#26252a;--adm-text:#f4f3ef;--adm-muted:#a5a39d;--adm-gold:#e9b949;--adm-teal:#4fb3a9;--adm-coral:#e07a5f;--adm-lav:#b9a6e8;font-family:Manrope,Inter,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;background:radial-gradient(1200px 500px at 70% -10%,rgba(233,185,73,.06),transparent 60%),var(--adm-bg);-webkit-font-smoothing:antialiased}
+.app .side{width:252px;background:#0f0f10;border-right:1px solid var(--adm-line);padding:22px 14px;display:flex;flex-direction:column;gap:18px;box-sizing:border-box}
+.app .adm-brand{display:flex;align-items:center;gap:12px;padding:4px 8px 18px;border-bottom:1px solid var(--adm-line);margin:0}
+.app .adm-brand img{width:52px;height:30px;object-fit:contain}
+.app .adm-brand b{display:block;font-size:14px;font-weight:800;color:var(--adm-text)}
+.app .adm-brand small{display:block;font-size:12px;color:var(--adm-gold);font-weight:600;margin-top:2px;letter-spacing:.04em}
+.app .adm-nav{display:flex;flex-direction:column;gap:3px}
+.app .adm-navlabel{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#7c7a74;padding:14px 12px 6px}
+.app .adm-nav button{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:0 12px;border-radius:12px;border:1px solid transparent;background:transparent;color:#c9c7c1;font:inherit;font-size:14px;font-weight:600;text-align:left;cursor:pointer;transition:background .15s,color .15s}
+.app .adm-nav button svg{flex:none;color:#8d8b85;transition:color .15s}
+.app .adm-nav button:hover{background:#19191b;color:#fff}
+.app .adm-nav button.active{background:rgba(233,185,73,.12);border-color:rgba(233,185,73,.28);color:#fff}
+.app .adm-nav button.active svg{color:var(--adm-gold)}
+.app .adm-status{margin-top:auto;padding:14px;border:1px solid var(--adm-line);border-radius:14px;background:#131314;display:flex;flex-direction:column;gap:7px;font-size:12px;color:#bdbbb5;line-height:1.3}
+.app .adm-status-title{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#7c7a74;margin-bottom:2px}
+.app .adm-status span{display:flex;align-items:center;gap:8px}
+.app .adm-status i{width:7px;height:7px;border-radius:50%;background:#4ade80;box-shadow:0 0 0 3px rgba(74,222,128,.15);flex:none}
+.app .main{padding:28px clamp(16px,2.6vw,40px) 48px}
+.app .top{align-items:center;margin-bottom:24px}
+.app .top h1{font-size:30px;font-weight:800;letter-spacing:-.02em;margin:0}
+.app .top p{font-size:14px;color:var(--adm-muted);margin:6px 0 0}
+.app .actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.app .btn{font-family:inherit;font-size:14px;font-weight:600;min-height:42px;padding:0 16px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}
+.app .adm-iconbtn{background:#161618;border:1px solid var(--adm-line);color:#e4e2dc}
+.app .adm-iconbtn:hover{background:#1e1e21}
+.app .adm-newbtn{font-weight:800}
+.app .adm-ghost{background:transparent;border:1px solid var(--adm-line);color:#e4e2dc;min-height:38px;font-size:13px;padding:0 12px}
+.app .adm-ghost:hover{border-color:#3a3833;background:#19191b}
+.app .adm-loading{display:flex;align-items:center;gap:12px;color:var(--adm-muted);padding:40px 4px;font-size:14px}
+.app .adm-loading span{width:18px;height:18px;border-radius:50%;border:2px solid #333;border-top-color:var(--adm-gold);animation:admspin .8s linear infinite}
+@keyframes admspin{to{transform:rotate(360deg)}}
+.app .adm-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:18px}
+.app .adm-kpi{display:flex;gap:14px;padding:18px;border-radius:18px;background:var(--adm-card);border:1px solid var(--adm-line);min-width:0}
+.app .adm-kpi-icon{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;flex:none}
+.app .adm-tone-gold .adm-kpi-icon{background:rgba(233,185,73,.14);color:var(--adm-gold)}
+.app .adm-tone-teal .adm-kpi-icon{background:rgba(79,179,169,.14);color:var(--adm-teal)}
+.app .adm-tone-lav .adm-kpi-icon{background:rgba(185,166,232,.14);color:var(--adm-lav)}
+.app .adm-tone-coral .adm-kpi-icon{background:rgba(224,122,95,.14);color:var(--adm-coral)}
+.app .adm-kpi-body{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.app .adm-kpi-label{font-size:13px;color:var(--adm-muted);font-weight:600}
+.app .adm-kpi strong{font-size:28px;font-weight:800;letter-spacing:-.02em;line-height:1.15;color:var(--adm-text)}
+.app .adm-kpi-sub{font-size:12.5px;color:#8f8d87;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app .adm-meter{display:block;height:6px;border-radius:99px;background:#252428;overflow:hidden;margin-top:6px}
+.app .adm-meter i{display:block;height:100%;background:var(--adm-lav);border-radius:99px}
+.app .adm-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px}
+.app .adm-span8{grid-column:span 8}.app .adm-span5{grid-column:span 5}.app .adm-span4{grid-column:span 4}.app .adm-span3{grid-column:span 3}
+.app .adm-card{background:var(--adm-card);border:1px solid var(--adm-line);border-radius:18px;padding:18px;min-width:0;display:flex;flex-direction:column}
+.app .adm-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}
+.app .adm-card-head h2{margin:0;font-size:17px;font-weight:800;color:var(--adm-text)}
+.app .adm-card-head p{margin:4px 0 0;font-size:13px;color:var(--adm-muted)}
+.app .adm-plist{display:flex;flex-direction:column}
+.app .adm-prow{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:14px;width:100%;padding:11px 10px;margin:0 -10px;width:calc(100% + 20px);border:0;border-radius:12px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.app .adm-prow+.adm-prow{border-top:1px solid #1f1e22}
+.app .adm-prow:hover{background:#1a1a1c}
+.app .adm-avatar{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:13px;font-weight:800;color:#141310}
+.app .adm-pmain{min-width:0;display:flex;flex-direction:column;gap:3px}
+.app .adm-pmain b{font-size:14px;font-weight:700;color:var(--adm-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app .adm-pmain small{font-size:12.5px;color:#9a9892;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app .adm-pill{font-size:12px;font-weight:700;padding:5px 10px;border-radius:99px;white-space:nowrap}
+.app .adm-pill-shared{background:rgba(79,179,169,.14);color:#8fdcd3}
+.app .adm-pill-draft{background:#232226;color:#c9c7c1}
+.app .adm-pill-archived{background:rgba(224,122,95,.12);color:#f0a894}
+.app .adm-when{font-size:12.5px;color:#8f8d87;white-space:nowrap;text-align:right;min-width:72px}
+.app .adm-donut{position:relative;width:170px;height:170px;margin:4px auto 14px}
+.app .adm-donut svg{width:100%;height:100%}
+.app .adm-donut-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.app .adm-donut-center strong{font-size:20px;font-weight:800}
+.app .adm-donut-center span{font-size:12px;color:var(--adm-muted)}
+.app .adm-legend{display:flex;flex-direction:column;gap:2px}
+.app .adm-legend-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto auto 40px;align-items:center;gap:10px;padding:7px 0;font-size:13.5px;border-top:1px solid #1f1e22}
+.app .adm-legend-row:first-child{border-top:0}
+.app .adm-legend-row i{width:10px;height:10px;border-radius:3px}
+.app .adm-legend-row small{color:#8f8d87;font-size:12px}
+.app .adm-legend-row b{font-weight:700}
+.app .adm-legend-row em{font-style:normal;color:var(--adm-muted);text-align:right;font-size:12.5px}
+.app .adm-feed{display:flex;flex-direction:column}
+.app .adm-feed-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid #1f1e22}
+.app .adm-feed-row:first-child{border-top:0}
+.app .adm-feed-btn{width:100%;border-left:0;border-right:0;border-bottom:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;border-radius:0}
+.app .adm-feed-btn:hover .adm-feed-main b{color:var(--adm-gold)}
+.app .adm-feed-icon{width:36px;height:36px;border-radius:11px;background:#1d1d20;color:#cfcdc7;display:grid;place-items:center}
+.app .adm-feed-heart{background:rgba(224,122,95,.14);color:var(--adm-coral)}
+.app .adm-feed-main{min-width:0;display:flex;flex-direction:column;gap:2px}
+.app .adm-feed-main b{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app .adm-feed-main small{font-size:12.5px;color:#9a9892;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app .adm-actions{display:flex;flex-direction:column;gap:8px}
+.app .adm-action{display:flex;align-items:center;gap:10px;min-height:46px;padding:0 14px;border-radius:12px;border:1px solid var(--adm-line);background:#18181a;color:#e9e7e1;font:inherit;font-size:14px;font-weight:600;cursor:pointer;text-align:left}
+.app .adm-action:hover{background:#1f1f22}
+.app .adm-action svg{color:var(--adm-gold);flex:none}
+.app .adm-action-primary{background:var(--adm-gold);border-color:var(--adm-gold);color:#151410}
+.app .adm-action-primary svg{color:#151410}
+.app .adm-action-primary:hover{background:#f1c75e}
+.app .adm-facts{display:flex;flex-direction:column;gap:6px;margin-top:14px;font-size:12.5px;color:#8f8d87}
+.app .adm-facts span::before{content:"✓";color:var(--adm-teal);margin-right:7px;font-weight:800}
+.app .adm-empty{padding:22px 4px;color:var(--adm-muted);font-size:13.5px;line-height:1.5}
+/* Readable text on the existing pages (projects, storage, downloads, settings) */
+.app .panel{border-radius:18px;background:var(--adm-card);border-color:var(--adm-line);box-shadow:none}
+.app .table{font-size:13.5px}
+.app .table th{font-size:11.5px;letter-spacing:.08em}
+.app .table td{padding-top:12px;padding-bottom:12px}
+.app .project-tile-name{font-size:14px}
+.app .project-tile-meta{font-size:12.5px}
+.app .project-tile-badge,.app .tag{font-size:11.5px}
+.app .projects-library-tools input,.app .projects-library-tools select,.app .field input,.app .field select,.app .field textarea{font-family:inherit;font-size:14px}
+.app .field label{font-size:13px}
+.app .projects-library-head p,.app .muted,.app .smallnote{font-size:13px}
+/* Project workspace */
+.app .workspace-header{padding:18px 20px;gap:14px;align-items:center;flex-wrap:wrap}
+.app .workspace-eyebrow{font-size:11px;letter-spacing:.14em;color:#8a8882}
+.app .workspace-title h2{font-size:22px;margin:4px 0}
+.app .workspace-title p{font-size:13px;color:var(--adm-muted);margin:0}
+.app .workspace-search{font-family:inherit;font-size:14px;padding:10px 12px;border-radius:11px;width:220px}
+.app .workspace-actions{flex-wrap:wrap;gap:8px}
+.app .workspace-actions .btn,.app .workspace-header .btn{white-space:nowrap;min-height:38px;font-size:13px;padding:0 13px}
+.app .workspace-tabs{padding:10px 16px;gap:6px}
+.app .workspace-tab{font-family:inherit;font-size:13px;font-weight:600;padding:9px 13px;border-radius:10px;cursor:pointer}
+.app .workspace-tab.active{background:rgba(233,185,73,.12);border-color:rgba(233,185,73,.3);color:#fff}
+.app .workspace-body{padding:18px}
+.app .project-summary-card small,.app .project-summary-card span{font-size:12px}
+.app .project-summary-card strong{font-size:22px}
+.app .upload-panel{padding:24px;border-radius:16px}
+.app .upload-panel h3{font-size:16px}
+.app .upload-panel p{font-size:13px}
+.app .upload-actions .btn{min-height:40px}
+.app .foldernote{font-size:12px}
+/* the styled "Choose Files" / "Upload Folder" buttons open these; hide the raw browser boxes */
+.app #pick,.app #pickFolder{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none}
+.app .admin-media-grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
+.app .admin-media-card{border-radius:14px;border-color:var(--adm-line);background:#121213}
+.app .admin-media-thumb{height:170px}
+.app .admin-media-thumb .badge{position:absolute;left:8px;top:8px;right:auto;bottom:auto;padding:4px 8px;font-size:10.5px;font-weight:700;letter-spacing:.06em;border-radius:99px;background:rgba(0,0,0,.65);color:#fff;line-height:1}
+.app .admin-media-meta{padding:10px 12px}
+.app .admin-media-name{font-size:13px}
+.app .admin-media-sub{font-size:12px}
+.app .admin-media-foot{padding:8px 10px;gap:6px}
+.app .admin-media-foot button,.app .admin-media-foot a{font-family:inherit;font-size:12px;padding:8px 6px;border-radius:9px}
+@media(max-width:1250px){.app .adm-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.app .adm-span8,.app .adm-span4{grid-column:span 12}.app .adm-span5{grid-column:span 6}.app .adm-span4.adm-feedcol{grid-column:span 6}.app .adm-span3{grid-column:span 12}.app .adm-actions{flex-direction:row;flex-wrap:wrap}.app .adm-action{flex:1 1 200px}}
+@media(max-width:900px){.app .side{width:100%;height:auto;position:static;border-right:0;border-bottom:1px solid var(--adm-line);gap:10px;padding:14px}.app .adm-nav{flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:4px}.app .adm-nav button{width:auto;flex:none}.app .adm-navlabel,.app .adm-status{display:none}.app .adm-brand{border-bottom:0;padding-bottom:4px}.app .adm-span5,.app .adm-span4,.app .adm-span4.adm-feedcol,.app .adm-span3{grid-column:span 12}}
+@media(max-width:560px){.app .adm-kpis{grid-template-columns:1fr}.app .top h1{font-size:24px}.app .adm-iconbtn span{display:none}.app .adm-iconbtn{padding:0 12px}.app .adm-prow{grid-template-columns:auto minmax(0,1fr) auto}.app .adm-prow .adm-when{display:none}}
+</style>
+</head>
 <body>
 <div id="root"></div>
 <script>
@@ -621,10 +763,12 @@ async function loadProjects(){
 }
 function updateStats(){
   const total=projects.reduce((a,p)=>a+Number(p.total_bytes||0),0);
-  document.querySelector('#sp').textContent=projects.length;
-  document.querySelector('#sf').textContent=projects.reduce((a,p)=>a+Number(p.file_count||0),0);
-  document.querySelector('#ss').textContent=fmt(total);
-  document.querySelector('#sh').textContent=projects.filter(p=>p.shared).length;
+  // These counters only exist on some layouts; never let a missing one break the page.
+  const set=function(id,v){const el=document.querySelector(id);if(el)el.textContent=v};
+  set('#sp',projects.length);
+  set('#sf',projects.reduce((a,p)=>a+Number(p.file_count||0),0));
+  set('#ss',fmt(total));
+  set('#sh',projects.filter(p=>p.shared).length);
 }
 function renderProjects(){
   const el=document.querySelector('#projectList');if(!el)return;
@@ -1189,7 +1333,8 @@ async function showView(view){
   activeStudioView=view;setNav(view);
   const main=document.querySelector('.main');if(main)main.classList.toggle('stream-fullscreen-mode',view==='streams');
   if(view==="dashboard"){
-    setPageHead("Dashboard","Overview of your client file studio.");
+    const h=new Date().getHours();
+    setPageHead("Dashboard",(h<12?"Good morning":h<17?"Good afternoon":"Good evening")+". Here is what is happening in your studio.");
     await renderDashboardPage();
   }else if(view==="storage"){
     setPageHead("Storage","See exactly how much cloud space is used and how much is left.");
@@ -1214,41 +1359,86 @@ async function showView(view){
 function openProjectFromDashboard(id){
   showView("projects").then(function(){openProject(id)});
 }
+function admAgo(v){
+  const t=new Date(v).getTime();if(!t)return '';
+  const m=Math.round((Date.now()-t)/60000);
+  if(m<1)return 'just now';if(m<60)return m+' min ago';
+  const h=Math.round(m/60);if(h<24)return h+' h ago';
+  const d=Math.round(h/24);if(d<7)return d+' day'+(d===1?'':'s')+' ago';
+  return new Date(t).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
+}
+const ADM_TYPE_COLORS={Video:'#E9B949',Photo:'#4FB3A9',Audio:'#B9A6E8',PDF:'#E07A5F',Archive:'#8FA3BF',Other:'#6E6C66'};
+const ADM_AVATAR_COLORS=['#E9B949','#4FB3A9','#E07A5F','#B9A6E8','#8FA3BF','#D9A066'];
+function admInitials(name){const w=String(name||'?').replace(/[^A-Za-z0-9 ]+/g,' ').trim().split(/\s+/);return ((w[0]||'?')[0]+((w[1]||'')[0]||'')).toUpperCase()}
+function admColor(name){let h=0;String(name||'').split('').forEach(function(c){h=(h*31+c.charCodeAt(0))>>>0});return ADM_AVATAR_COLORS[h%ADM_AVATAR_COLORS.length]}
+function admIcon(path,size){return '<svg aria-hidden="true" width="'+(size||20)+'" height="'+(size||20)+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+path+'</svg>'}
+const ADM_I={
+  folder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  cloud:'<path d="M7 18a5 5 0 0 1-.9-9.9A6 6 0 0 1 17.7 9 4.5 4.5 0 0 1 17 18z"/>',
+  download:'<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>',
+  heart:'<path d="M12 20s-7-4.4-9.2-8.6C1.3 8.4 3 5 6.4 5c2 0 3.5 1.1 4.3 2.6h2.6C14.1 6.1 15.6 5 17.6 5 21 5 22.7 8.4 21.2 11.4 19 15.6 12 20 12 20z"/>',
+  image:'<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
+  video:'<rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3z"/>',
+  file:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  settings:'<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+  editor:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
+  arrow:'<path d="M5 12h14M13 6l6 6-6 6"/>'
+};
+function admTypeIcon(mime){mime=String(mime||'');return mime.indexOf('image/')===0?ADM_I.image:mime.indexOf('video/')===0?ADM_I.video:ADM_I.file}
 async function renderDashboardPage(){
   const c=document.querySelector('#content');
-  c.innerHTML='<div class="empty">Loading dashboard...</div>';
+  c.innerHTML='<div class="adm-loading"><span></span>Loading your studio…</div>';
   try{
-    const d=await api('/api/dashboard'),s=d.summary||{},types=d.types||[];
-    const max=Math.max(1,...types.map(function(x){return Number(x.bytes||0)}));
-    c.innerHTML=`
-      <div class="cards">
-        <div class="card"><small>Active Projects</small><strong>${s.active_projects||0}</strong><span>Current client workspaces</span></div>
-        <div class="card"><small>Storage</small><strong>${fmt(s.storage_bytes||0)}</strong><span>${fmt(s.storage_available_bytes||0)} left of ${fmt(s.storage_quota_bytes||0)}</span></div>
-        <div class="card"><small>Shared Projects</small><strong>${s.shared_projects||0}</strong><span>Active delivery links</span></div>
-        <div class="card"><small>Total Downloads</small><strong>${s.download_count||0}</strong><span>${s.downloads_7d||0} in the last 7 days</span></div>
-      </div>
-      <div class="viewgrid">
-        <div class="panel span8"><div class="ph"><div><h2>Recent Projects</h2><p>Latest active and archived workspaces.</p></div><button class="btn" id="dashProjects">Open Projects</button></div><div class="body tablewrap">
-          <table class="table"><thead><tr><th>Project</th><th>Client</th><th>Files</th><th>Storage</th><th>Status</th><th>Updated</th></tr></thead><tbody>
-          ${(d.recentProjects||[]).length?(d.recentProjects||[]).map(function(p){return `<tr onclick="openProjectFromDashboard('${p.id}')" style="cursor:pointer"><td><b>${esc(p.name)}</b></td><td>${esc(p.client_name||'')}</td><td>${p.file_count||0}</td><td>${fmt(p.total_bytes||0)}</td><td><span class="tag">${p.archived?'Archived':(p.shared?'Shared':'Draft')}</span></td><td>${new Date(p.updated_at).toLocaleString()}</td></tr>`}).join(''):'<tr><td colspan="6" class="muted">No projects yet.</td></tr>'}
-          </tbody></table></div></div>
-        <div class="panel span4"><div class="ph"><div><h2>Storage by Type</h2><p>Where your space is going.</p></div></div><div class="body">
-          ${types.length?types.map(function(x){return `<div class="barline"><span>${esc(x.type)}</span><div class="bar"><i style="width:${Math.max(5,Number(x.bytes||0)/max*100)}%"></i></div><b style="text-align:right">${fmt(x.bytes||0)}</b></div>`}).join(''):'<div class="empty">No file data yet.</div>'}
-        </div></div>
-        <div class="panel span6"><div class="ph"><div><h2>Recent Downloads</h2><p>Latest client delivery activity.</p></div><button class="btn" id="dashDownloads">View All</button></div><div class="body tablewrap"><table class="table"><thead><tr><th>File</th><th>Project</th><th>When</th></tr></thead><tbody>
-        ${(d.recentDownloads||[]).length?(d.recentDownloads||[]).map(function(x){return `<tr><td><b>${esc(x.original_name||'Deleted file')}</b></td><td>${esc(x.project_name||'Deleted project')}</td><td>${new Date(x.downloaded_at).toLocaleString()}</td></tr>`}).join(''):'<tr><td colspan="3" class="muted">No downloads recorded.</td></tr>'}
-        </tbody></table></div></div>
-        <div class="panel span6"><div class="ph"><div><h2>Studio Snapshot</h2><p>Operational information.</p></div></div><div class="body">
-          <div class="quick"><button class="btn primary" id="dashNew">＋ New Project</button><button class="btn" id="dashSettings">Open Settings</button></div>
-          <div style="height:15px"></div>
-          <div class="smallnote">Archived projects: <b>${s.archived_projects||0}</b><br>Downloads in 30 days: <b>${s.downloads_30d||0}</b><br>Storage policy: <b>original bytes preserved</b><br>Transfer policy: <b>resumable + duplicate-aware</b></div>
-        </div></div>
-      </div>`;
+    const d=await api('/api/dashboard'),s=d.summary||{},types=(d.types||[]).filter(function(x){return Number(x.bytes||0)>0});
+    const used=Number(s.storage_bytes||0),quota=Number(s.storage_quota_bytes||0);
+    const unlimited=!quota||quota>=50*1e12;
+    const pct=unlimited?0:Math.min(100,used/quota*100);
+    const totalTypeBytes=types.reduce(function(a,x){return a+Number(x.bytes||0)},0)||1;
+    // Donut chart for storage by type
+    let acc=0;const C=2*Math.PI*52;
+    const donut=types.map(function(x){const frac=Number(x.bytes||0)/totalTypeBytes,len=Math.max(0,frac*C-2),seg='<circle cx="70" cy="70" r="52" fill="none" stroke="'+(ADM_TYPE_COLORS[x.type]||'#6E6C66')+'" stroke-width="16" stroke-dasharray="'+len.toFixed(2)+' '+(C-len).toFixed(2)+'" stroke-dashoffset="'+(-acc).toFixed(2)+'" transform="rotate(-90 70 70)"></circle>';acc+=frac*C;return seg}).join('');
+    const kpi=function(icon,label,value,sub,tone,extra){return '<div class="adm-kpi adm-tone-'+tone+'"><div class="adm-kpi-icon">'+admIcon(icon,20)+'</div><div class="adm-kpi-body"><span class="adm-kpi-label">'+label+'</span><strong>'+value+'</strong><span class="adm-kpi-sub">'+sub+'</span>'+(extra||'')+'</div></div>'};
+    const projectsHtml=(d.recentProjects||[]).length?(d.recentProjects||[]).map(function(p){
+      const status=p.archived?'Archived':(p.shared?'Shared':'Draft');
+      return '<button type="button" class="adm-prow" data-open-project="'+esc(p.id)+'"><span class="adm-avatar" style="background:'+admColor(p.name)+'">'+esc(admInitials(p.name))+'</span><span class="adm-pmain"><b>'+esc(p.name)+'</b><small>'+esc(p.client_name||'No client')+' · '+(p.file_count||0)+' files · '+fmt(p.total_bytes||0)+'</small></span><span class="adm-pill adm-pill-'+status.toLowerCase()+'">'+status+'</span><span class="adm-when">'+esc(admAgo(p.updated_at))+'</span></button>';
+    }).join(''):'<div class="adm-empty">No projects yet. Create your first one to start delivering.</div>';
+    const downloadsHtml=(d.recentDownloads||[]).length?(d.recentDownloads||[]).slice(0,7).map(function(x){
+      return '<div class="adm-feed-row"><span class="adm-feed-icon">'+admIcon(admTypeIcon(x.mime_type),18)+'</span><span class="adm-feed-main"><b>'+esc(x.original_name||'Deleted file')+'</b><small>'+esc(x.project_name||'Deleted project')+'</small></span><span class="adm-when">'+esc(admAgo(x.downloaded_at))+'</span></div>';
+    }).join(''):'<div class="adm-empty">No downloads yet. They appear here as soon as clients start saving files.</div>';
+    const picksHtml=(d.recentPicks||[]).length?(d.recentPicks||[]).map(function(x){
+      return '<button type="button" class="adm-feed-row adm-feed-btn" data-open-project="'+esc(x.project_id)+'"><span class="adm-feed-icon adm-feed-heart">'+admIcon(ADM_I.heart,18)+'</span><span class="adm-feed-main"><b>'+esc(x.client_name||x.client_email||'A client')+' picked '+Number(x.count||0)+' photo'+(Number(x.count)===1?'':'s')+'</b><small>'+esc(x.project_name||'')+'</small></span><span class="adm-when">'+esc(admAgo(x.created_at))+'</span></button>';
+    }).join(''):'<div class="adm-empty">When a client taps “Send to photographer”, their favorite picks appear here.</div>';
+    c.innerHTML=
+      '<div class="adm-kpis">'+
+        kpi(ADM_I.folder,'Active projects',s.active_projects||0,(s.archived_projects||0)+' archived','gold')+
+        kpi(ADM_I.link,'Shared links',s.shared_projects||0,'Live client galleries','teal')+
+        kpi(ADM_I.cloud,'Storage used',fmt(used),unlimited?Number(s.file_count||0).toLocaleString()+' files · plenty of room':fmt(Number(s.storage_available_bytes||0))+' free of '+fmt(quota),'lav',unlimited?'':'<span class="adm-meter"><i style="width:'+pct.toFixed(1)+'%"></i></span>')+
+        kpi(ADM_I.download,'Downloads',Number(s.download_count||0).toLocaleString(),(s.downloads_7d||0)+' this week','coral')+
+      '</div>'+
+      '<div class="adm-grid">'+
+        '<section class="adm-card adm-span8"><header class="adm-card-head"><div><h2>Recent projects</h2><p>Your latest client workspaces.</p></div><button type="button" class="btn adm-ghost" id="dashProjects">All projects '+admIcon(ADM_I.arrow,16)+'</button></header><div class="adm-plist">'+projectsHtml+'</div></section>'+
+        '<section class="adm-card adm-span4"><header class="adm-card-head"><div><h2>Storage by type</h2><p>Where your space is going.</p></div></header>'+
+          (types.length?'<div class="adm-donut"><svg viewBox="0 0 140 140" role="img" aria-label="Storage by file type"><circle cx="70" cy="70" r="52" fill="none" stroke="#232220" stroke-width="16"></circle>'+donut+'</svg><div class="adm-donut-center"><strong>'+fmt(used)+'</strong><span>total</span></div></div><div class="adm-legend">'+types.map(function(x){const pc=Number(x.bytes||0)/totalTypeBytes*100;return '<div class="adm-legend-row"><i style="background:'+(ADM_TYPE_COLORS[x.type]||'#6E6C66')+'"></i><span>'+esc(x.type)+'</span><small>'+(x.files||0)+' files</small><b>'+fmt(x.bytes||0)+'</b><em>'+(pc<1?'<1':Math.round(pc))+'%</em></div>'}).join('')+'</div>':'<div class="adm-empty">No files uploaded yet.</div>')+
+        '</section>'+
+        '<section class="adm-card adm-span5"><header class="adm-card-head"><div><h2>Recent downloads</h2><p>What clients are saving.</p></div><button type="button" class="btn adm-ghost" id="dashDownloads">View all '+admIcon(ADM_I.arrow,16)+'</button></header><div class="adm-feed">'+downloadsHtml+'</div></section>'+
+        '<section class="adm-card adm-span4 adm-feedcol"><header class="adm-card-head"><div><h2>Client picks</h2><p>Favorites sent from galleries.</p></div></header><div class="adm-feed">'+picksHtml+'</div></section>'+
+        '<section class="adm-card adm-span3"><header class="adm-card-head"><div><h2>Quick actions</h2><p>Jump right in.</p></div></header><div class="adm-actions">'+
+          '<button type="button" class="adm-action adm-action-primary" id="dashNew">'+admIcon(ADM_I.plus,18)+'<span>New project</span></button>'+
+          '<button type="button" class="adm-action" id="dashOpenProjects">'+admIcon(ADM_I.folder,18)+'<span>Upload to a project</span></button>'+
+          '<button type="button" class="adm-action" id="dashEditor">'+admIcon(ADM_I.editor,18)+'<span>Open video editor</span></button>'+
+          '<button type="button" class="adm-action" id="dashSettings">'+admIcon(ADM_I.settings,18)+'<span>Studio settings</span></button>'+
+        '</div><div class="adm-facts"><span>Originals always preserved</span><span>Resumable, duplicate-aware uploads</span></div></section>'+
+      '</div>';
     document.querySelector('#dashProjects').onclick=function(){showView('projects')};
+    document.querySelector('#dashOpenProjects').onclick=function(){showView('projects')};
     document.querySelector('#dashDownloads').onclick=function(){showView('downloads')};
     document.querySelector('#dashSettings').onclick=function(){showView('settings')};
-    document.querySelector('#dashNew').onclick=function(){document.querySelector('#modal').classList.add('show')};
-  }catch(e){c.innerHTML='<div class="empty">'+esc(e.message)+'</div>'}
+    document.querySelector('#dashEditor').onclick=function(){location.href='/editor.html'};
+    document.querySelector('#dashNew').onclick=function(){document.querySelector('#modal').classList.add('show');const n=document.querySelector('#newNote');if(n)n.value=studioSettings.default_client_note||''};
+    c.querySelectorAll('[data-open-project]').forEach(function(b){b.onclick=function(){if(b.dataset.openProject)openProjectFromDashboard(b.dataset.openProject)}});
+  }catch(e){c.innerHTML='<div class="adm-empty">'+esc(e.message)+'</div>'}
 }
 async function renderStoragePage(){
   const c=document.querySelector('#content');
@@ -1415,6 +1605,7 @@ function renderProjectsPage(){
   document.querySelector('#content').innerHTML='<div class="projects-page"><aside class="projects-library"><div class="projects-library-head"><div class="eyebrow">Library</div><h2>Client Projects</h2><p>Select a project to manage its files and delivery.</p></div><div class="projects-library-tools"><input id="search" placeholder="Search projects or clients"><select id="projectStatus"><option value="active">Active projects</option><option value="archived">Archived projects</option><option value="all">All projects</option></select><div id="projectStats" class="muted"></div></div><div id="projectList" class="projects-list"></div><div class="projects-library-foot"><button class="btn primary" id="createProjectFromLibrary">＋ New Project</button></div></aside><section class="projects-workspace" id="current"></section></div>';
   document.querySelector('#search').oninput=loadProjects;document.querySelector('#projectStatus').onchange=loadProjects;
   document.querySelector('#createProjectFromLibrary').onclick=function(){document.querySelector('#modal').classList.add('show');document.querySelector('#newNote').value=studioSettings.default_client_note||''};
+  renderCurrent();
   loadProjects();
 }
 let selectedStreamId=null;
@@ -1998,20 +2189,22 @@ function studioView(initialView,initialStream){
   document.body.innerHTML=`
     <div class="app">
       <aside class="side">
-        <div class="brand"><div><img src="${LOGO}"><small>Client File Studio</small></div></div>
-        <nav class="nav">
-          <button data-view="dashboard">⌂ &nbsp;Dashboard</button>
-          <button data-view="storage">▤ &nbsp;Storage</button>
-          <button onclick="location.href='/editor.html'">✂ &nbsp;Video Editor</button>
-          <button data-view="projects">▣ &nbsp;Projects</button>
-          <button data-view="ndi">◈ &nbsp;NDI I/O</button>
-          <button data-view="downloads">⇩ &nbsp;Downloads</button>
-          <button data-view="settings">⚙ &nbsp;Settings</button>
+        <div class="brand adm-brand"><img src="${LOGO}" alt="FBI"><div><b>Client File Studio</b><small>Admin</small></div></div>
+        <nav class="nav adm-nav" aria-label="Admin">
+          <div class="adm-navlabel">Overview</div>
+          <button data-view="dashboard"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Dashboard</span></button>
+          <button data-view="projects"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Projects</span></button>
+          <button data-view="downloads"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg><span>Downloads</span></button>
+          <button data-view="storage"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg><span>Storage</span></button>
+          <div class="adm-navlabel">Studio tools</div>
+          <button onclick="location.href='/editor.html'"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></svg><span>Video Editor</span></button>
+          <button data-view="ndi"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/></svg><span>NDI I/O</span></button>
+          <button data-view="settings"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg><span>Settings</span></button>
         </nav>
-        <div class="sidefoot">Cloud storage connected<br>Project archive enabled<br>Live streaming enabled<br>Secure client delivery</div>
+        <div class="sidefoot adm-status"><div class="adm-status-title">System status</div><span><i></i>Cloud storage connected</span><span><i></i>Project archive enabled</span><span><i></i>Live streaming enabled</span><span><i></i>Secure client delivery</span></div>
       </aside>
       <main class="main">
-        <div class="top"><div><h1 id="pageTitle">${esc(studioSettings.studio_name)}</h1><p id="pageSubtitle">Overview of your client file studio.</p></div><div class="actions"><button class="btn" id="installApp">Install App</button><button class="btn" id="logout">Logout</button><button class="btn primary" id="new">＋ New Project</button></div></div>
+        <div class="top"><div><h1 id="pageTitle">${esc(studioSettings.studio_name)}</h1><p id="pageSubtitle">Overview of your client file studio.</p></div><div class="actions"><button class="btn adm-iconbtn" id="installApp" title="Install app" aria-label="Install app"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M12 8v6M9 11l3 3 3-3"/></svg><span>Install App</span></button><button class="btn adm-iconbtn" id="logout" title="Log out" aria-label="Log out"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 17l5-5-5-5M15 12H3"/><path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/></svg><span>Log out</span></button><button class="btn primary adm-newbtn" id="new"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg><span>New Project</span></button></div></div>
         <div id="content"></div>
       </main>
     </div>
@@ -2900,10 +3093,8 @@ document.addEventListener('click',event=>{
   if(event.target && event.target.id==='installApp')installFbiApp();
 });
 function updateOfflineBadge(){
-  if(document.querySelector('.fbi-gallery-page')){
-    const old=document.querySelector('#pwaStatus');
-    if(navigator.onLine){if(old)old.remove();return}
-  }
+  // Only show the badge when the connection drops; when online it just covers content.
+  if(navigator.onLine){const old=document.querySelector('#pwaStatus');if(old)old.remove();return}
   let el=document.querySelector('#pwaStatus');
   if(!el){
     el=document.createElement('div');
