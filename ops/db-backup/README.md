@@ -10,12 +10,12 @@ This directory is designed to run as a separate Railway service with this direct
 - Scope: this backs up PostgreSQL data/metadata. It does not make a second copy of the original media bucket. Test media retrieval/restore separately.
 
 Example Railway environment references:
-- DATABASE_URL = ${"{${Postgres.DATABASE_URL}}"}
-- S3_ENDPOINT = ${"{${fbi-cfs-backups.ENDPOINT}}"}
-- S3_BUCKET = ${"{${fbi-cfs-backups.BUCKET}}"}
-- AWS_DEFAULT_REGION = ${"{${fbi-cfs-backups.REGION}}"}
-- AWS_ACCESS_KEY_ID = ${"{${fbi-cfs-backups.ACCESS_KEY_ID}}"}
-- AWS_SECRET_ACCESS_KEY = ${"{${fbi-cfs-backups.SECRET_ACCESS_KEY}}"}
+- DATABASE_URL = \${{Postgres.DATABASE_URL}}
+- S3_ENDPOINT = \${{fbi-cfs-backups.ENDPOINT}}
+- S3_BUCKET = \${{fbi-cfs-backups.BUCKET}}
+- AWS_DEFAULT_REGION = \${{fbi-cfs-backups.REGION}}
+- AWS_ACCESS_KEY_ID = \${{fbi-cfs-backups.ACCESS_KEY_ID}}
+- AWS_SECRET_ACCESS_KEY = \${{fbi-cfs-backups.SECRET_ACCESS_KEY}}
 - BACKUP_PREFIX = fbi-client-file-studio
 
 The job requires outbound access to Railway's private Postgres hostname and the S3-compatible bucket endpoint.
