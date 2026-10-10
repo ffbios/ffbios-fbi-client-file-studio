@@ -196,8 +196,9 @@ body.creative-studio .sidebar{
   border-right:1px solid var(--studio-border);color:var(--studio-text)
 }
 body.creative-studio .studio-side-brand{display:flex;align-items:center;gap:12px;padding:2px 6px 22px}
-body.creative-studio .studio-logo{width:44px;height:44px;flex:none;display:grid;place-items:center;border-radius:13px;background:var(--studio-gold);
+body.creative-studio .studio-logo{width:44px;height:44px;flex:none;display:grid;place-items:center;border-radius:13px;background:#14120D;overflow:hidden;
   color:#14120D;font-family:"Fraunces",Georgia,serif;font-size:17px;font-weight:700;letter-spacing:-.04em}
+body.creative-studio .studio-logo img{width:100%;height:100%;object-fit:contain}
 body.creative-studio .studio-side-brand strong{display:block;font-family:"Fraunces",Georgia,serif;font-size:18px;line-height:1.15;font-weight:600;letter-spacing:-.025em}
 body.creative-studio .studio-side-brand small{display:block;color:var(--studio-muted);font-size:12px;margin-top:4px}
 body.creative-studio #newProjectBtn.studio-new-project{width:100%;min-height:48px;margin:0 0 22px;padding:10px 15px;display:flex;align-items:center;justify-content:center;gap:10px;
@@ -603,7 +604,7 @@ body.creative-studio .studio-empty-projects span{color:var(--studio-muted);font-
   
 <aside class="sidebar">
   <div class="studio-side-brand">
-    <div class="studio-logo" aria-hidden="true">FBI</div>
+    <div class="studio-logo" aria-hidden="true"><img src="/official-logo.png?v=3" alt="FBI"></div>
     <div><strong>Client File Studio</strong><small>Your creative space</small></div>
   </div>
   <button id="newProjectBtn" class="btn primary newbtn studio-new-project" type="button">

@@ -5116,6 +5116,15 @@ app.get("/live-studio-addon.js",(req,res)=>{res.type("application/javascript").s
 app.get("/portal-manifest.webmanifest",(req,res)=>{
   res.type("application/manifest+json").set("Cache-Control","no-cache, no-store, must-revalidate").sendFile(path.join(ROOT,"portal-manifest.webmanifest"));
 });
+app.get("/portal-pwa-icon-maskable-512.png",async(req,res)=>{
+  try{
+    // Maskable icon: the official logo inside a generous safe zone so Android's
+    // adaptive-icon mask never clips the artwork.
+    const logo=await sharp(path.join(ROOT,"official-logo.png")).resize({width:300,height:300,fit:"contain",background:{r:17,g:17,b:19,alpha:1}}).png().toBuffer();
+    const buffer=await sharp({create:{width:512,height:512,channels:4,background:{r:17,g:17,b:19,alpha:1}}}).composite([{input:logo,gravity:"center"}]).png().toBuffer();
+    res.type("image/png").set("Cache-Control","public, max-age=31536000, immutable").send(buffer);
+  }catch(err){console.error("Portal maskable icon generation failed:",err);res.sendStatus(500);}
+});
 app.get("/portal-pwa-icon-:size.png",async(req,res)=>{
   const size=Number(req.params.size);
   if(size!==192&&size!==512)return res.sendStatus(404);

@@ -1,5 +1,5 @@
-const CACHE_NAME="fbi-client-file-studio-portal-v2";
-const APP_SHELL=["/portal","/portal-manifest.webmanifest","/official-logo.png?v=3","/portal-pwa-icon-192.png","/portal-pwa-icon-512.png"];
+const CACHE_NAME="fbi-client-file-studio-portal-v3";
+const APP_SHELL=["/portal","/portal-manifest.webmanifest","/official-logo.png?v=3","/portal-pwa-icon-192.png","/portal-pwa-icon-512.png","/portal-pwa-icon-maskable-512.png"];
 
 self.addEventListener("install",event=>{
   event.waitUntil(
