@@ -253,7 +253,8 @@ function mediaKind(f){const m=(f.mime_type||"").toLowerCase();if(m.startsWith("v
 
 const state={name:"Untitled Sequence",resolution:"1920x1080",clips:[],effect:{}};
 let files=[],projectId=null,projects=[];
-let pps=64,playhead=0,playing=false,selId=null,tool="select";
+let pps=64,playhead=0,playing=false,selId=null,selSet=new Set(),tool="select";
+function setSel(id){selId=id;selSet=new Set(id?[id]:[]);}
 const DEFAULT_IMG_DUR=5;
 const pv=$("#pv"),pvImg=$("#pvImg");let loadedFileId=null,lastTs=0;
 
@@ -323,7 +324,7 @@ async function addToTimeline(f){
   const dur=await probeDuration(f,k);
   const clip={id:uid(),fileId:f.id,name:f.original_name||"clip",type:k==="audio"?"audio":(k==="image"?"image":"video"),track,
     start:trackEnd(track),duration:dur,trimIn:0,trimOut:dur,speed:1,volume:100,mute:false,srcDuration:dur,grade:{}};
-  state.clips.push(clip);selId=clip.id;playhead=clip.start;
+  state.clips.push(clip);setSel(clip.id);playhead=clip.start;
   renderTimeline();renderInspector();fitTimeline();positionPlayhead();renderPreview();scheduleSave();toast(clip.name+" added");
 }
 
@@ -347,14 +348,16 @@ function renderTimeline(){
 }
 function makeClipEl(c){
   const el=document.createElement("div");
-  el.className="clip"+(c.track==="A1"?" audio":"")+(c.id===selId?" sel":"");
+  el.className="clip"+(c.track==="A1"?" audio":"")+(selSet.has(c.id)?" sel":"");
   el.dataset.id=c.id;el.style.left=((c.start||0)*pps)+"px";el.style.width=Math.max(16,(c.duration||0)*pps)+"px";
   if(c.type==="image")el.innerHTML+=`<div class="thumbs" style="background-image:url('/api/admin/file/${c.fileId}')"></div>`;
   el.innerHTML+=`<div class="cname">${(c.name||"clip").replace(/</g,"&lt;")}</div><div class="cmeta">${(c.duration||0).toFixed(1)}s${c.speed&&c.speed!==1?" · "+Math.round(c.speed*100)+"%":""}${c.mute?" · muted":""}</div><div class="edge l"></div><div class="edge r"></div>`;
   bindClip(el,c);return el;
 }
-function selectClip(c){
-  selId=c.id;document.querySelectorAll(".clip").forEach(x=>x.classList.toggle("sel",x.dataset.id===selId));
+function selectClip(c,additive){
+  if(additive){if(selSet.has(c.id))selSet.delete(c.id);else selSet.add(c.id);selId=c.id;}
+  else{selSet=new Set([c.id]);selId=c.id;}
+  document.querySelectorAll(".clip").forEach(x=>x.classList.toggle("sel",selSet.has(x.dataset.id)));
   if(playhead<c.start||playhead>=c.start+c.duration){playhead=c.start;positionPlayhead();}
   renderInspector();renderPreview();
 }
@@ -362,10 +365,14 @@ function bindClip(el,c){
   el.addEventListener("pointerdown",e=>{
     if(e.target.classList.contains("edge"))return;
     if(tool==="razor"){const lane=el.parentElement,r=lane.getBoundingClientRect();splitClipAt(c,(e.clientX-r.left)/pps);return;}
-    selectClip(c);
-    const startX=e.clientX,origStart=c.start;el.setPointerCapture(e.pointerId);el.style.cursor="grabbing";
-    const move=ev=>{let ns=origStart+(ev.clientX-startX)/pps;ns=snap(ns,c);c.start=Math.max(0,ns);el.style.left=(c.start*pps)+"px";};
-    const up=()=>{el.releasePointerCapture(e.pointerId);el.style.cursor="grab";el.removeEventListener("pointermove",move);el.removeEventListener("pointerup",up);renderTimeline();scheduleSave();};
+    const additive=e.shiftKey||e.ctrlKey||e.metaKey;
+    if(additive||!selSet.has(c.id))selectClip(c,additive);
+    const movers=state.clips.filter(x=>selSet.has(x.id));
+    const orig=new Map(movers.map(x=>[x.id,x.start]));const startX=e.clientX;let moved=false;
+    el.setPointerCapture(e.pointerId);el.style.cursor="grabbing";
+    const move=ev=>{if(Math.abs(ev.clientX-startX)>2)moved=true;let dx=(ev.clientX-startX)/pps;let pn=snap(orig.get(c.id)+dx,c);dx=pn-orig.get(c.id);
+      movers.forEach(x=>{x.start=Math.max(0,orig.get(x.id)+dx);const el2=document.querySelector('.clip[data-id="'+x.id+'"]');if(el2)el2.style.left=(x.start*pps)+"px";});};
+    const up=()=>{el.releasePointerCapture(e.pointerId);el.style.cursor="grab";el.removeEventListener("pointermove",move);el.removeEventListener("pointerup",up);if(moved){renderTimeline();scheduleSave();}};
     el.addEventListener("pointermove",move);el.addEventListener("pointerup",up);
   });
   el.querySelectorAll(".edge").forEach(edge=>{
@@ -387,10 +394,10 @@ function splitClipAt(c,tAbs){
   const offset=(tAbs-c.start)*(c.speed||1);const b=Object.assign({},c,{id:uid(),grade:Object.assign({},c.grade)});
   c.trimOut=c.trimIn+offset;c.duration=(c.trimOut-c.trimIn)/(c.speed||1);
   b.trimIn=c.trimIn+offset;b.start=tAbs;b.duration=(b.trimOut-b.trimIn)/(b.speed||1);
-  state.clips.push(b);selId=b.id;renderTimeline();renderInspector();scheduleSave();toast("Clip split");
+  state.clips.push(b);setSel(b.id);renderTimeline();renderInspector();scheduleSave();toast("Clip split");
 }
 function splitAtPlayhead(){const c=state.clips.find(c=>c.id===selId)||activeClip(playhead,"V1");if(c&&playhead>c.start&&playhead<c.start+c.duration)splitClipAt(c,playhead);else toast("Put the playhead over a clip to split",true);}
-function deleteSel(){if(!selId)return;state.clips=state.clips.filter(c=>c.id!==selId);selId=null;renderTimeline();renderInspector();renderPreview();scheduleSave();toast("Clip removed");}
+function deleteSel(){if(!selSet.size)return;const n=selSet.size;state.clips=state.clips.filter(c=>!selSet.has(c.id));setSel(null);renderTimeline();renderInspector();renderPreview();scheduleSave();toast(n+" clip"+(n>1?"s":"")+" removed");}
 
 /* ---------- zoom / fit / playhead ---------- */
 function positionPlayhead(){$("#playhead").style.left=(72+playhead*pps)+"px";$("#tc").innerHTML=fmt(playhead)+'<span class="sep">/</span>'+fmt(timelineDuration());}
@@ -462,7 +469,7 @@ function renderInspector(){
     ${c.type!=="image"?`<button class="aibtn" id="aiSilence"><span class="ti">✂</span>Auto-Cut Silence</button>`:""}
     ${c.type==="video"?`<button class="aibtn" id="aiScenes"><span class="ti">⎇</span>Auto Scene Split</button>`:""}
     ${c.type!=="audio"?`<button class="aibtn" id="aiColor"><span class="ti">◑</span>Auto Color Balance</button>`:""}
-  </div><div class="ai-note">Runs on your own server — no per-use AI fees.</div></div>`;
+  </div><div class="ai-note">${c.type==="image"?"This is a photo — Auto-Cut and Scene Split need a video or audio clip (a photo has no audio to cut).":"Runs on your own server — no per-use AI fees."}</div></div>`;
   if(c.type!=="audio"){
     const wheel=(id,label,x,y)=>`<div class="wheel"><div class="disc" id="${id}"><div class="dot" style="left:${50+x}%;top:${50-y}%"></div></div><small>${label}</small></div>`;
     html+=`<div class="section"><div class="lbl">Color Grade</div>
@@ -502,7 +509,7 @@ async function autoCutSilence(clip){
   const idx=state.clips.indexOf(clip);if(idx>=0)state.clips.splice(idx,1);
   let cursor=clip.start;const made=[];
   segs.forEach(s=>{const dur=(s[1]-s[0])/(clip.speed||1);const nc=Object.assign({},clip,{id:uid(),trimIn:s[0],trimOut:s[1],duration:dur,start:cursor,grade:Object.assign({},clip.grade)});state.clips.push(nc);made.push(nc);cursor+=dur;});
-  selId=made[0].id;renderTimeline();renderInspector();fitTimeline();renderPreview();scheduleSave();toast("Silence removed — "+made.length+" segment(s)");
+  setSel(made[0].id);renderTimeline();renderInspector();fitTimeline();renderPreview();scheduleSave();toast("Silence removed — "+made.length+" segment(s)");
 }
 async function autoSceneSplit(clip){
   const r=await aiAnalyze(clip,"scenes");
@@ -511,7 +518,7 @@ async function autoSceneSplit(clip){
   const idx=state.clips.indexOf(clip);if(idx>=0)state.clips.splice(idx,1);
   const bounds=[clip.trimIn,...cuts,clip.trimOut];let cursor=clip.start;const made=[];
   for(let i=0;i<bounds.length-1;i++){const s=bounds[i],e=bounds[i+1];const dur=(e-s)/(clip.speed||1);const nc=Object.assign({},clip,{id:uid(),trimIn:s,trimOut:e,duration:dur,start:cursor,grade:Object.assign({},clip.grade)});state.clips.push(nc);made.push(nc);cursor+=dur;}
-  selId=made[0].id;renderTimeline();renderInspector();scheduleSave();toast("Split into "+made.length+" scenes");
+  setSel(made[0].id);renderTimeline();renderInspector();scheduleSave();toast("Split into "+made.length+" scenes");
 }
 async function autoColor(clip){
   const d=await sampleAvg(clip.fileId,clip.type);if(!d){toast("Couldn't analyze this clip",true);return;}
@@ -604,6 +611,14 @@ async function poll(jobId){
 function setTool(t){tool=t;$("#toolSelect").classList.toggle("active",t==="select");$("#toolRazor").classList.toggle("active",t==="razor");$("#tlScroll").classList.toggle("razor",t==="razor");}
 function bindGlobal(){
   bindRulerScrub();
+  // click/drag empty timeline area → move playhead (and clear selection)
+  ["laneV1","laneA1"].forEach(id=>{const lane=$("#"+id);lane.addEventListener("pointerdown",e=>{
+    if(e.target.closest(".clip"))return;
+    selSet=new Set();selId=null;document.querySelectorAll(".clip").forEach(x=>x.classList.remove("sel"));renderInspector();
+    const rect=lane.getBoundingClientRect();const seek=cx=>{playhead=Math.max(0,(cx-rect.left)/pps);positionPlayhead();renderPreview();};seek(e.clientX);
+    const mv=ev=>seek(ev.clientX);const up=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up);};
+    document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);
+  });});
   $("#playBtn").onclick=togglePlay;
   $("#toStart").onclick=()=>{playhead=0;positionPlayhead();renderPreview();};
   $("#toEnd").onclick=()=>{playhead=timelineDuration();positionPlayhead();renderPreview();};
@@ -626,6 +641,7 @@ function bindGlobal(){
   window.addEventListener("resize",()=>{positionPlayhead();});
   document.addEventListener("keydown",e=>{
     if(/input|select|textarea/i.test(e.target.tagName))return;
+    if((e.key==="a"||e.key==="A")&&(e.ctrlKey||e.metaKey)){e.preventDefault();selSet=new Set(state.clips.map(c=>c.id));selId=state.clips.length?state.clips[0].id:null;document.querySelectorAll(".clip").forEach(x=>x.classList.add("sel"));renderInspector();return;}
     if(e.code==="Space"){e.preventDefault();togglePlay();}
     else if(e.key==="Delete"||e.key==="Backspace"){deleteSel();}
     else if(e.key==="c"||e.key==="C"){setTool("razor");}
