@@ -1630,12 +1630,21 @@ async function mergeBroadcastSession(streamId,sessionId){
     await fsp.rm(work,{recursive:true,force:true}).catch(()=>{});
   }
 }
-setTimeout(()=>{backfillRecordingOptimize();const t=setInterval(backfillRecordingOptimize,2*60*1000);if(t.unref)t.unref()},90*1000).unref?.();
+if(String(process.env.RECORDER_ROLE||"").trim().toLowerCase()!=="off"){
+  setTimeout(()=>{backfillRecordingOptimize();const t=setInterval(backfillRecordingOptimize,2*60*1000);if(t.unref)t.unref()},90*1000).unref?.();
+}
 const streamStatusRefreshes=new Map();
 const streamOfflineSince=new Map();
 const STREAM_OFFLINE_GRACE_MS=15000;
 
+// RECORDER_ROLE: "only" = the dedicated recorder service (records and
+// post-processes replays), "off" = web services that must not record (so a
+// website deploy never interrupts a recording). Unset = do both (default).
+const RECORDER_ROLE=String(process.env.RECORDER_ROLE||"").trim().toLowerCase();
+const RECORDER_ENABLED=RECORDER_ROLE!=="off";
+if(RECORDER_ROLE)console.log("Recorder role:",RECORDER_ROLE);
 async function startStreamRecording(row){
+  if(!RECORDER_ENABLED)return;
   if(!row?.id||activeStreamRecordings.has(row.id)||!row.record_enabled||!ffmpegPath||!s3Ready())return;
   if(Date.now()<(streamRecordingRetryAt.get(row.id)||0))return;
   const inFlight=streamRecordingStarts.get(row.id);
