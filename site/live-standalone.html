@@ -200,6 +200,33 @@ button{cursor:pointer}
 .lg-msg{min-height:18px;text-align:right}.lg-msg.err{color:#ff8a7c}.lg-msg.note{color:var(--signal)}
 @media (max-width:720px){.lg-screen{aspect-ratio:auto;min-height:520px}.lg-form{grid-template-columns:1fr}.lg-go{width:100%}.lg-top{padding:14px}.lg-strap{margin:0 12px 12px}.lg-below{flex-direction:column}.lg-msg{text-align:left}}
 @media (prefers-reduced-motion:reduce){.lg-lamp{animation:none}}
+/* sign-in motion: power on, lower-third wipe, cut to program */
+.lg-screen{transform-origin:50% 50%;animation:lgPower .7s cubic-bezier(.2,.7,.2,1) both}
+.lg-screen::before{content:"";position:absolute;inset:0;z-index:2;pointer-events:none;background:radial-gradient(60% 40% at 50% 50%,rgba(255,250,235,.9),rgba(255,250,235,0) 70%);animation:lgFlash .7s ease-out both}
+@keyframes lgPower{0%{transform:scale(.18,.006);filter:brightness(2.6)}38%{transform:scale(1,.006);filter:brightness(2.2)}70%{transform:scale(1,1);filter:brightness(1.35)}100%{transform:none;filter:none}}
+@keyframes lgFlash{0%,40%{opacity:1}100%{opacity:0}}
+.lg-top{animation:lgFade .4s .6s ease-out both}
+.lg-tc{animation:lgLock .55s .55s steps(1,end) both}
+.lg-tc-note{animation:lgFade .4s .9s ease-out both}
+@keyframes lgFade{from{opacity:0}to{opacity:1}}
+@keyframes lgLock{0%{opacity:0}15%{opacity:.8;transform:translateY(-6px);filter:blur(2px)}30%{opacity:.2}45%{opacity:1;transform:translateY(3px);filter:blur(1px)}60%{transform:none;filter:none}100%{opacity:1}}
+.lg-strap{animation:lgWipeIn .5s 1s cubic-bezier(.7,0,.2,1) both}
+.lg-strap::before{transform-origin:50% 100%;animation:lgBar .35s .9s cubic-bezier(.7,0,.2,1) both}
+.lg-form{animation:lgFade .35s 1.35s ease-out both}
+.lg-below{animation:lgFade .4s 1.5s ease-out both}
+@keyframes lgWipeIn{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+@keyframes lgBar{from{transform:scaleY(0)}to{transform:none}}
+.lg-strap.is-wrong{animation:lgShake .38s cubic-bezier(.36,.07,.19,.97) both}
+@keyframes lgShake{20%{transform:translateX(-7px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(2px)}100%{transform:none}}
+.lg.is-cut .lg-strap{animation:lgWipeOut .38s cubic-bezier(.7,0,.2,1) forwards}
+.lg.is-cut .lg-monitor{animation:lgCut .5s .3s cubic-bezier(.6,0,.4,1) forwards}
+.lg.is-cut .lg-below{animation:lgFadeOut .25s forwards}
+@keyframes lgWipeOut{from{clip-path:inset(0 0 0 0)}to{clip-path:inset(0 0 0 100%)}}
+@keyframes lgCut{to{transform:scale(1.08);opacity:0;filter:brightness(1.6)}}
+@keyframes lgFadeOut{to{opacity:0}}
+.lg.is-on .lg-lamp{animation:lgTally .5s ease-out}
+@keyframes lgTally{0%{transform:scale(1.9)}100%{transform:none}}
+@media (prefers-reduced-motion:reduce){.lg *,.lg *::before{animation:none!important}}
 /* ---------- login ---------- */
 .login-page{min-height:100vh;display:grid;place-items:center;padding:24px;position:relative;overflow:hidden;background:radial-gradient(650px 420px at 50% 40%,rgba(232,200,90,.10),transparent 68%),var(--bg)}
 .login-glow{position:absolute;width:680px;height:680px;border-radius:50%;background:radial-gradient(circle,rgba(232,200,90,.08),transparent 66%);pointer-events:none}
@@ -317,9 +344,10 @@ button{cursor:pointer}
       try{
         await api('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email.value.trim(),password:pw.value})});
         document.getElementById('lg').classList.add('is-on');document.getElementById('lgState').textContent='On air';btn.textContent='Signed in';
-        const wait=matchMedia('(prefers-reduced-motion: reduce)').matches?0:650;
-        setTimeout(()=>{if(lgRaf)cancelAnimationFrame(lgRaf);boot()},wait);
-      }catch(err){btn.disabled=false;btn.textContent='Sign in';pw.select();msg(err.message==='Invalid email or password'?'That email and password don’t match the admin account.':err.message)}
+        const still=matchMedia('(prefers-reduced-motion: reduce)').matches;
+        setTimeout(()=>{const lg=document.getElementById('lg');if(lg)lg.classList.add('is-cut')},still?0:550);
+        setTimeout(()=>{if(lgRaf)cancelAnimationFrame(lgRaf);boot()},still?0:1350);
+      }catch(err){btn.disabled=false;btn.textContent='Sign in';pw.select();const st=document.getElementById('lgForm');st.classList.remove('is-wrong');void st.offsetWidth;st.classList.add('is-wrong');msg(err.message==='Invalid email or password'?'That email and password don’t match the admin account.':err.message)}
     };
     document.getElementById('forgotBtn').onclick=()=>msg('Reset it in Railway: change ADMIN_PASSWORD on the fbi-live-standalone service, then sign in with the new password.','note');
   }
