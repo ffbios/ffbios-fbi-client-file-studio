@@ -907,6 +907,18 @@ async function initDb(){
         SELECT 1 FROM stream_recordings o WHERE o.stream_id=sr.stream_id AND o.status='recording'
           AND (o.created_at>sr.created_at OR (o.created_at=sr.created_at AND o.id>sr.id)));
     CREATE UNIQUE INDEX IF NOT EXISTS uniq_stream_recordings_active ON stream_recordings(stream_id) WHERE status='recording';
+    -- Broadcast sessions: one per go-live (a reconnect within 10 minutes keeps
+    -- the same session). Recordings and comments belong to a session.
+    ALTER TABLE streams ADD COLUMN IF NOT EXISTS session_id uuid;
+    ALTER TABLE streams ADD COLUMN IF NOT EXISTS session_started_at timestamptz;
+    ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS session_id uuid;
+    -- Fast-start replay + thumbnail post-processing.
+    ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS optimize_state text;
+    ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS optimize_started_at timestamptz;
+    ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS optimize_attempts int NOT NULL DEFAULT 0;
+    ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS optimize_error text;
+    ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS thumb_key text;
+    ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS duration_seconds numeric;
     CREATE TABLE IF NOT EXISTS stream_viewers(
       id uuid PRIMARY KEY,
       stream_id uuid NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
@@ -927,6 +939,8 @@ async function initDb(){
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS idx_stream_comments_stream ON stream_comments(stream_id,created_at DESC);
+    ALTER TABLE stream_comments ADD COLUMN IF NOT EXISTS session_id uuid;
+    CREATE INDEX IF NOT EXISTS idx_stream_comments_session ON stream_comments(stream_id,session_id,created_at DESC);
     CREATE TABLE IF NOT EXISTS ndi_gateways(
       id uuid PRIMARY KEY,
       name text NOT NULL DEFAULT '',
@@ -1444,6 +1458,98 @@ const streamRecordingFailures=new Map();
 const RECORDING_HEARTBEAT_MS=10000;
 const RECORDING_STALE_MS=45000;
 const RECORDING_MIN_BYTES=64*1024;
+const RECORDING_OPTIMIZE_MIN_BYTES=256*1024;
+const RECORDING_TMP_DIR=path.join(require("os").tmpdir(),"fbi-recordings");
+
+// ---- Replay post-processing -------------------------------------------------
+// Live recordings are written as fragmented MP4 so they survive interruptions,
+// but browsers must read through such files before they can play or seek.
+// After a broadcast ends each recording is remuxed (no re-encode) into a
+// fast-start MP4 (index at the front) and a thumbnail is captured.
+function runFfmpeg(args,timeoutMs){
+  return new Promise((resolve,reject)=>{
+    const p=spawn(ffmpegPath,args,{stdio:["ignore","ignore","pipe"]});
+    let err="";p.stderr.on("data",c=>{err=(err+c.toString()).slice(-6000)});
+    const t=setTimeout(()=>{try{p.kill("SIGKILL")}catch{}},timeoutMs||30*60*1000);
+    p.on("error",e=>{clearTimeout(t);reject(e)});
+    p.on("close",code=>{clearTimeout(t);resolve({code,stderr:err})});
+  });
+}
+function parseFfmpegDuration(text){
+  const m=String(text||"").match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+  return m?Number(m[1])*3600+Number(m[2])*60+Number(m[3]):0;
+}
+const recordingOptimizeQueue=[];let recordingOptimizeRunning=false;
+function queueRecordingOptimize(rec,localPath){
+  recordingOptimizeQueue.push({rec,localPath});
+  if(!recordingOptimizeRunning)drainRecordingOptimizeQueue();
+}
+async function drainRecordingOptimizeQueue(){
+  recordingOptimizeRunning=true;
+  try{
+    while(recordingOptimizeQueue.length){
+      const job=recordingOptimizeQueue.shift();
+      try{await optimizeRecording(job.rec,job.localPath)}catch(e){console.error("Replay optimize crashed:",e?.message||e)}
+    }
+  }finally{recordingOptimizeRunning=false}
+}
+async function claimRecordingOptimize(id){
+  const r=await pool.query(`UPDATE stream_recordings SET optimize_state='working',optimize_started_at=now(),optimize_attempts=optimize_attempts+1
+    WHERE id=$1 AND status='completed' AND (optimize_state IS NULL OR optimize_state='failed'
+      OR (optimize_state='working' AND optimize_started_at<now()-interval '2 hours')) RETURNING id`,[id]);
+  return r.rowCount>0;
+}
+async function optimizeRecording(rec,localPath){
+  const work=path.join(RECORDING_TMP_DIR,"opt-"+rec.id);
+  const src=localPath||path.join(work,"source.mp4"),out=path.join(work,"replay.mp4"),thumb=path.join(work,"thumb.jpg");
+  const t0=Date.now();
+  try{
+    if(!(await claimRecordingOptimize(rec.id))){if(localPath)await fsp.unlink(localPath).catch(()=>{});return}
+    await fsp.mkdir(work,{recursive:true});
+    if(!localPath){
+      // Backfill: fetch the existing recording from storage.
+      const get=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:rec.storage_key}),{abortSignal:AbortSignal.timeout(20*60*1000)});
+      await require("stream/promises").pipeline(get.Body,fs.createWriteStream(src));
+    }
+    const remux=await runFfmpeg(["-hide_banner","-loglevel","error","-y","-i",src,"-map","0","-c","copy","-movflags","+faststart","-f","mp4",out]);
+    const outStat=await fsp.stat(out).catch(()=>null);
+    if(remux.code!==0||!outStat||outStat.size<RECORDING_OPTIMIZE_MIN_BYTES)throw new Error("Remux failed: "+String(remux.stderr||"").slice(-500));
+    const probe=await runFfmpeg(["-hide_banner","-i",out],60000);
+    const duration=parseFfmpegDuration(probe.stderr);
+    const at=duration>0?Math.max(1,Math.min(duration*0.2,90)):3;
+    let thumbKey=null;
+    const shot=await runFfmpeg(["-hide_banner","-loglevel","error","-y","-ss",String(at),"-i",out,"-frames:v","1","-vf","scale=640:-2","-q:v","4",thumb],120000);
+    const thumbStat=await fsp.stat(thumb).catch(()=>null);
+    if(shot.code===0&&thumbStat&&thumbStat.size>0){
+      thumbKey=path.posix.join(path.posix.dirname(rec.storage_key),"thumb.jpg");
+      await s3.send(new PutObjectCommand({Bucket:bucket(),Key:thumbKey,Body:await fsp.readFile(thumb),ContentType:"image/jpeg",CacheControl:"private, max-age=31536000"}));
+    }
+    await new Upload({client:s3,params:{Bucket:bucket(),Key:rec.storage_key,Body:fs.createReadStream(out),ContentType:"video/mp4",CacheControl:"private, max-age=31536000"},queueSize:2,partSize:64*1024*1024,leavePartsOnError:false}).done();
+    await pool.query("UPDATE stream_recordings SET optimize_state='done',optimize_error=NULL,thumb_key=COALESCE($2,thumb_key),duration_seconds=$3,size_bytes=$4 WHERE id=$1",[rec.id,thumbKey,duration||null,outStat.size]);
+    console.log("Replay optimized:",JSON.stringify({recordingId:rec.id,seconds:Math.round(duration),bytes:outStat.size,thumbnail:!!thumbKey,ms:Date.now()-t0,source:localPath?"local":"storage"}));
+  }catch(e){
+    console.error("Replay optimize failed:",JSON.stringify({recordingId:rec.id,error:String(e?.message||e).slice(0,500)}));
+    await pool.query("UPDATE stream_recordings SET optimize_state='failed',optimize_error=$2 WHERE id=$1",[rec.id,String(e?.message||e).slice(0,1000)]).catch(()=>{});
+  }finally{
+    await fsp.rm(work,{recursive:true,force:true}).catch(()=>{});
+    if(localPath)await fsp.unlink(localPath).catch(()=>{});
+  }
+}
+// Backfill older recordings (and retry failures) one at a time.
+async function backfillRecordingOptimize(){
+  if(!ffmpegPath||!s3Ready()||recordingOptimizeRunning||recordingOptimizeQueue.length)return;
+  try{
+    const r=await pool.query(`SELECT id,storage_key FROM stream_recordings
+      WHERE status='completed' AND size_bytes>=$1 AND size_bytes<=8589934592
+        AND ended_at<now()-interval '3 minutes' AND created_at>now()-interval '60 days'
+        AND (optimize_state IS NULL
+          OR (optimize_state='failed' AND optimize_attempts<3 AND optimize_started_at<now()-interval '30 minutes')
+          OR (optimize_state='working' AND optimize_started_at<now()-interval '2 hours'))
+      ORDER BY created_at DESC LIMIT 1`,[RECORDING_OPTIMIZE_MIN_BYTES]);
+    if(r.rowCount)queueRecordingOptimize(r.rows[0],null);
+  }catch(e){console.warn("Replay backfill check failed:",e?.message||e)}
+}
+setTimeout(()=>{backfillRecordingOptimize();const t=setInterval(backfillRecordingOptimize,2*60*1000);if(t.unref)t.unref()},90*1000).unref?.();
 const streamStatusRefreshes=new Map();
 const streamOfflineSince=new Map();
 const STREAM_OFFLINE_GRACE_MS=15000;
@@ -1477,7 +1583,7 @@ async function startStreamRecordingImpl(row){
     [row.id,RECORDING_STALE_MS]
   );
   try{
-    await pool.query("INSERT INTO stream_recordings(id,stream_id,filename,storage_key,status,started_at,heartbeat_at) VALUES($1,$2,$3,$4,'recording',now(),now())",[id,row.id,filename,storageKey]);
+    await pool.query("INSERT INTO stream_recordings(id,stream_id,filename,storage_key,status,started_at,heartbeat_at,session_id) VALUES($1,$2,$3,$4,'recording',now(),now(),(SELECT session_id FROM streams WHERE id=$2))",[id,row.id,filename,storageKey]);
   }catch(e){
     if(e?.code==="23505")return; // another instance is already recording this stream
     throw e;
@@ -1487,7 +1593,8 @@ async function startStreamRecordingImpl(row){
     "-hide_banner","-loglevel","warning",
     "-i",input,
     "-map","0:v:0","-map","0:a:0?",
-    "-c:v","libx264","-preset","veryfast","-crf","18",
+    "-c:v","libx264","-preset","veryfast","-crf","20","-maxrate","8M","-bufsize","16M",
+    "-force_key_frames","expr:gte(t,n_forced*2)",
     "-pix_fmt","yuv420p","-profile:v","high",
     "-c:a","aac","-b:a","160k","-ar","48000","-ac","2",
     "-movflags","+frag_keyframe+empty_moov+default_base_moof",
@@ -1497,8 +1604,14 @@ async function startStreamRecordingImpl(row){
   const PassThrough=require("stream").PassThrough;
   const pass=new PassThrough();
   let bytes=0,stderr="";
-  proc.stdout.on("data",chunk=>{bytes+=chunk.length;pass.write(chunk)});
-  proc.stdout.on("end",()=>pass.end());
+  // Keep a local copy too: when the broadcast ends it is turned into a
+  // fast-start MP4 + thumbnail without downloading it back from storage.
+  let localPath=path.join(RECORDING_TMP_DIR,id+".mp4"),localOk=true,localBytes=0,localOut=null;
+  try{fs.mkdirSync(RECORDING_TMP_DIR,{recursive:true});localOut=fs.createWriteStream(localPath)}catch(e){localOk=false;console.warn("Local recording copy disabled:",e?.message||e)}
+  if(localOut)localOut.on("error",e=>{if(localOk)console.warn("Local recording copy failed:",e?.message||e);localOk=false});
+  const localClosed=new Promise(resolve=>{if(!localOut)return resolve();localOut.on("close",resolve);localOut.on("error",resolve)});
+  proc.stdout.on("data",chunk=>{bytes+=chunk.length;pass.write(chunk);if(localOk&&localOut){localBytes+=chunk.length;localOut.write(chunk)}});
+  proc.stdout.on("end",()=>{pass.end();try{localOut&&localOut.end()}catch{}});
   proc.stderr.on("data",chunk=>{stderr=(stderr+chunk.toString()).slice(-8000)});
 
   const uploadDone=new Upload({
@@ -1535,7 +1648,13 @@ async function startStreamRecordingImpl(row){
           streamRecordingFailures.delete(row.id);
           streamRecordingRetryAt.delete(row.id);
           console.log("Stream replay saved:",JSON.stringify({streamId:row.id,recordingId:id,bytes}));
+          // Post-process from the local copy in the background.
+          localClosed.then(()=>{
+            if(localOk&&localBytes===bytes&&bytes>=RECORDING_OPTIMIZE_MIN_BYTES)return queueRecordingOptimize({id,storage_key:storageKey},localPath);
+            fs.promises.unlink(localPath).catch(()=>{});
+          }).catch(()=>{});
         }else{
+          localClosed.then(()=>fs.promises.unlink(localPath).catch(()=>{}));
           const n=(streamRecordingFailures.get(row.id)||0)+1;
           streamRecordingFailures.set(row.id,n);
           streamRecordingRetryAt.set(row.id,Date.now()+Math.min(120000,5000*2**Math.min(n-1,5)));
@@ -1555,6 +1674,7 @@ async function startStreamRecordingImpl(row){
 
   proc.on("error",async err=>{
     try{pass.destroy(err)}catch{}
+    try{localOut&&localOut.end()}catch{}
     await finalize("failed",String(err?.message||err));
   });
 
@@ -1651,17 +1771,29 @@ async function refreshStreamStatusImpl(row){
 
   if(!live)streamOfflineSince.delete(row.id);
   const status=live?"live":"offline";
+  if(live&&row.status==="live"&&!row.session_id){
+    await pool.query("UPDATE streams SET session_id=gen_random_uuid(),session_started_at=now() WHERE id=$1 AND session_id IS NULL",[row.id]).catch(()=>{});
+  }
   if(!live)stopStreamAudioMeter(row?.id);
   else ensureStreamAudioMeter({...row,status:"live"});
 
   if(status!==row.status){
     if(live){
-      await pool.query("UPDATE streams SET status='live',started_at=COALESCE(started_at,now()),updated_at=now() WHERE id=$1",[row.id]);
+      // Start a new broadcast session unless this is the same broadcast
+      // (already live, or reconnecting within 10 minutes). Atomic, so two
+      // server instances never create two sessions for one broadcast.
+      await pool.query(`UPDATE streams SET
+          session_id=CASE WHEN session_id IS NOT NULL AND (status='live' OR ended_at>now()-interval '10 minutes') THEN session_id ELSE gen_random_uuid() END,
+          session_started_at=CASE WHEN session_id IS NOT NULL AND (status='live' OR ended_at>now()-interval '10 minutes') THEN session_started_at ELSE now() END,
+          status='live',started_at=COALESCE(started_at,now()),updated_at=now()
+        WHERE id=$1`,[row.id]);
       startStreamRecording({...row,status:"live"}).catch(e=>console.error("Stream recording start failed:",e.message||e));
     }else{
       await pool.query("UPDATE streams SET status='offline',ended_at=now(),updated_at=now() WHERE id=$1",[row.id]);
       stopStreamRecording(row.id).catch(e=>console.error("Stream recording stop failed:",e.message||e));
     }
+  }else if(!live&&activeStreamRecordings.has(row.id)&&!activeStreamRecordings.get(row.id).stopRequested){
+    stopStreamRecording(row.id).catch(e=>console.error("Stream recording stop failed:",e.message||e));
   }else if(live&&row.record_enabled&&!activeStreamRecordings.has(row.id)){
     startStreamRecording({...row,status:"live"}).catch(e=>console.error("Stream recording recovery failed:",e.message||e));
   }
@@ -3327,28 +3459,70 @@ app.use("/api/public/stream/:token/hls",async(req,res)=>{
 // saved as several recordings; recordings that start within 10 minutes of the
 // previous one ending are grouped into one broadcast, and the longest piece is
 // the one that plays. Tiny fragments (reconnect blips) are ignored.
+// Group a stream's saved recordings into broadcasts, newest first. Recordings
+// from the same broadcast session belong together; older recordings without a
+// session are grouped when one starts within 10 minutes of the previous end.
+// The longest piece is the one that plays; tiny reconnect fragments are hidden.
+async function streamBroadcastGroups(streamId){
+  const q=await pool.query(`SELECT id,size_bytes,started_at,ended_at,session_id,thumb_key,duration_seconds FROM stream_recordings
+    WHERE stream_id=$1 AND status='completed' AND size_bytes>=262144
+    ORDER BY started_at ASC LIMIT 2000`,[streamId]);
+  const GAP=10*60*1000,groups=[];
+  for(const row of q.rows){
+    const start=new Date(row.started_at).getTime(),end=new Date(row.ended_at||row.started_at).getTime();
+    const secs=Number(row.duration_seconds)>0?Number(row.duration_seconds):Math.max(0,(end-start)/1000);
+    const g=groups[groups.length-1];
+    const same=g&&(row.session_id?g.session_id===row.session_id:(!g.session_id&&start-g.end<=GAP));
+    if(same){
+      g.end=Math.max(g.end,end);g.seconds+=secs;g.parts++;g.ids.push(row.id);
+      if(Number(row.size_bytes)>g.best_size){g.best_size=Number(row.size_bytes);g.recording_id=row.id;g.thumb_key=row.thumb_key||g.thumb_key}
+      else if(!g.thumb_key&&row.thumb_key)g.thumb_key=row.thumb_key;
+    }else{
+      groups.push({recording_id:row.id,session_id:row.session_id||null,best_size:Number(row.size_bytes),start,end,seconds:secs,parts:1,ids:[row.id],thumb_key:row.thumb_key||null});
+    }
+  }
+  return groups.reverse();
+}
+// Which broadcast a viewer is looking at: a specific recording (replay), the
+// current live broadcast, or the latest saved broadcast.
+async function commentContext(stream,recordingId){
+  const valid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(recordingId||""));
+  if(valid){
+    const groups=await streamBroadcastGroups(stream.id);
+    const g=groups.find(x=>x.ids.includes(String(recordingId)));
+    if(g)return {session_id:g.session_id||await adoptLegacyBroadcast(stream.id,g)};
+  }
+  if(stream.status==="live"&&stream.session_id)return {session_id:stream.session_id};
+  if(stream.session_id)return {session_id:stream.session_id};
+  const groups=await streamBroadcastGroups(stream.id);
+  if(groups[0])return {session_id:groups[0].session_id||await adoptLegacyBroadcast(stream.id,groups[0])};
+  return {all:true};
+}
+// Recordings saved before broadcast sessions existed get a session the first
+// time someone opens them, and the comments made during that broadcast (30
+// minutes either side) move into it. Safe if two servers race: only rows that
+// still have no session are updated, and the stored value is read back.
+async function adoptLegacyBroadcast(streamId,g){
+  const sid=crypto.randomUUID();
+  await pool.query("UPDATE stream_recordings SET session_id=$2 WHERE id=ANY($1::uuid[]) AND session_id IS NULL",[g.ids,sid]);
+  const back=await pool.query("SELECT session_id FROM stream_recordings WHERE id=$1",[g.ids[0]]);
+  const sessionId=back.rows[0]?.session_id||sid;
+  await pool.query("UPDATE stream_comments SET session_id=$2 WHERE stream_id=$1 AND session_id IS NULL AND created_at BETWEEN $3 AND $4",
+    [streamId,sessionId,new Date(g.start-30*60*1000),new Date(g.end+30*60*1000)]);
+  return sessionId;
+}
+
 app.get("/api/public/stream/:token/broadcasts",async(req,res)=>{
   try{
     const r=await publicStreamByToken(req.params.token);
     if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
-    const q=await pool.query(`SELECT id,size_bytes,started_at,ended_at FROM stream_recordings
-      WHERE stream_id=$1 AND status='completed' AND size_bytes>=262144
-      ORDER BY started_at ASC LIMIT 1000`,[r.rows[0].id]);
-    const GAP=10*60*1000,groups=[];
-    for(const row of q.rows){
-      const start=new Date(row.started_at).getTime(),end=new Date(row.ended_at||row.started_at).getTime();
-      const g=groups[groups.length-1];
-      if(g&&start-g.end<=GAP){
-        g.end=Math.max(g.end,end);g.seconds+=Math.max(0,(end-start)/1000);g.parts++;
-        if(Number(row.size_bytes)>g.best_size){g.best_size=Number(row.size_bytes);g.recording_id=row.id}
-      }else{
-        groups.push({recording_id:row.id,best_size:Number(row.size_bytes),start,end,seconds:Math.max(0,(end-start)/1000),parts:1});
-      }
+    const groups=await streamBroadcastGroups(r.rows[0].id);
+    const broadcasts=[];
+    for(const g of groups.slice(0,50)){
+      let thumb_url=null;
+      if(g.thumb_key){try{thumb_url=await getSignedUrl(replayS3,new GetObjectCommand({Bucket:bucket(),Key:g.thumb_key,ResponseContentType:"image/jpeg"}),{expiresIn:6*3600})}catch{}}
+      broadcasts.push({recording_id:g.recording_id,started_at:new Date(g.start).toISOString(),ended_at:new Date(g.end).toISOString(),duration_seconds:Math.round(g.seconds),parts:g.parts,thumb_url});
     }
-    const broadcasts=groups.reverse().slice(0,50).map(g=>({
-      recording_id:g.recording_id,started_at:new Date(g.start).toISOString(),ended_at:new Date(g.end).toISOString(),
-      duration_seconds:Math.round(g.seconds),parts:g.parts
-    }));
     res.set("Cache-Control","no-store").json({broadcasts});
   }catch(e){console.error("Past broadcasts failed:",e?.message||e);res.status(500).json({error:"Could not load past broadcasts."});}
 });
@@ -3604,8 +3778,11 @@ app.get("/api/public/stream/:token/comments",async(req,res)=>{
     const r=await publicStreamByToken(req.params.token);
     if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
     const limit=Math.max(1,Math.min(100,Number(req.query.limit||60)));
-    const q=await pool.query("SELECT id,display_name,comment,created_at FROM stream_comments WHERE stream_id=$1 ORDER BY created_at DESC LIMIT $2",[r.rows[0].id,limit]);
-    res.json({comments:q.rows.reverse()});
+    const ctx=await commentContext(r.rows[0],req.query.recording);
+    let q;
+    if(ctx.session_id)q=await pool.query("SELECT id,display_name,comment,created_at FROM stream_comments WHERE stream_id=$1 AND session_id=$2 ORDER BY created_at DESC LIMIT $3",[r.rows[0].id,ctx.session_id,limit]);
+    else q=await pool.query("SELECT id,display_name,comment,created_at FROM stream_comments WHERE stream_id=$1 ORDER BY created_at DESC LIMIT $2",[r.rows[0].id,limit]);
+    res.set("Cache-Control","no-store").json({comments:q.rows.reverse()});
   }catch(e){console.error("Comments load failed:",e);res.status(500).json({error:"Could not load comments"});}
 });
 const streamCommentRate=new Map();
@@ -3619,7 +3796,8 @@ app.post("/api/public/stream/:token/comments",async(req,res)=>{
     const comment=String(req.body.comment||"").trim().slice(0,500);
     if(!comment)return res.status(400).json({error:"Comment cannot be empty."});
     streamCommentRate.set(ip,now);
-    const q=await pool.query("INSERT INTO stream_comments(id,stream_id,display_name,comment) VALUES($1,$2,$3,$4) RETURNING id,display_name,comment,created_at",[uid(),r.rows[0].id,name,comment]);
+    const ctx=await commentContext(r.rows[0],req.body.recording);
+    const q=await pool.query("INSERT INTO stream_comments(id,stream_id,display_name,comment,session_id) VALUES($1,$2,$3,$4,$5) RETURNING id,display_name,comment,created_at",[uid(),r.rows[0].id,name,comment,ctx.session_id||null]);
     res.status(201).json({comment:q.rows[0]});
   }catch(e){console.error("Comment create failed:",e);res.status(500).json({error:"Could not post comment"});}
 });
@@ -3725,11 +3903,13 @@ body{margin:0;background:#09090a;color:#f6f6f7;font-family:Inter,system-ui,sans-
 .past-item:hover,.past-item:focus-visible{border-color:#e8c448;background:rgba(232,196,72,.06);outline:none}
 .past-item.current{border-color:#e8c448;background:rgba(232,196,72,.10)}
 .past-play{flex:0 0 34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#e8c448;color:#111;font-size:12px;font-weight:900}
+.past-thumb{flex:0 0 128px;height:72px;border-radius:9px;background:#1b1b1f center/cover no-repeat;display:grid;place-items:center;position:relative;overflow:hidden}
+.past-thumb .past-play{flex:none;width:30px;height:30px;background:rgba(232,196,72,.92);box-shadow:0 2px 10px rgba(0,0,0,.45)}
 .past-text{min-width:0;flex:1}
 .past-text b{display:block;font-size:14px}
 .past-text span{display:block;color:#9a9aa3;font-size:12px;margin-top:2px}
 .past-tag{font-size:11px;color:#e8c448;font-weight:700;white-space:nowrap}
-@media(max-width:760px){.past-broadcasts{margin:10px 0 0;padding:12px}.past-text b{font-size:13px}}
+@media(max-width:760px){.past-broadcasts{margin:10px 0 0;padding:12px}.past-text b{font-size:13px}.past-thumb{flex-basis:104px;height:58px}.past-tag{display:none}.past-item.current .past-text b::after{content:" • Now playing";color:#e8c448;font-weight:700;font-size:11px}}
 ${LV.WATCH_CSS}</style></head><body>${LV.WATCH_TOPBAR}<div class="wrap"><div class="head"><div class="brand">FILM BEYOND IMAGINATION • FBI Live</div><div style="margin-top:8px"><span class="badge" id="status">Checking live status…</span></div><h1>${title}</h1><p id="viewers">FBI Live Stream</p>${LV.WATCH_ACTIONS}</div><div class="layout"><section><div class="card player"><video id="video" controls playsinline autoplay muted></video><div id="offline" class="offline" style="display:none"></div><div class="mobile-live-ui"><span class="mobile-live-status" id="mobileLiveStatus">CONNECTING…</span><span class="mobile-viewer-badge"><b id="mobileViewerCount">0</b> watching</span><div id="mobileFloatingComments" class="mobile-floating-comments"></div><div id="mobileReactionFloaters" class="mobile-reaction-floaters"></div><div class="mobile-reaction-rail"><button type="button" class="mobile-reaction-btn" data-mobile-reaction="👏" aria-label="Clap">👏</button><button type="button" class="mobile-reaction-btn" data-mobile-reaction="❤️" aria-label="Love">❤️</button><button type="button" class="mobile-reaction-btn heart" data-mobile-reaction="❤️" aria-label="Send heart">♥</button></div></div><div class="playerbar"><span class="nowq" id="streamState">Connecting…</span></div></div><div class="card past-broadcasts" id="pastBroadcasts" hidden><div class="past-head"><h2>Past broadcasts</h2><span class="badge" id="pastCount">0</span></div><div class="past-list" id="pastList"></div></div></section><aside class="card comments"><div class="comments-head"><h2>Live Comments</h2><span class="badge" id="commentCount">0</span></div><div id="commentList" class="comment-list"><div style="color:#777;font-size:9px;padding:10px 0">No comments yet.</div></div><form id="commentForm" class="comment-form"><input id="commentName" maxlength="60" placeholder="Your name"><textarea id="commentText" maxlength="500" placeholder="Write a comment…"></textarea><div class="comment-tools"><div class="emoji-popover" id="emojiPopover"><button type="button" class="emoji-open" id="emojiOpen" title="Add emoji">😊</button><emoji-picker id="emojiPicker" locale="en"></emoji-picker></div><button type="submit">Post Comment</button></div><div class="statusline" id="commentStatus"></div></form></aside></div><div class="foot">FBI Live • Live broadcast and viewer comments • viewer-badge-sync-1</div></div><script>
 const token=${tokenJs},hlsUrl=${JSON.stringify(hls)};const video=document.getElementById("video"),emojiOpen=document.getElementById("emojiOpen"),emojiPopover=document.getElementById("emojiPopover"),emojiPicker=document.getElementById("emojiPicker"),offline=document.getElementById("offline"),statusEl=document.getElementById("status"),viewers=document.getElementById("viewers"),streamState=document.getElementById("streamState"),commentList=document.getElementById("commentList"),commentCount=document.getElementById("commentCount"),commentForm=document.getElementById("commentForm"),commentName=document.getElementById("commentName"),commentText=document.getElementById("commentText"),commentStatus=document.getElementById("commentStatus");const sessionKey=crypto.randomUUID();let player=null,live=false,replayMode=false,replayPending=false,replayTimer=0;const mobileFloatingComments=document.getElementById("mobileFloatingComments"),mobileReactionFloaters=document.getElementById("mobileReactionFloaters"),mobileViewerCount=document.getElementById("mobileViewerCount"),mobileLiveStatus=document.getElementById("mobileLiveStatus");let mobileReactionIndex=0;const mobileLiveUi=document.querySelector(".mobile-live-ui");let mobileReactionHideTimer=0;function revealMobileReactions(){if(!mobileLiveUi)return;mobileLiveUi.classList.add("show-reactions");clearTimeout(mobileReactionHideTimer);mobileReactionHideTimer=setTimeout(function(){mobileLiveUi.classList.remove("show-reactions")},3200)}video.addEventListener("pointerup",revealMobileReactions);
 video.addEventListener("loadedmetadata",function(){if(replayMode)streamState.textContent="Replay ready"});
@@ -3817,7 +3997,7 @@ async function loadReplay(){
     video.muted=false;
     const replayRecordingId=d.recording&&d.recording.id?encodeURIComponent(d.recording.id):"";
     const proxySrc="/api/public/stream/"+encodeURIComponent(token)+"/replay/file"+(replayRecordingId?"?recordingId="+replayRecordingId:"");
-    if(window.fbiReplayId!==(d.recording&&d.recording.id)){window.fbiReplayId=d.recording&&d.recording.id;setTimeout(()=>{try{loadPastBroadcasts()}catch{}},0)}
+    if(window.fbiReplayId!==(d.recording&&d.recording.id)){window.fbiReplayId=d.recording&&d.recording.id;setTimeout(()=>{try{loadPastBroadcasts();loadComments()}catch{}},0)}
     // Play straight from storage with the signed link; fall back to the
     // server proxy only if the direct link cannot be played.
     video.onerror=null;
@@ -3851,8 +4031,10 @@ async function showOfflineOrReplay(){
 async function refresh(){if(pinnedPlay())return;try{const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/status",{cache:"no-store"}),d=await r.json();if(!r.ok)throw new Error(d.error);if(d.live){clearTimeout(replayTimer);statusEl.textContent="● LIVE";statusEl.className="badge live";const viewerCount=Number(d.current_viewers||0);viewers.textContent=viewerCount+" watching now";updateMobileViewerUi(viewerCount);if(!live||replayMode){live=true;startPlayer()}await fetch("/api/public/stream/"+encodeURIComponent(token)+"/heartbeat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionKey})});}else{if(live){live=false;clearPlayer()}statusEl.textContent="OFFLINE";statusEl.className="badge";await showOfflineOrReplay()}}catch(e){statusEl.textContent="STREAM UNAVAILABLE";statusEl.className="badge error";streamState.textContent=e.message||"Unavailable"}}
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 function fmtTime(v){try{return new Date(v).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}catch{return ""}}
-async function loadComments(){try{const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/comments?limit=80",{cache:"no-store"}),d=await r.json();if(!r.ok)throw new Error(d.error);const rows=d.comments||[];commentCount.textContent=rows.length;commentList.innerHTML=rows.length?rows.map(x=>'<div class="comment"><b>'+esc(x.display_name)+'</b><span>'+esc(x.comment)+'</span><time>'+esc(fmtTime(x.created_at))+'</time></div>').join(""):'<div style="color:#777;font-size:9px;padding:10px 0">No comments yet. Start the conversation.</div>';commentList.scrollTop=commentList.scrollHeight;renderMobileOverlay(rows);updateMobileViewerUi()}catch(e){commentStatus.textContent=e.message||"Comments unavailable"}}
-commentForm.onsubmit=async e=>{e.preventDefault();const name=commentName.value.trim()||"Anonymous",comment=commentText.value.trim();if(!comment)return;commentStatus.textContent="Posting…";try{const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/comments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({display_name:name,comment})}),d=await r.json();if(!r.ok)throw new Error(d.error);try{localStorage.setItem("fbiLiveCommentName",name)}catch{}commentText.value="";commentStatus.textContent="";await loadComments()}catch(e){commentStatus.textContent=e.message||"Could not post comment"}};
+function commentRecording(){const pin=(new URLSearchParams(location.search).get("recording")||"").trim();if(pin)return pin;return(!live&&replayMode&&window.fbiReplayId)?String(window.fbiReplayId):""}
+let commentsContextKey="";
+async function loadComments(){try{const ctx=commentRecording(),r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/comments?limit=80"+(ctx?"&recording="+encodeURIComponent(ctx):""),{cache:"no-store"}),d=await r.json();if(!r.ok)throw new Error(d.error);if(ctx!==commentRecording())return;commentsContextKey=ctx;const rows=d.comments||[];commentCount.textContent=rows.length;commentList.innerHTML=rows.length?rows.map(x=>'<div class="comment"><b>'+esc(x.display_name)+'</b><span>'+esc(x.comment)+'</span><time>'+esc(fmtTime(x.created_at))+'</time></div>').join(""):'<div style="color:#777;font-size:9px;padding:10px 0">No comments yet. Start the conversation.</div>';commentList.scrollTop=commentList.scrollHeight;renderMobileOverlay(rows);updateMobileViewerUi()}catch(e){commentStatus.textContent=e.message||"Comments unavailable"}}
+commentForm.onsubmit=async e=>{e.preventDefault();const name=commentName.value.trim()||"Anonymous",comment=commentText.value.trim();if(!comment)return;commentStatus.textContent="Posting…";try{const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/comments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({display_name:name,comment,recording:commentRecording()})}),d=await r.json();if(!r.ok)throw new Error(d.error);try{localStorage.setItem("fbiLiveCommentName",name)}catch{}commentText.value="";commentStatus.textContent="";await loadComments()}catch(e){commentStatus.textContent=e.message||"Could not post comment"}};
 async function loadPastBroadcasts(){
   try{
     const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/broadcasts",{cache:"no-store"});
@@ -3868,7 +4050,9 @@ async function loadPastBroadcasts(){
       const time=when.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
       const isCur=current?current===b.recording_id:(replayMode&&window.fbiReplayId===b.recording_id);
       const href="/watch/"+encodeURIComponent(token)+"?recording="+encodeURIComponent(b.recording_id);
-      return '<a class="past-item'+(isCur?' current':'')+'" href="'+href+'"><span class="past-play">▶</span><span class="past-text"><b>'+esc(day)+'</b><span>Started '+esc(time)+' • '+esc(dur(b.duration_seconds))+'</span></span>'+(isCur?'<span class="past-tag">NOW PLAYING</span>':(i===0?'<span class="past-tag">LATEST</span>':''))+'</a>';
+      if(isCur&&b.thumb_url&&replayMode&&!video.getAttribute("poster"))video.setAttribute("poster",b.thumb_url);
+      const art=b.thumb_url?'<span class="past-thumb" style="background-image:url(&quot;'+esc(b.thumb_url)+'&quot;)"><span class="past-play">▶</span></span>':'<span class="past-play">▶</span>';
+      return '<a class="past-item'+(isCur?' current':'')+'" href="'+href+'">'+art+'<span class="past-text"><b>'+esc(day)+'</b><span>Started '+esc(time)+' • '+esc(dur(b.duration_seconds))+'</span></span>'+(isCur?'<span class="past-tag">NOW PLAYING</span>':(i===0?'<span class="past-tag">LATEST</span>':''))+'</a>';
     }).join("");
   }catch(e){console.warn("Past broadcasts unavailable:",e&&e.message)}
 }
