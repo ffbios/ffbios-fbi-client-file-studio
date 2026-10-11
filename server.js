@@ -922,6 +922,9 @@ async function initDb(){
     -- Joined replays: pieces of one broadcast point at the joined recording.
     ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS merged_into uuid;
     ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS is_merged boolean NOT NULL DEFAULT false;
+    -- Title of the stream at the time of the broadcast (shown in Past broadcasts).
+    ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS title text;
+    UPDATE stream_recordings sr SET title=COALESCE(NULLIF(s.title,''),s.name) FROM streams s WHERE s.id=sr.stream_id AND sr.title IS NULL;
     CREATE TABLE IF NOT EXISTS stream_viewers(
       id uuid PRIMARY KEY,
       stream_id uuid NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
@@ -1580,7 +1583,7 @@ function mergeTimer(streamId,sessionId){
 async function mergeBroadcastSession(streamId,sessionId){
   const live=await pool.query("SELECT 1 FROM streams WHERE id=$1 AND session_id=$2 AND (status='live' OR ended_at>now()-interval '10 minutes')",[streamId,sessionId]);
   if(live.rowCount)return;
-  const pieces=(await pool.query(`SELECT id,storage_key,size_bytes,started_at,ended_at,thumb_key,optimize_state,filename FROM stream_recordings
+  const pieces=(await pool.query(`SELECT id,storage_key,size_bytes,started_at,ended_at,thumb_key,optimize_state,filename,title FROM stream_recordings
     WHERE stream_id=$1 AND session_id=$2 AND status='completed' AND merged_into IS NULL AND NOT is_merged AND size_bytes>=$3
     ORDER BY started_at ASC`,[streamId,sessionId,RECORDING_OPTIMIZE_MIN_BYTES])).rows;
   if(pieces.length<2||pieces.some(p=>p.optimize_state!=="done"))return;
@@ -1594,8 +1597,8 @@ async function mergeBroadcastSession(streamId,sessionId){
   const client=await pool.connect();
   try{
     await client.query("BEGIN");
-    await client.query(`INSERT INTO stream_recordings(id,stream_id,filename,storage_key,status,started_at,ended_at,session_id,is_merged,optimize_state,thumb_key)
-      VALUES($1,$2,$3,$4,'merging',$5,$6,$7,true,'working',$8)`,[id,streamId,filename,storageKey,pieces[0].started_at,pieces[pieces.length-1].ended_at,sessionId,best.thumb_key||null]);
+    await client.query(`INSERT INTO stream_recordings(id,stream_id,filename,storage_key,status,started_at,ended_at,session_id,is_merged,optimize_state,thumb_key,title)
+      VALUES($1,$2,$3,$4,'merging',$5,$6,$7,true,'working',$8,$9)`,[id,streamId,filename,storageKey,pieces[0].started_at,pieces[pieces.length-1].ended_at,sessionId,best.thumb_key||null,(pieces.find(p=>p.title)||{}).title||null]);
     const upd=await client.query("UPDATE stream_recordings SET merged_into=$1 WHERE id=ANY($2::uuid[]) AND merged_into IS NULL",[id,pieces.map(p=>p.id)]);
     if(upd.rowCount!==pieces.length){await client.query("ROLLBACK");return}
     await client.query("COMMIT");
@@ -1673,7 +1676,7 @@ async function startStreamRecordingImpl(row){
     [row.id,RECORDING_STALE_MS]
   );
   try{
-    await pool.query("INSERT INTO stream_recordings(id,stream_id,filename,storage_key,status,started_at,heartbeat_at,session_id) VALUES($1,$2,$3,$4,'recording',now(),now(),(SELECT session_id FROM streams WHERE id=$2))",[id,row.id,filename,storageKey]);
+    await pool.query("INSERT INTO stream_recordings(id,stream_id,filename,storage_key,status,started_at,heartbeat_at,session_id,title) VALUES($1,$2,$3,$4,'recording',now(),now(),(SELECT session_id FROM streams WHERE id=$2),(SELECT COALESCE(NULLIF(title,''),name) FROM streams WHERE id=$2))",[id,row.id,filename,storageKey]);
   }catch(e){
     if(e?.code==="23505")return; // another instance is already recording this stream
     throw e;
@@ -3556,7 +3559,7 @@ app.use("/api/public/stream/:token/hls",async(req,res)=>{
 async function streamBroadcastGroups(streamId){
   // Pieces already joined into a complete replay stay addressable (old links,
   // comments) but are hidden: the joined replay represents the broadcast.
-  const q=await pool.query(`SELECT sr.id,sr.size_bytes,sr.started_at,sr.ended_at,sr.session_id,sr.thumb_key,sr.duration_seconds,sr.is_merged,
+  const q=await pool.query(`SELECT sr.id,sr.size_bytes,sr.started_at,sr.ended_at,sr.session_id,sr.thumb_key,sr.duration_seconds,sr.is_merged,sr.title,
       (sr.merged_into IS NOT NULL AND EXISTS(SELECT 1 FROM stream_recordings m WHERE m.id=sr.merged_into AND m.status='completed')) AS hidden
     FROM stream_recordings sr
     WHERE sr.stream_id=$1 AND sr.status='completed' AND sr.size_bytes>=262144
@@ -3569,20 +3572,20 @@ async function streamBroadcastGroups(streamId){
     const same=g&&(row.session_id?g.session_id===row.session_id:(!g.session_id&&start-g.end<=GAP));
     if(row.hidden){
       if(same)g.ids.push(row.id);
-      else groups.push({recording_id:row.id,session_id:row.session_id||null,best_size:0,start,end,seconds:0,parts:0,ids:[row.id],thumb_key:row.thumb_key||null});
+      else groups.push({recording_id:row.id,session_id:row.session_id||null,best_size:0,start,end,seconds:0,parts:0,ids:[row.id],thumb_key:row.thumb_key||null,title:row.title||null});
       continue;
     }
     if(same&&row.is_merged){
       // The joined replay replaces the pieces' playback and duration.
-      g.recording_id=row.id;g.best_size=Infinity;g.seconds=secs;g.parts=1;g.end=Math.max(g.end,end);g.ids.push(row.id);g.thumb_key=row.thumb_key||g.thumb_key;
+      g.recording_id=row.id;g.best_size=Infinity;g.seconds=secs;g.parts=1;g.end=Math.max(g.end,end);g.ids.push(row.id);g.thumb_key=row.thumb_key||g.thumb_key;g.title=row.title||g.title;
       continue;
     }
     if(same){
-      g.end=Math.max(g.end,end);g.seconds+=secs;g.parts++;g.ids.push(row.id);
+      g.end=Math.max(g.end,end);g.seconds+=secs;g.parts++;g.ids.push(row.id);if(!g.title&&row.title)g.title=row.title;
       if(Number(row.size_bytes)>g.best_size){g.best_size=Number(row.size_bytes);g.recording_id=row.id;g.thumb_key=row.thumb_key||g.thumb_key}
       else if(!g.thumb_key&&row.thumb_key)g.thumb_key=row.thumb_key;
     }else{
-      groups.push({recording_id:row.id,session_id:row.session_id||null,best_size:Number(row.size_bytes),start,end,seconds:secs,parts:1,ids:[row.id],thumb_key:row.thumb_key||null});
+      groups.push({recording_id:row.id,session_id:row.session_id||null,best_size:Number(row.size_bytes),start,end,seconds:secs,parts:1,ids:[row.id],thumb_key:row.thumb_key||null,title:row.title||null});
     }
   }
   return groups.reverse();
@@ -3625,7 +3628,7 @@ app.get("/api/public/stream/:token/broadcasts",async(req,res)=>{
     for(const g of groups.slice(0,50)){
       let thumb_url=null;
       if(g.thumb_key){try{thumb_url=await getSignedUrl(replayS3,new GetObjectCommand({Bucket:bucket(),Key:g.thumb_key,ResponseContentType:"image/jpeg"}),{expiresIn:6*3600})}catch{}}
-      broadcasts.push({recording_id:g.recording_id,started_at:new Date(g.start).toISOString(),ended_at:new Date(g.end).toISOString(),duration_seconds:Math.round(g.seconds),parts:g.parts,thumb_url});
+      broadcasts.push({recording_id:g.recording_id,title:g.title||r.rows[0].title||r.rows[0].name||"Broadcast",started_at:new Date(g.start).toISOString(),ended_at:new Date(g.end).toISOString(),duration_seconds:Math.round(g.seconds),parts:g.parts,thumb_url});
     }
     res.set("Cache-Control","no-store").json({broadcasts});
   }catch(e){console.error("Past broadcasts failed:",e?.message||e);res.status(500).json({error:"Could not load past broadcasts."});}
@@ -3999,18 +4002,19 @@ body{margin:0;background:#09090a;color:#f6f6f7;font-family:Inter,system-ui,sans-
   .mobile-live-status.live{color:#69ef8d}
   .foot{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
 }
-.past-broadcasts{margin-top:14px;padding:16px 18px}
+.past-broadcasts{margin-top:14px;padding:16px 18px;min-width:0;overflow:hidden}
+.past-list>*{min-width:0}
 .past-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .past-head h2{margin:0;font-size:16px}
 .past-list{display:grid;gap:8px}
-.past-item{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid #26262b;border-radius:12px;background:rgba(255,255,255,.02);color:inherit;text-decoration:none;transition:border-color .15s,background .15s}
+.past-item{display:flex;align-items:center;gap:12px;min-width:0;padding:11px 12px;border:1px solid #26262b;border-radius:12px;background:rgba(255,255,255,.02);color:inherit;text-decoration:none;transition:border-color .15s,background .15s}
 .past-item:hover,.past-item:focus-visible{border-color:#e8c448;background:rgba(232,196,72,.06);outline:none}
 .past-item.current{border-color:#e8c448;background:rgba(232,196,72,.10)}
 .past-play{flex:0 0 34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#e8c448;color:#111;font-size:12px;font-weight:900}
 .past-thumb{flex:0 0 128px;height:72px;border-radius:9px;background:#1b1b1f center/cover no-repeat;display:grid;place-items:center;position:relative;overflow:hidden}
 .past-thumb .past-play{flex:none;width:30px;height:30px;background:rgba(232,196,72,.92);box-shadow:0 2px 10px rgba(0,0,0,.45)}
 .past-text{min-width:0;flex:1}
-.past-text b{display:block;font-size:14px}
+.past-text b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .past-text span{display:block;color:#9a9aa3;font-size:12px;margin-top:2px}
 .past-tag{font-size:11px;color:#e8c448;font-weight:700;white-space:nowrap}
 @media(max-width:760px){.past-broadcasts{margin:10px 0 0;padding:12px}.past-text b{font-size:13px}.past-thumb{flex-basis:104px;height:58px}.past-tag{display:none}.past-item.current .past-text b::after{content:" • Now playing";color:#e8c448;font-weight:700;font-size:11px}}
@@ -4156,7 +4160,7 @@ async function loadPastBroadcasts(){
       const href="/watch/"+encodeURIComponent(token)+"?recording="+encodeURIComponent(b.recording_id);
       if(isCur&&b.thumb_url&&replayMode&&!video.getAttribute("poster"))video.setAttribute("poster",b.thumb_url);
       const art=b.thumb_url?'<span class="past-thumb" style="background-image:url(&quot;'+esc(b.thumb_url)+'&quot;)"><span class="past-play">▶</span></span>':'<span class="past-play">▶</span>';
-      return '<a class="past-item'+(isCur?' current':'')+'" href="'+href+'">'+art+'<span class="past-text"><b>'+esc(day)+'</b><span>Started '+esc(time)+' • '+esc(dur(b.duration_seconds))+'</span></span>'+(isCur?'<span class="past-tag">NOW PLAYING</span>':(i===0?'<span class="past-tag">LATEST</span>':''))+'</a>';
+      return '<a class="past-item'+(isCur?' current':'')+'" href="'+href+'">'+art+'<span class="past-text"><b>'+esc(b.title||"Broadcast")+'</b><span>'+esc(day)+' • '+esc(time)+' • '+esc(dur(b.duration_seconds))+'</span></span>'+(isCur?'<span class="past-tag">NOW PLAYING</span>':(i===0?'<span class="past-tag">LATEST</span>':''))+'</a>';
     }).join("");
   }catch(e){console.warn("Past broadcasts unavailable:",e&&e.message)}
 }
