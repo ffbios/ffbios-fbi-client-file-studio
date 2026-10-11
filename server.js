@@ -3764,7 +3764,16 @@ async function loadReplay(){
     offline.style.display="none";
     video.muted=false;
     const replayRecordingId=d.recording&&d.recording.id?encodeURIComponent(d.recording.id):"";
-    video.src="/api/public/stream/"+encodeURIComponent(token)+"/replay/file"+(replayRecordingId?"?recordingId="+replayRecordingId:"");
+    const proxySrc="/api/public/stream/"+encodeURIComponent(token)+"/replay/file"+(replayRecordingId?"?recordingId="+replayRecordingId:"");
+    // Play straight from storage with the signed link; fall back to the
+    // server proxy only if the direct link cannot be played.
+    video.onerror=null;
+    if(d.play_url){
+      video.onerror=function(){video.onerror=null;video.src=proxySrc;video.load();video.play().catch(()=>{})};
+      video.src=d.play_url;
+    }else{
+      video.src=proxySrc;
+    }
     video.load();
     statusEl.textContent="REPLAY";
     statusEl.className="badge live";
