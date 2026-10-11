@@ -471,6 +471,13 @@
 .fbi-gallery-hero-bg.is-ready{opacity:1}
 .fbi-gallery-hero-bg.fbi-cover-next{opacity:0;transition:opacity 1.2s ease}
 .fbi-gallery-hero-bg.fbi-cover-next.is-in{opacity:1}
+/* Cover fit: the photo fills the hero only when that crops very little.
+   Otherwise (portrait in a wide hero, landscape on a phone, etc.) the whole
+   photo is shown sharp over a blurred, darkened copy of itself. */
+.fbi-gallery-hero-bg{background-image:var(--cover,none)}
+.fbi-gallery-hero-bg.is-contain{background-image:none;transform:none;overflow:hidden}
+.fbi-gallery-hero-bg.is-contain:before{content:"";position:absolute;inset:-80px;background:var(--cover,none) center/cover no-repeat;filter:blur(42px) brightness(.5) saturate(1.1)}
+.fbi-gallery-hero-bg.is-contain:after{box-sizing:border-box;padding:clamp(14px,3vh,34px) clamp(14px,4vw,72px);background:linear-gradient(90deg,rgba(0,0,0,.6) 0%,rgba(0,0,0,.2) 42%,rgba(0,0,0,0) 65%),linear-gradient(180deg,rgba(0,0,0,0) 55%,rgba(0,0,0,.6) 100%),var(--cover,none) var(--cover-x,center) center/contain no-repeat;background-origin:padding-box,padding-box,content-box}
 .fbi-gallery-hero:after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 38%,rgba(255,255,255,.03),transparent 42%)}
 /* Friendlier client gallery: larger type, softer cards, guidance and an ending */
 .fbi-gallery-page{font-size:15px;-webkit-font-smoothing:antialiased}
@@ -2615,7 +2622,6 @@ async function clientView(token){
   const totalBytes=files.reduce((sum,f)=>sum+Number(f.size_bytes||0),0);
   const heroCandidates=images.slice().sort(function(a,b){return Number(b.size_bytes||0)-Number(a.size_bytes||0)}).slice(0,24);
   let hero=heroCandidates[0]||videos[0]||null;
-  const heroUrl=hero?('/api/public/thumb/'+encodeURIComponent(hero.id)+'?token='+encodeURIComponent(token)+'&w=1800&h=1100'):'';
 
   const favoriteKey='fbi:favorites:'+token;
   let favorites=new Set();
@@ -2633,7 +2639,7 @@ async function clientView(token){
         '</div>'+
       '</header>'+
       '<section class="fbi-gallery-hero">'+
-        '<div class="fbi-gallery-hero-bg" style="background-image:url('+JSON.stringify(heroUrl||'')+')"></div>'+
+        '<div class="fbi-gallery-hero-bg is-loading"></div>'+
         '<div class="fbi-gallery-hero-content">'+
           '<div class="fbi-gallery-kicker">Your gallery is ready</div>'+
           '<h1 class="fbi-gallery-title">'+esc(d.project?.name||'Your Gallery')+'</h1>'+
@@ -3217,6 +3223,27 @@ async function clientView(token){
     // big and high-density screens.
     return '/api/public/preview/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w=2000&h=2000';
   }
+  // Fill the hero only if that crops away little of the photo; otherwise show
+  // the whole photo over a blurred copy of itself (see .is-contain CSS).
+  function fitCover(layer){
+    const heroEl=document.querySelector('.fbi-gallery-hero');
+    const w=Number(layer&&layer.dataset.w),h=Number(layer&&layer.dataset.h);
+    if(!heroEl||!w||!h)return;
+    const r=heroEl.getBoundingClientRect();
+    if(!r.width||!r.height)return;
+    const ir=w/h,hr=r.width/r.height;
+    const cropped=1-Math.min(ir/hr,hr/ir);
+    const contain=cropped>.22;
+    layer.classList.toggle('is-contain',contain);
+    // A narrow photo on a wide screen sits to the right, clear of the title.
+    const shownWidth=Math.min(1,ir/hr);
+    layer.style.setProperty('--cover-x',contain&&hr>1.1&&shownWidth<.6?'right':'center');
+  }
+  let fitTimer=null;
+  window.addEventListener('resize',function(){
+    clearTimeout(fitTimer);
+    fitTimer=setTimeout(function(){document.querySelectorAll('.fbi-gallery-hero-bg').forEach(fitCover)},120);
+  });
   function showCover(f){
     return new Promise(function(resolve){
       const heroEl=document.querySelector('.fbi-gallery-hero');
@@ -3228,7 +3255,9 @@ async function clientView(token){
       pre.onload=function(){
         const layer=document.createElement('div');
         layer.className='fbi-gallery-hero-bg fbi-cover-next';
-        layer.style.backgroundImage='url("'+src+'")';
+        layer.style.setProperty('--cover','url("'+src+'")');
+        layer.dataset.w=pre.naturalWidth;layer.dataset.h=pre.naturalHeight;
+        fitCover(layer);
         oldBg.after(layer);
         requestAnimationFrame(function(){requestAnimationFrame(function(){layer.classList.add('is-in')})});
         setTimeout(function(){
@@ -3250,25 +3279,42 @@ async function clientView(token){
     }
     coverBusy=false;
   }
+  function readyHeroFallback(){
+    const bg=document.querySelector('.fbi-gallery-hero-bg');
+    if(!bg)return;
+    // No photo cover (e.g. a video-only delivery): use the poster frame, dimmed.
+    if(!heroCandidates.length&&hero){
+      bg.style.setProperty('--cover','url("/api/public/thumb/'+encodeURIComponent(hero.id)+'?token='+encodeURIComponent(token)+'&w=720&h=720")');
+      bg.classList.add('is-contain');
+    }
+    bg.classList.remove('is-loading');bg.classList.add('is-ready');
+  }
+  function loadImage(src,cors){
+    return new Promise(function(resolve,reject){
+      const im=new Image();if(cors)im.crossOrigin='anonymous';
+      im.onload=function(){resolve(im)};im.onerror=reject;im.src=src;
+    });
+  }
   async function selectBestCover(){
-    if(!heroCandidates.length)return;
+    if(!heroCandidates.length)return readyHeroFallback();
     const tall=window.innerHeight>window.innerWidth;
     const testCandidates=heroCandidates.slice(0,16);
     const scored=[];
     await Promise.all(testCandidates.map(async function(f){
       try{
         const src='/api/public/thumb/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w=720&h=720';
-        const img=await new Promise((resolve,reject)=>{
-          const im=new Image();im.crossOrigin='anonymous';im.onload=()=>resolve(im);im.onerror=reject;im.src=src;
-        });
+        // The storage bucket may not send CORS headers; then score on shape
+        // and size only instead of dropping the photo.
+        let img,pixels=true;
+        try{img=await loadImage(src,true)}catch{img=await loadImage(src,false);pixels=false}
         const w=img.naturalWidth||1,h=img.naturalHeight||1,ratio=w/h;
         let score=Math.min(1.25,Number(f.size_bytes||0)/Math.max(1,heroCandidates[0].size_bytes||1))*.5;
         // Landscape photos suit wide screens; portrait photos suit phones.
         if(tall)score+=ratio<=.9?.4:ratio<=1.1?.25:.1;
         else score+=ratio>=1.2?.45:ratio>=.95?.25:.05;
         const canvas=document.createElement('canvas');canvas.width=48;canvas.height=36;
-        const ctx=canvas.getContext('2d',{willReadFrequently:true});
-        if(ctx){
+        const ctx=pixels&&canvas.getContext('2d',{willReadFrequently:true});
+        if(ctx)try{
           ctx.drawImage(img,0,0,48,36);
           const data=ctx.getImageData(0,0,48,36).data;
           const lum=[];let sum=0,sum2=0;
@@ -3281,11 +3327,12 @@ async function clientView(token){
           edge/=n*2;
           const exposure=Math.max(0,1-Math.abs(mean-128)/128);
           score+=exposure*.4+Math.min(.35,Math.sqrt(variance)/120)+Math.min(.5,edge/18);
-        }
+        }catch{}
         scored.push({f,score});
       }catch{}
     }));
-    if(!scored.length)return;
+    // Nothing could be scored: still show the largest photo, full size.
+    if(!scored.length)scored.push({f:heroCandidates[0],score:0});
     scored.sort((a,b)=>b.score-a.score);
     // Keep the strongest photos for rotation (at least 1, up to 8).
     coverQueue=scored.slice(0,Math.max(1,Math.min(8,Math.ceil(scored.length*.6)))).map(x=>x.f);
