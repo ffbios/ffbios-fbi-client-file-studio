@@ -1076,6 +1076,23 @@ async function initDb(){
     );
     CREATE INDEX IF NOT EXISTS idx_push_sub_user ON push_subscriptions(user_id);
   `)}catch(e){console.error("Announcements schema failed:",e?.message||e)}
+  // Creative reviews: one review per creative account, shown publicly once approved.
+  try{await pool.query(`
+    CREATE TABLE IF NOT EXISTS creative_reviews(
+      id uuid PRIMARY KEY,
+      user_id uuid UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      display_name text NOT NULL DEFAULT '',
+      creative_role text NOT NULL DEFAULT '',
+      location text NOT NULL DEFAULT '',
+      rating integer NOT NULL CHECK (rating BETWEEN 1 AND 5),
+      body text NOT NULL,
+      status text NOT NULL DEFAULT 'pending',
+      featured boolean NOT NULL DEFAULT false,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_creative_reviews_status ON creative_reviews(status,featured DESC,updated_at DESC);
+  `)}catch(e){console.error("Creative reviews schema failed:",e?.message||e)}
 }
 
   ``;
@@ -2393,6 +2410,69 @@ app.delete("/api/portal/announcements/:id",portalUser,async(req,res)=>{
   await pool.query("DELETE FROM announcements WHERE id=$1",[req.params.id]);
   res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not remove the update."})}
+});
+/* ---- Creative reviews ----
+   Creatives leave one review each (editing it sends it back for approval).
+   Only approved reviews are public; the studio owner moderates them. */
+const REVIEW_STATUSES=new Set(["pending","approved","hidden"]);
+const reviewSubmitRateLimit=rateLimit({scope:"review-submit",windowMs:60*60*1000,max:8,key:req=>req.portalUser?.id||req.ip||"unknown"});
+function reviewText(v,max){return String(v==null?"":v).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,"").replace(/\s+\n/g,"\n").trim().slice(0,max);}
+function publicReview(r){return{id:r.id,display_name:r.display_name,creative_role:r.creative_role,location:r.location,rating:Number(r.rating)||0,body:r.body,featured:!!r.featured,created_at:r.created_at,updated_at:r.updated_at};}
+app.get("/api/public/reviews",async(req,res)=>{
+ try{
+  const limit=Math.min(48,Math.max(1,Number(req.query.limit)||12));
+  const rows=(await pool.query("SELECT * FROM creative_reviews WHERE status='approved' ORDER BY featured DESC,updated_at DESC LIMIT $1",[limit])).rows;
+  const stats=(await pool.query("SELECT COUNT(*)::int AS count,COALESCE(ROUND(AVG(rating)::numeric,1),0)::float AS average FROM creative_reviews WHERE status='approved'")).rows[0]||{count:0,average:0};
+  res.set("Cache-Control","public, max-age=120");
+  res.json({reviews:rows.map(publicReview),count:stats.count,average:stats.average});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load reviews."})}
+});
+app.get("/api/portal/reviews/mine",portalUser,async(req,res)=>{
+ try{
+  const r=await pool.query("SELECT * FROM creative_reviews WHERE user_id=$1",[req.portalUser.id]);
+  res.json({review:r.rowCount?{...publicReview(r.rows[0]),status:r.rows[0].status}:null,isAdmin:isAnnouncementAdmin(req.portalUser.email)});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load your review."})}
+});
+app.post("/api/portal/reviews",portalUser,reviewSubmitRateLimit,async(req,res)=>{
+ try{
+  const rating=Math.round(Number(req.body?.rating));
+  if(!(rating>=1&&rating<=5))return res.status(400).json({error:"Choose a star rating from 1 to 5."});
+  const body=reviewText(req.body?.body,1200);
+  if(body.length<20)return res.status(400).json({error:"Tell other creatives a little more (at least 20 characters)."});
+  const u=(await pool.query("SELECT full_name FROM users WHERE id=$1",[req.portalUser.id])).rows[0]||{};
+  const displayName=reviewText(req.body?.display_name,80)||reviewText(u.full_name,80)||"FBI Creative";
+  const role=reviewText(req.body?.creative_role,80);
+  const location=reviewText(req.body?.location,80);
+  const status=isAnnouncementAdmin(req.portalUser.email)?"approved":"pending";
+  const r=await pool.query(
+    "INSERT INTO creative_reviews(id,user_id,display_name,creative_role,location,rating,body,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8) "+
+    "ON CONFLICT(user_id) DO UPDATE SET display_name=EXCLUDED.display_name,creative_role=EXCLUDED.creative_role,location=EXCLUDED.location,rating=EXCLUDED.rating,body=EXCLUDED.body,status=EXCLUDED.status,updated_at=now() RETURNING *",
+    [crypto.randomUUID(),req.portalUser.id,displayName,role,location,rating,body,status]);
+  res.json({ok:true,review:{...publicReview(r.rows[0]),status:r.rows[0].status}});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not save your review."})}
+});
+app.delete("/api/portal/reviews/mine",portalUser,async(req,res)=>{
+ try{await pool.query("DELETE FROM creative_reviews WHERE user_id=$1",[req.portalUser.id]);res.json({ok:true})}
+ catch(e){console.error(e);res.status(500).json({error:"Could not remove your review."})}
+});
+app.get("/api/portal/reviews/moderation",portalUser,async(req,res)=>{
+ try{
+  if(!isAnnouncementAdmin(req.portalUser.email))return res.status(403).json({error:"Only the studio owner can moderate reviews."});
+  const rows=(await pool.query("SELECT r.*,u.email FROM creative_reviews r JOIN users u ON u.id=r.user_id ORDER BY CASE r.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,r.updated_at DESC LIMIT 200")).rows;
+  res.json({reviews:rows.map(r=>({...publicReview(r),status:r.status,email:r.email}))});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load reviews."})}
+});
+app.patch("/api/portal/reviews/:id",portalUser,async(req,res)=>{
+ try{
+  if(!isAnnouncementAdmin(req.portalUser.email))return res.status(403).json({error:"Only the studio owner can moderate reviews."});
+  if(!/^[0-9a-f-]{36}$/i.test(String(req.params.id||"")))return res.status(404).json({error:"Review not found."});
+  const status=req.body?.status!=null?String(req.body.status):null;
+  if(status!=null&&!REVIEW_STATUSES.has(status))return res.status(400).json({error:"Unknown review status."});
+  const featured=typeof req.body?.featured==="boolean"?req.body.featured:null;
+  const r=await pool.query("UPDATE creative_reviews SET status=COALESCE($2,status),featured=COALESCE($3,featured) WHERE id=$1 RETURNING id",[req.params.id,status,featured]);
+  if(!r.rowCount)return res.status(404).json({error:"Review not found."});
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not update the review."})}
 });
 app.post("/api/portal/push/subscribe",portalUser,async(req,res)=>{
  try{
