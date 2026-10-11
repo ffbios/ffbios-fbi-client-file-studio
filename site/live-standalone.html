@@ -179,7 +179,7 @@ button{cursor:pointer}
 @keyframes lgPulse{50%{opacity:.45}}
 .lg-brand{display:flex;align-items:center;gap:10px}.lg-brand img{height:22px;width:auto;opacity:.9}
 .lg-center{display:grid;place-content:center;text-align:center;gap:6px;padding:0 16px}
-.lg-tc{font-family:"Big Shoulders Display",Impact,sans-serif;font-weight:800;font-size:clamp(56px,11vw,128px);line-height:.9;letter-spacing:.01em;font-variant-numeric:tabular-nums;color:var(--paper)}
+.lg-tc{font-family:"Big Shoulders Display",Impact,sans-serif;font-weight:800;font-size:clamp(52px,7.4vw,112px);line-height:.9;letter-spacing:.01em;font-variant-numeric:tabular-nums;color:var(--paper)}
 .lg-tc .ff{color:var(--signal)}
 .lg-tc-note{font-size:13px;color:var(--quiet)}
 .lg-strap{position:relative;z-index:1;display:grid;grid-template-columns:auto 1fr;margin:0 20px 20px;background:rgba(20,24,29,.92);border-radius:8px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,.05) inset}
@@ -214,13 +214,16 @@ button{cursor:pointer}
 .lg-strap::before{transform-origin:50% 100%;animation:lgBar .35s 1.25s cubic-bezier(.7,0,.2,1) both}
 .lg-form{animation:lgFade .35s 1.7s ease-out both}
 .lg-below{animation:lgFade .4s 1.85s ease-out both}
-.lg-name{position:relative;justify-self:center;margin:0 0 10px;padding-bottom:10px;font-family:"Big Shoulders Display",Impact,sans-serif;font-weight:600;font-size:clamp(22px,3.6vw,40px);letter-spacing:.06em;line-height:1;color:var(--paper);text-align:center}
-.lg-word{display:inline-block;white-space:nowrap}.lg-word span{display:inline-block;animation:lgLetter .5s calc(.6s + var(--i) * 28ms) cubic-bezier(.2,.8,.2,1) both}
-.lg-name::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--signal);transform-origin:0 50%;animation:lgRule .6s 1.25s cubic-bezier(.7,0,.2,1) both}
+.lg-wrap{width:min(1240px,100%);display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.4fr);gap:clamp(28px,4vw,64px);align-items:center}
+.lg-name{position:relative;margin:0;padding-bottom:22px;display:grid;font-family:"Big Shoulders Display",Impact,sans-serif;font-weight:800;font-size:clamp(52px,6.6vw,108px);line-height:.9;min-width:0;letter-spacing:.005em;text-transform:uppercase;color:var(--paper)}
+.lg-line{display:block;white-space:nowrap}
+.lg-line span{display:inline-block;animation:lgLetter .5s calc(.6s + var(--i) * 34ms) cubic-bezier(.2,.8,.2,1) both}
+.lg-name::after{content:"";position:absolute;left:0;width:42%;bottom:0;height:4px;border-radius:2px;background:var(--signal);transform-origin:0 50%;animation:lgRule .6s 1.25s cubic-bezier(.7,0,.2,1) both}
 @keyframes lgLetter{from{opacity:0;transform:translateY(.6em);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
 @keyframes lgRule{from{transform:scaleX(0)}to{transform:none}}
 .lg.is-on .lg-name::after{background:var(--go);transition:background .3s}
-@media (max-width:720px){.lg-name{font-size:clamp(18px,6.2vw,28px);letter-spacing:.03em}}
+@media (max-width:900px){.lg-wrap{grid-template-columns:1fr;gap:22px}.lg-name{font-size:clamp(40px,11vw,64px);padding-bottom:16px}}
+.lg.is-cut .lg-name{animation:lgFadeOut .35s .15s forwards}
 @keyframes lgWipeIn{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
 @keyframes lgBar{from{transform:scaleY(0)}to{transform:none}}
 .lg-strap.is-wrong{animation:lgShake .38s cubic-bezier(.36,.07,.19,.97) both}
@@ -331,14 +334,16 @@ button{cursor:pointer}
   let lgRaf=0;
   function loginScreen(extra){
     if(lgRaf)cancelAnimationFrame(lgRaf);
-    root.innerHTML='<div class="lg" id="lg"><div class="lg-wrap"><div class="lg-monitor"><div class="lg-screen">'+
+    root.innerHTML='<div class="lg" id="lg"><div class="lg-wrap"><h2 class="lg-name" aria-label="FBI Live Broadcast Studio">'+(()=>{let n=0;return ['FBI Live','Broadcast','Studio'].map(l=>'<span class="lg-line" aria-hidden="true">'+l.split('').map(c=>c===' '?' ':'<span style="--i:'+(n++)+'">'+c+'</span>').join('')+'</span>').join('')})()+'</h2><div class="lg-side"><div class="lg-monitor"><div class="lg-screen">'+
       '<div class="lg-top"><span class="lg-tally"><span class="lg-lamp" aria-hidden="true"></span><span id="lgState">Standby</span></span><span class="lg-brand"><img src="/official-logo.png" alt="FBI"></span></div>'+
-      '<div class="lg-center"><h2 class="lg-name" aria-label="FBI Live Broadcast Studio">'+(()=>{let n=0;return 'FBI Live Broadcast Studio'.split(' ').map(w=>'<span class="lg-word" aria-hidden="true">'+w.split('').map(c=>'<span style="--i:'+(n++)+'">'+c+'</span>').join('')+'</span>').join(' ')})()+'</h2><div class="lg-tc" id="lgTc" aria-hidden="true">00:00:00<span class="ff">:00</span></div><div class="lg-tc-note">Accra time, 25 fps</div></div>'+
+      '<div class="lg-center"><div class="lg-tc" id="lgTc" aria-hidden="true">00:00:00<span class="ff">:00</span></div><div class="lg-tc-note">Accra time, 25 fps</div></div>'+
       '<form class="lg-strap" id="lgForm" novalidate><div class="lg-form"><h1>Sign in to go live</h1>'+
       '<div class="lg-field"><label for="email">Admin email</label><input id="email" type="email" autocomplete="username" required></div>'+
       '<div class="lg-field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required></div>'+
       '<button class="lg-go" id="loginBtn" type="submit">Sign in</button></div></form>'+
-      '</div></div><div class="lg-below"><button class="lg-link" id="forgotBtn" type="button">Forgot your password?</button><div class="lg-msg'+(extra?' note':'')+'" id="authError" role="status" aria-live="polite">'+esc(extra||'')+'</div></div></div></div>';
+      '</div></div><div class="lg-below"><button class="lg-link" id="forgotBtn" type="button">Forgot your password?</button><div class="lg-msg'+(extra?' note':'')+'" id="authError" role="status" aria-live="polite">'+esc(extra||'')+'</div></div></div></div></div>';
+    const fitName=()=>{const n=document.querySelector('.lg-name');if(!n)return;n.style.fontSize='';let fs=parseFloat(getComputedStyle(n).fontSize),guard=40;const widest=()=>Math.max(...[...n.querySelectorAll('.lg-line')].map(l=>l.scrollWidth));while(widest()>n.clientWidth&&fs>24&&guard--){fs-=2;n.style.fontSize=fs+'px'}};
+    fitName();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fitName);window.addEventListener('resize',fitName);
     const tc=document.getElementById('lgTc'),pad=n=>String(n).padStart(2,'0');
     const tick=()=>{if(!document.body.contains(tc))return;const d=new Date();tc.innerHTML=pad(d.getUTCHours())+':'+pad(d.getUTCMinutes())+':'+pad(d.getUTCSeconds())+'<span class="ff">:'+pad(Math.floor(d.getUTCMilliseconds()/40))+'</span>';lgRaf=requestAnimationFrame(tick)};tick();
     const msg=(m,kind)=>{const e=document.getElementById('authError');if(!e)return;e.textContent=m||'';e.className='lg-msg'+(m?' '+(kind||'err'):'')};
