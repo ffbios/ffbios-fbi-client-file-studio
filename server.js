@@ -1304,6 +1304,14 @@ function streamInputHlsUrl(row){
   const base=String(process.env.STREAM_HLS_BASE||"").replace(/\/+$/,"");
   return base+"/"+String(row?.stream_path||"");
 }
+// MediaMTX gives every HLS reader a session. Without cookieCheck=1 it hands
+// the session out only as a cookie (after a 302), which FFmpeg does not carry
+// to the media playlist, so MediaMTX answers 401 on main_stream.m3u8. With
+// cookieCheck=1 the session is written into every playlist/segment URL instead
+// (the same mechanism the viewer HLS proxy relies on).
+function recorderHlsInput(base){
+  return String(base||"").replace(/\/+$/,"")+"/index.m3u8?cookieCheck=1";
+}
 function streamInputRtmpUrl(row){
   const base=streamRtmpServer();
   return base&&row?.stream_key?base+"/"+row.stream_key:"";
@@ -1365,7 +1373,7 @@ function ensureStreamAudioMeter(row){
   // uses successfully. This keeps metering on the proven live media path and
   // avoids depending on a separate RTMP connection.
   const hlsBase=streamInputHlsUrl(row);
-  const input=hlsBase&&hlsBase.startsWith("http")?hlsBase+"/index.m3u8":streamInputRtmpUrl(row);
+  const input=hlsBase&&hlsBase.startsWith("http")?recorderHlsInput(hlsBase):streamInputRtmpUrl(row);
   if(!input)return null;
 
   const state={level:-60,lastAt:Date.now(),proc:null};
@@ -1431,7 +1439,7 @@ async function startStreamRecording(row){
 async function startStreamRecordingImpl(row){
   if(activeStreamRecordings.has(row.id)||!row.record_enabled||!ffmpegPath||!s3Ready())return;
   const inputBase=streamInputHlsUrl(row);
-  const input=inputBase&&inputBase.startsWith("http")?inputBase+"/index.m3u8":streamInputRtmpUrl(row);
+  const input=inputBase&&inputBase.startsWith("http")?recorderHlsInput(inputBase):streamInputRtmpUrl(row);
   if(!input)return;
 
   const id=uid();
