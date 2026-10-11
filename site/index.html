@@ -474,6 +474,7 @@
 /* Cover always fills the hero; JS moves the visible slice (--cover-pos)
    toward where faces usually are instead of the dead centre. */
 .fbi-gallery-hero-bg{background-image:var(--cover,none);background-position:var(--cover-pos,center)}
+.fbi-gallery-hero-bg.is-ready{transition:opacity .5s ease,filter .5s ease,background-position 1.2s ease}
 .fbi-gallery-hero:after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 38%,rgba(255,255,255,.03),transparent 42%)}
 /* Friendlier client gallery: larger type, softer cards, guidance and an ending */
 .fbi-gallery-page{font-size:15px;-webkit-font-smoothing:antialiased}
@@ -3219,10 +3220,73 @@ async function clientView(token){
     // big and high-density screens.
     return '/api/public/preview/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w=2000&h=2000';
   }
-  // The photo always fills the hero (cover). When the hero is wider than the
-  // photo, only a horizontal band of it is visible, so pick a band that sits
-  // where people's faces usually are (upper part of the frame) rather than
-  // the middle, which on a portrait shows chests and hands.
+  // The photo always fills the hero (cover), so part of it is cropped away
+  // whenever the photo and the screen have different shapes. The visible part
+  // is framed on the faces in the photo: a small face detector runs in the
+  // browser on the cover's thumbnail (only when the crop is noticeable), and
+  // the result is remembered per photo on this device. Until it answers, or if
+  // it finds no one, the upper part of the frame is used, where faces usually are.
+  const FACE_LIB='https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/dist/face-api.esm.js';
+  const FACE_MODELS='https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model/';
+  let faceApiPromise=null;
+  function loadFaceApi(){
+    if(!faceApiPromise)faceApiPromise=import(FACE_LIB).then(async function(m){
+      const api=m&&m.nets?m:(m&&m.default);
+      if(!api||!api.nets)throw new Error('face-api unavailable');
+      await api.nets.tinyFaceDetector.loadFromUri(FACE_MODELS);
+      return api;
+    });
+    return faceApiPromise;
+  }
+  const faceMemo={};
+  function findFaces(f){
+    if(faceMemo[f.id])return faceMemo[f.id];
+    const key='fbi:cover-faces:v1:'+f.id;
+    faceMemo[f.id]=(async function(){
+      try{const c=JSON.parse(localStorage.getItem(key)||'null');if(c)return c}catch{}
+      const api=await loadFaceApi();
+      // Same-origin copy of the 720px thumbnail so the pixels can be read.
+      const img=await loadImage('/api/public/thumb/'+encodeURIComponent(f.id)+'?token='+encodeURIComponent(token)+'&w=720&h=720&same=1',false);
+      const W=img.naturalWidth||1,H=img.naturalHeight||1;
+      const dets=await api.detectAllFaces(img,new api.TinyFaceDetectorOptions({inputSize:608,scoreThreshold:.45}));
+      const boxes=(dets||[]).map(function(d){return d.box||d}).filter(function(b){return b&&b.width>W*.015});
+      let out={n:0};
+      if(boxes.length){
+        // Frame the main subjects; ignore much smaller faces in the background.
+        const maxA=Math.max.apply(null,boxes.map(function(b){return b.width*b.height}));
+        const main=boxes.filter(function(b){return b.width*b.height>=maxA*.2});
+        const x1=Math.min.apply(null,main.map(function(b){return b.x})),y1=Math.min.apply(null,main.map(function(b){return b.y}));
+        const x2=Math.max.apply(null,main.map(function(b){return b.x+b.width})),y2=Math.max.apply(null,main.map(function(b){return b.y+b.height}));
+        out={n:main.length,x1:x1/W,y1:y1/H,x2:x2/W,y2:y2/H};
+      }
+      try{localStorage.setItem(key,JSON.stringify(out))}catch{}
+      return out;
+    })();
+    faceMemo[f.id].catch(function(){delete faceMemo[f.id]});
+    return faceMemo[f.id];
+  }
+  // Where the visible window should start along one axis (0..1-visible).
+  function windowStart(visible,lo,hi,fallbackCentre){
+    const room=1-visible;
+    let start;
+    if(hi>lo){
+      const pad=Math.min(.12*visible,Math.max(0,(visible-(hi-lo))/2));
+      start=(lo+hi)/2-visible/2;
+      start=Math.min(start,lo-pad);           // keep the tops of heads in
+      start=Math.max(start,hi+pad-visible);   // and the chins
+      if(hi-lo>visible)start=lo-.02;          // faces wider than the window: favour the top
+    }else start=fallbackCentre-visible/2;
+    return Math.max(0,Math.min(room,start));
+  }
+  function croppedShare(layer){
+    const heroEl=document.querySelector('.fbi-gallery-hero');
+    const w=Number(layer&&layer.dataset.w),h=Number(layer&&layer.dataset.h);
+    if(!heroEl||!w||!h)return 0;
+    const r=heroEl.getBoundingClientRect();
+    if(!r.width||!r.height)return 0;
+    const ir=w/h,hr=r.width/r.height;
+    return 1-Math.min(ir/hr,hr/ir);
+  }
   function fitCover(layer){
     const heroEl=document.querySelector('.fbi-gallery-hero');
     const w=Number(layer&&layer.dataset.w),h=Number(layer&&layer.dataset.h);
@@ -3230,17 +3294,43 @@ async function clientView(token){
     const r=heroEl.getBoundingClientRect();
     if(!r.width||!r.height)return;
     const ir=w/h,hr=r.width/r.height;
-    if(ir>=hr){layer.style.setProperty('--cover-pos','center');return}
-    const visible=ir/hr;                 // fraction of the photo height on screen
-    const focus=ir<1?.22:ir<1.3?.3:.36;  // typical face height in the frame
-    const top=Math.max(0,Math.min(1-visible,focus-visible/2));
-    const y=visible>=1?50:top/(1-visible)*100;
-    layer.style.setProperty('--cover-pos','center '+y.toFixed(1)+'%');
+    let faces=null;
+    try{faces=layer.dataset.faces?JSON.parse(layer.dataset.faces):null}catch{}
+    const hasFaces=faces&&faces.n>0;
+    let x=50,y=50;
+    if(ir<hr){
+      // Wider screen than photo: a horizontal band of the photo is visible.
+      const v=ir/hr;
+      const start=hasFaces?windowStart(v,faces.y1,faces.y2,.3):windowStart(v,0,0,ir<1?.22:ir<1.3?.3:.36);
+      y=v>=1?50:start/(1-v)*100;
+      if(hasFaces)x=50;
+    }else if(ir>hr){
+      // Taller screen than photo (phones): a vertical slice is visible.
+      const v=hr/ir;
+      const start=hasFaces?windowStart(v,faces.x1,faces.x2,.5):windowStart(v,0,0,.5);
+      x=v>=1?50:start/(1-v)*100;
+    }
+    layer.style.setProperty('--cover-pos',x.toFixed(1)+'% '+y.toFixed(1)+'%');
+  }
+  function frameFaces(f,layer,waitMs){
+    if(croppedShare(layer)<.12)return Promise.resolve();
+    const done=findFaces(f).then(function(faces){
+      if(!faces||!layer.isConnected&&!layer.dataset.pending)return;
+      layer.dataset.faces=JSON.stringify(faces);
+      fitCover(layer);
+    }).catch(function(){});
+    return Promise.race([done,new Promise(function(res){setTimeout(res,waitMs)})]);
   }
   let fitTimer=null;
   window.addEventListener('resize',function(){
     clearTimeout(fitTimer);
-    fitTimer=setTimeout(function(){document.querySelectorAll('.fbi-gallery-hero-bg').forEach(fitCover)},120);
+    fitTimer=setTimeout(function(){
+      document.querySelectorAll('.fbi-gallery-hero-bg').forEach(function(layer){
+        fitCover(layer);
+        const f=files.find(function(x){return x.id===layer.dataset.id});
+        if(f&&!layer.dataset.faces)frameFaces(f,layer,0);
+      });
+    },150);
   });
   function showCover(f){
     return new Promise(function(resolve){
@@ -3250,12 +3340,17 @@ async function clientView(token){
       const src=coverSrc(f);
       const pre=new Image();
       pre.decoding='async';
-      pre.onload=function(){
+      pre.onload=async function(){
         const layer=document.createElement('div');
         layer.className='fbi-gallery-hero-bg fbi-cover-next';
         layer.style.setProperty('--cover','url("'+src+'")');
-        layer.dataset.w=pre.naturalWidth;layer.dataset.h=pre.naturalHeight;
+        layer.dataset.w=pre.naturalWidth;layer.dataset.h=pre.naturalHeight;layer.dataset.id=f.id;
         fitCover(layer);
+        // Give face framing a moment so the cover usually appears already
+        // framed; if it takes longer it glides into place once ready.
+        layer.dataset.pending='1';
+        await frameFaces(f,layer,1800);
+        delete layer.dataset.pending;
         oldBg.after(layer);
         requestAnimationFrame(function(){requestAnimationFrame(function(){layer.classList.add('is-in')})});
         setTimeout(function(){

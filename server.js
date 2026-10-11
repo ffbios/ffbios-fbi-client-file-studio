@@ -5179,7 +5179,14 @@ app.get("/api/public/thumb/:id",async(req,res)=>{
   if(!out)return res.status(404).send("Invalid or expired delivery link.");
   const {width,height}=clampThumbSize(req.query);
   const key=thumbObjectKey(out.f,width,height);
-  if(await storedObjectExists(key))return redirectToBucket(res,key);
+  // same=1 serves the bytes from this origin instead of redirecting to the
+  // bucket, so the gallery can read the pixels (face framing on the cover).
+  const sameOrigin=String(req.query.same||"")==="1";
+  if(await storedObjectExists(key)){
+    if(!sameOrigin)return redirectToBucket(res,key);
+    const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:key}));
+    return res.status(200).type("image/webp").set("Cache-Control","private, max-age=86400").set("X-Content-Type-Options","nosniff").send(await bodyToBuffer(obj.Body));
+  }
   const creative=await creativeBrandingForProject(out.f.project_id);
   const webp=await buildThumbImage(out.f,width,height,creative);
   await persistDerivedImage(key,webp,out.f.id);
