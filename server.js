@@ -3323,6 +3323,36 @@ app.use("/api/public/stream/:token/hls",async(req,res)=>{
   await proxyPublicHlsStream(req,res);
 });
 
+// Past broadcasts of one stream. A broadcast that dropped and reconnected is
+// saved as several recordings; recordings that start within 10 minutes of the
+// previous one ending are grouped into one broadcast, and the longest piece is
+// the one that plays. Tiny fragments (reconnect blips) are ignored.
+app.get("/api/public/stream/:token/broadcasts",async(req,res)=>{
+  try{
+    const r=await publicStreamByToken(req.params.token);
+    if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
+    const q=await pool.query(`SELECT id,size_bytes,started_at,ended_at FROM stream_recordings
+      WHERE stream_id=$1 AND status='completed' AND size_bytes>=262144
+      ORDER BY started_at ASC LIMIT 1000`,[r.rows[0].id]);
+    const GAP=10*60*1000,groups=[];
+    for(const row of q.rows){
+      const start=new Date(row.started_at).getTime(),end=new Date(row.ended_at||row.started_at).getTime();
+      const g=groups[groups.length-1];
+      if(g&&start-g.end<=GAP){
+        g.end=Math.max(g.end,end);g.seconds+=Math.max(0,(end-start)/1000);g.parts++;
+        if(Number(row.size_bytes)>g.best_size){g.best_size=Number(row.size_bytes);g.recording_id=row.id}
+      }else{
+        groups.push({recording_id:row.id,best_size:Number(row.size_bytes),start,end,seconds:Math.max(0,(end-start)/1000),parts:1});
+      }
+    }
+    const broadcasts=groups.reverse().slice(0,50).map(g=>({
+      recording_id:g.recording_id,started_at:new Date(g.start).toISOString(),ended_at:new Date(g.end).toISOString(),
+      duration_seconds:Math.round(g.seconds),parts:g.parts
+    }));
+    res.set("Cache-Control","no-store").json({broadcasts});
+  }catch(e){console.error("Past broadcasts failed:",e?.message||e);res.status(500).json({error:"Could not load past broadcasts."});}
+});
+
 app.get("/api/public/stream/:token/replay",async(req,res)=>{
   try{
     const r=await publicStreamByToken(req.params.token);
@@ -3686,7 +3716,21 @@ body{margin:0;background:#09090a;color:#f6f6f7;font-family:Inter,system-ui,sans-
   .mobile-live-status{position:absolute;left:10px;top:10px;padding:5px 8px;border-radius:999px;background:rgba(0,0,0,.48);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(12px);font-size:7px;color:#ddd}
   .mobile-live-status.live{color:#69ef8d}
   .foot{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
-}${LV.WATCH_CSS}</style></head><body>${LV.WATCH_TOPBAR}<div class="wrap"><div class="head"><div class="brand">FILM BEYOND IMAGINATION • FBI Live</div><div style="margin-top:8px"><span class="badge" id="status">Checking live status…</span></div><h1>${title}</h1><p id="viewers">FBI Live Stream</p>${LV.WATCH_ACTIONS}</div><div class="layout"><section><div class="card player"><video id="video" controls playsinline autoplay muted></video><div id="offline" class="offline" style="display:none"></div><div class="mobile-live-ui"><span class="mobile-live-status" id="mobileLiveStatus">CONNECTING…</span><span class="mobile-viewer-badge"><b id="mobileViewerCount">0</b> watching</span><div id="mobileFloatingComments" class="mobile-floating-comments"></div><div id="mobileReactionFloaters" class="mobile-reaction-floaters"></div><div class="mobile-reaction-rail"><button type="button" class="mobile-reaction-btn" data-mobile-reaction="👏" aria-label="Clap">👏</button><button type="button" class="mobile-reaction-btn" data-mobile-reaction="❤️" aria-label="Love">❤️</button><button type="button" class="mobile-reaction-btn heart" data-mobile-reaction="❤️" aria-label="Send heart">♥</button></div></div><div class="playerbar"><span class="nowq" id="streamState">Connecting…</span></div></div></section><aside class="card comments"><div class="comments-head"><h2>Live Comments</h2><span class="badge" id="commentCount">0</span></div><div id="commentList" class="comment-list"><div style="color:#777;font-size:9px;padding:10px 0">No comments yet.</div></div><form id="commentForm" class="comment-form"><input id="commentName" maxlength="60" placeholder="Your name"><textarea id="commentText" maxlength="500" placeholder="Write a comment…"></textarea><div class="comment-tools"><div class="emoji-popover" id="emojiPopover"><button type="button" class="emoji-open" id="emojiOpen" title="Add emoji">😊</button><emoji-picker id="emojiPicker" locale="en"></emoji-picker></div><button type="submit">Post Comment</button></div><div class="statusline" id="commentStatus"></div></form></aside></div><div class="foot">FBI Live • Live broadcast and viewer comments • viewer-badge-sync-1</div></div><script>
+}
+.past-broadcasts{margin-top:14px;padding:16px 18px}
+.past-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.past-head h2{margin:0;font-size:16px}
+.past-list{display:grid;gap:8px}
+.past-item{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid #26262b;border-radius:12px;background:rgba(255,255,255,.02);color:inherit;text-decoration:none;transition:border-color .15s,background .15s}
+.past-item:hover,.past-item:focus-visible{border-color:#e8c448;background:rgba(232,196,72,.06);outline:none}
+.past-item.current{border-color:#e8c448;background:rgba(232,196,72,.10)}
+.past-play{flex:0 0 34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#e8c448;color:#111;font-size:12px;font-weight:900}
+.past-text{min-width:0;flex:1}
+.past-text b{display:block;font-size:14px}
+.past-text span{display:block;color:#9a9aa3;font-size:12px;margin-top:2px}
+.past-tag{font-size:11px;color:#e8c448;font-weight:700;white-space:nowrap}
+@media(max-width:760px){.past-broadcasts{margin:10px 0 0;padding:12px}.past-text b{font-size:13px}}
+${LV.WATCH_CSS}</style></head><body>${LV.WATCH_TOPBAR}<div class="wrap"><div class="head"><div class="brand">FILM BEYOND IMAGINATION • FBI Live</div><div style="margin-top:8px"><span class="badge" id="status">Checking live status…</span></div><h1>${title}</h1><p id="viewers">FBI Live Stream</p>${LV.WATCH_ACTIONS}</div><div class="layout"><section><div class="card player"><video id="video" controls playsinline autoplay muted></video><div id="offline" class="offline" style="display:none"></div><div class="mobile-live-ui"><span class="mobile-live-status" id="mobileLiveStatus">CONNECTING…</span><span class="mobile-viewer-badge"><b id="mobileViewerCount">0</b> watching</span><div id="mobileFloatingComments" class="mobile-floating-comments"></div><div id="mobileReactionFloaters" class="mobile-reaction-floaters"></div><div class="mobile-reaction-rail"><button type="button" class="mobile-reaction-btn" data-mobile-reaction="👏" aria-label="Clap">👏</button><button type="button" class="mobile-reaction-btn" data-mobile-reaction="❤️" aria-label="Love">❤️</button><button type="button" class="mobile-reaction-btn heart" data-mobile-reaction="❤️" aria-label="Send heart">♥</button></div></div><div class="playerbar"><span class="nowq" id="streamState">Connecting…</span></div></div><div class="card past-broadcasts" id="pastBroadcasts" hidden><div class="past-head"><h2>Past broadcasts</h2><span class="badge" id="pastCount">0</span></div><div class="past-list" id="pastList"></div></div></section><aside class="card comments"><div class="comments-head"><h2>Live Comments</h2><span class="badge" id="commentCount">0</span></div><div id="commentList" class="comment-list"><div style="color:#777;font-size:9px;padding:10px 0">No comments yet.</div></div><form id="commentForm" class="comment-form"><input id="commentName" maxlength="60" placeholder="Your name"><textarea id="commentText" maxlength="500" placeholder="Write a comment…"></textarea><div class="comment-tools"><div class="emoji-popover" id="emojiPopover"><button type="button" class="emoji-open" id="emojiOpen" title="Add emoji">😊</button><emoji-picker id="emojiPicker" locale="en"></emoji-picker></div><button type="submit">Post Comment</button></div><div class="statusline" id="commentStatus"></div></form></aside></div><div class="foot">FBI Live • Live broadcast and viewer comments • viewer-badge-sync-1</div></div><script>
 const token=${tokenJs},hlsUrl=${JSON.stringify(hls)};const video=document.getElementById("video"),emojiOpen=document.getElementById("emojiOpen"),emojiPopover=document.getElementById("emojiPopover"),emojiPicker=document.getElementById("emojiPicker"),offline=document.getElementById("offline"),statusEl=document.getElementById("status"),viewers=document.getElementById("viewers"),streamState=document.getElementById("streamState"),commentList=document.getElementById("commentList"),commentCount=document.getElementById("commentCount"),commentForm=document.getElementById("commentForm"),commentName=document.getElementById("commentName"),commentText=document.getElementById("commentText"),commentStatus=document.getElementById("commentStatus");const sessionKey=crypto.randomUUID();let player=null,live=false,replayMode=false,replayPending=false,replayTimer=0;const mobileFloatingComments=document.getElementById("mobileFloatingComments"),mobileReactionFloaters=document.getElementById("mobileReactionFloaters"),mobileViewerCount=document.getElementById("mobileViewerCount"),mobileLiveStatus=document.getElementById("mobileLiveStatus");let mobileReactionIndex=0;const mobileLiveUi=document.querySelector(".mobile-live-ui");let mobileReactionHideTimer=0;function revealMobileReactions(){if(!mobileLiveUi)return;mobileLiveUi.classList.add("show-reactions");clearTimeout(mobileReactionHideTimer);mobileReactionHideTimer=setTimeout(function(){mobileLiveUi.classList.remove("show-reactions")},3200)}video.addEventListener("pointerup",revealMobileReactions);
 video.addEventListener("loadedmetadata",function(){if(replayMode)streamState.textContent="Replay ready"});
 video.addEventListener("error",function(){if(!replayMode)return;const err=video.error;streamState.textContent=err?"Replay playback error ("+String(err.code)+")":"Replay playback error"});
@@ -3716,8 +3760,8 @@ function showMobileReaction(emoji){
   mobileReactionFloaters.appendChild(el);setTimeout(function(){el.remove()},2300);
 }
 document.querySelectorAll('[data-mobile-reaction]').forEach(function(btn){btn.addEventListener('click',function(){showMobileReaction(btn.getAttribute('data-mobile-reaction')||'❤️')})});
-new MutationObserver(updateMobileViewerUi).observe(statusEl,{subtree:true,childList:true,characterData:true});
-new MutationObserver(updateMobileViewerUi).observe(viewers,{subtree:true,childList:true,characterData:true});
+new MutationObserver(()=>updateMobileViewerUi()).observe(statusEl,{subtree:true,childList:true,characterData:true});
+new MutationObserver(()=>updateMobileViewerUi()).observe(viewers,{subtree:true,childList:true,characterData:true});
 
 try{commentName.value=localStorage.getItem("fbiLiveCommentName")||""}catch{}
 if(emojiOpen&&emojiPicker){
@@ -3773,6 +3817,7 @@ async function loadReplay(){
     video.muted=false;
     const replayRecordingId=d.recording&&d.recording.id?encodeURIComponent(d.recording.id):"";
     const proxySrc="/api/public/stream/"+encodeURIComponent(token)+"/replay/file"+(replayRecordingId?"?recordingId="+replayRecordingId:"");
+    if(window.fbiReplayId!==(d.recording&&d.recording.id)){window.fbiReplayId=d.recording&&d.recording.id;setTimeout(()=>{try{loadPastBroadcasts()}catch{}},0)}
     // Play straight from storage with the signed link; fall back to the
     // server proxy only if the direct link cannot be played.
     video.onerror=null;
@@ -3808,7 +3853,26 @@ function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&l
 function fmtTime(v){try{return new Date(v).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}catch{return ""}}
 async function loadComments(){try{const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/comments?limit=80",{cache:"no-store"}),d=await r.json();if(!r.ok)throw new Error(d.error);const rows=d.comments||[];commentCount.textContent=rows.length;commentList.innerHTML=rows.length?rows.map(x=>'<div class="comment"><b>'+esc(x.display_name)+'</b><span>'+esc(x.comment)+'</span><time>'+esc(fmtTime(x.created_at))+'</time></div>').join(""):'<div style="color:#777;font-size:9px;padding:10px 0">No comments yet. Start the conversation.</div>';commentList.scrollTop=commentList.scrollHeight;renderMobileOverlay(rows);updateMobileViewerUi()}catch(e){commentStatus.textContent=e.message||"Comments unavailable"}}
 commentForm.onsubmit=async e=>{e.preventDefault();const name=commentName.value.trim()||"Anonymous",comment=commentText.value.trim();if(!comment)return;commentStatus.textContent="Posting…";try{const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/comments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({display_name:name,comment})}),d=await r.json();if(!r.ok)throw new Error(d.error);try{localStorage.setItem("fbiLiveCommentName",name)}catch{}commentText.value="";commentStatus.textContent="";await loadComments()}catch(e){commentStatus.textContent=e.message||"Could not post comment"}};
-updateMobileViewerUi();refresh();loadComments();setInterval(loadComments,5000);setInterval(refresh,15000);
+async function loadPastBroadcasts(){
+  try{
+    const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/broadcasts",{cache:"no-store"});
+    const d=await r.json();if(!r.ok)throw new Error(d.error);
+    const rows=d.broadcasts||[],box=document.getElementById("pastBroadcasts"),list=document.getElementById("pastList");
+    if(!rows.length){box.hidden=true;return}
+    box.hidden=false;document.getElementById("pastCount").textContent=rows.length;
+    const current=(new URLSearchParams(location.search).get("recording")||"").trim();
+    const dur=s=>{s=Number(s)||0;const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?h+" h "+m+" min":(m?m+" min":Math.max(1,Math.round(s))+" sec")};
+    list.innerHTML=rows.map((b,i)=>{
+      const when=new Date(b.started_at);
+      const day=when.toLocaleDateString([], {weekday:"short",day:"numeric",month:"short",year:"numeric"});
+      const time=when.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+      const isCur=current?current===b.recording_id:(replayMode&&window.fbiReplayId===b.recording_id);
+      const href="/watch/"+encodeURIComponent(token)+"?recording="+encodeURIComponent(b.recording_id);
+      return '<a class="past-item'+(isCur?' current':'')+'" href="'+href+'"><span class="past-play">▶</span><span class="past-text"><b>'+esc(day)+'</b><span>Started '+esc(time)+' • '+esc(dur(b.duration_seconds))+'</span></span>'+(isCur?'<span class="past-tag">NOW PLAYING</span>':(i===0?'<span class="past-tag">LATEST</span>':''))+'</a>';
+    }).join("");
+  }catch(e){console.warn("Past broadcasts unavailable:",e&&e.message)}
+}
+updateMobileViewerUi();refresh();loadComments();loadPastBroadcasts();setInterval(loadComments,5000);setInterval(refresh,15000);setInterval(loadPastBroadcasts,60000);
 </script><script>${LV.SAVE_JS}</script></body></html>`);
   }catch(e){res.status(500).send("Could not load stream.");}
 });
