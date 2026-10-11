@@ -1328,7 +1328,9 @@ function formatStorageBytes(v){
 async function adminPasswordMatches(password){
   const r=await pool.query("SELECT value FROM app_settings WHERE key='admin_password_hash'");
   const stored=r.rows[0]?.value||"";
-  if(!stored)return ADMIN_PASSWORD && password===ADMIN_PASSWORD;
+  // Hashes saved before the separator fix cannot be parsed; fall back to the
+  // ADMIN_PASSWORD variable so the admin is never locked out.
+  if(!stored||!stored.startsWith("scrypt$"))return Boolean(ADMIN_PASSWORD) && password===ADMIN_PASSWORD;
   try{
     const [prefix,N,r,p,salt,hash]=stored.split("$");
     if(prefix!=="scrypt"||!N||!r||!p||!salt||!hash)return false;
@@ -1338,7 +1340,7 @@ async function adminPasswordMatches(password){
 }
 async function hashAdminPassword(password){
   const N=16384,r=8,p=1,salt=crypto.randomBytes(16),derived=await new Promise((resolve,reject)=>crypto.scrypt(password,salt,64,{N,r,p,maxmem:128*1024*1024},(e,d)=>e?reject(e):resolve(d)));
-  return `scrypt${N}${r}${p}${salt.toString("base64")}${Buffer.from(derived).toString("base64")}`;
+  return `scrypt$${N}$${r}$${p}$${salt.toString("base64")}$${Buffer.from(derived).toString("base64")}`;
 }
 
 
@@ -3201,7 +3203,7 @@ app.get("/api/streams",admin,async(req,res)=>{
  * list and channel creation without admin authentication. The main File Studio
  * /api/streams endpoints remain protected by the normal admin session.
  */
-app.get("/api/live/streams",async(req,res)=>{
+app.get("/api/live/streams",admin,async(req,res)=>{
   try{
     const rows=await streamRows();
     const rtmpHost=String(process.env.STREAM_RTMP_HOST||"");
@@ -3218,7 +3220,7 @@ app.get("/api/live/streams",async(req,res)=>{
   }catch(e){console.error(e);res.status(500).json({error:"Could not load live streams"});}
 });
 
-app.post("/api/live/streams",async(req,res)=>{
+app.post("/api/live/streams",admin,async(req,res)=>{
   try{
     const name=String(req.body.name||"").trim();
     if(!name)return res.status(400).json({error:"Stream name is required."});
@@ -3237,7 +3239,7 @@ app.post("/api/live/streams",async(req,res)=>{
     }});
   }catch(e){console.error(e);res.status(500).json({error:"Could not create stream"});}
 });
-app.get("/api/live/streams/:id",async(req,res)=>{
+app.get("/api/live/streams/:id",admin,async(req,res)=>{
   try{
     const q=await pool.query("SELECT * FROM streams WHERE id=$1",[req.params.id]);
     if(!q.rowCount)return res.status(404).json({error:"Stream not found."});
@@ -3253,7 +3255,7 @@ app.get("/api/live/streams/:id",async(req,res)=>{
     }});
   }catch(e){console.error(e);res.status(500).json({error:"Could not load live stream"});}
 })
-app.post("/api/live/streams/:id/program/start",async(req,res)=>{
+app.post("/api/live/streams/:id/program/start",admin,async(req,res)=>{
   try{
     const q=await pool.query("SELECT * FROM streams WHERE id=$1 AND enabled=true",[req.params.id]);
     if(!q.rowCount)return res.status(404).json({error:"Stream not found."});
@@ -3269,7 +3271,7 @@ app.post("/api/live/streams/:id/program/start",async(req,res)=>{
   }
 });
 
-app.post("/api/live/streams/:id/program/activate",async(req,res)=>{
+app.post("/api/live/streams/:id/program/activate",admin,async(req,res)=>{
   try{
     const q=await pool.query("SELECT id FROM streams WHERE id=$1 AND enabled=true",[req.params.id]);
     if(!q.rowCount)return res.status(404).json({error:"Stream not found."});
@@ -3281,7 +3283,7 @@ app.post("/api/live/streams/:id/program/activate",async(req,res)=>{
   }
 });
 
-app.post("/api/live/streams/:id/program/stop",async(req,res)=>{
+app.post("/api/live/streams/:id/program/stop",admin,async(req,res)=>{
   try{
     deactivateProgramRoute(req.params.id);
     res.set("Cache-Control","no-store").json({ok:true,active:false});
@@ -3291,7 +3293,7 @@ app.post("/api/live/streams/:id/program/stop",async(req,res)=>{
   }
 });
 
-app.get("/api/live/streams/:id/audio-level",async(req,res)=>{
+app.get("/api/live/streams/:id/audio-level",admin,async(req,res)=>{
   try{
     const q=await pool.query("SELECT * FROM streams WHERE id=$1 AND enabled=true",[req.params.id]);
     if(!q.rowCount)return res.status(404).json({error:"Stream not found."});
@@ -3313,7 +3315,7 @@ app.get("/api/live/streams/:id/audio-level",async(req,res)=>{
 });
 ;
 
-app.post("/api/live/streams/:id/regenerate-key",async(req,res)=>{
+app.post("/api/live/streams/:id/regenerate-key",admin,async(req,res)=>{
   try{
     const key=randomStreamKey();
     const r=await pool.query("UPDATE streams SET stream_key=$1,stream_path=$2,updated_at=now(),status='offline',started_at=NULL,ended_at=now() WHERE id=$3 RETURNING *",[key,streamPathForKey(key),req.params.id]);
@@ -3350,7 +3352,7 @@ async function liveStreamDeleteSummary(id){
   const row=r.rows[0]||{};
   return {stream:s,recordings:Number(row.recordings||0),bytes:Number(row.bytes||0),active:Number(row.active||0)};
 }
-app.get("/api/live/streams/:id/delete-check",async(req,res)=>{
+app.get("/api/live/streams/:id/delete-check",admin,async(req,res)=>{
   try{
     const d=await liveStreamDeleteSummary(req.params.id);
     if(!d)return res.status(404).json({error:"Stream not found."});
@@ -3361,7 +3363,7 @@ app.get("/api/live/streams/:id/delete-check",async(req,res)=>{
     });
   }catch(e){console.error(e);res.status(500).json({error:"Could not check channel."});}
 });
-app.delete("/api/live/streams/:id",async(req,res)=>{
+app.delete("/api/live/streams/:id",admin,async(req,res)=>{
   try{
     const d=await liveStreamDeleteSummary(req.params.id);
     if(!d)return res.status(404).json({error:"Stream not found."});
