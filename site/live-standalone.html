@@ -206,14 +206,21 @@ button{cursor:pointer}
 @keyframes lgPower{0%{transform:scale(.18,.006);filter:brightness(2.6)}38%{transform:scale(1,.006);filter:brightness(2.2)}70%{transform:scale(1,1);filter:brightness(1.35)}100%{transform:none;filter:none}}
 @keyframes lgFlash{0%,40%{opacity:1}100%{opacity:0}}
 .lg-top{animation:lgFade .4s .6s ease-out both}
-.lg-tc{animation:lgLock .55s .55s steps(1,end) both}
-.lg-tc-note{animation:lgFade .4s .9s ease-out both}
+.lg-tc{animation:lgLock .55s .85s steps(1,end) both}
+.lg-tc-note{animation:lgFade .4s 1.15s ease-out both}
 @keyframes lgFade{from{opacity:0}to{opacity:1}}
 @keyframes lgLock{0%{opacity:0}15%{opacity:.8;transform:translateY(-6px);filter:blur(2px)}30%{opacity:.2}45%{opacity:1;transform:translateY(3px);filter:blur(1px)}60%{transform:none;filter:none}100%{opacity:1}}
-.lg-strap{animation:lgWipeIn .5s 1s cubic-bezier(.7,0,.2,1) both}
-.lg-strap::before{transform-origin:50% 100%;animation:lgBar .35s .9s cubic-bezier(.7,0,.2,1) both}
-.lg-form{animation:lgFade .35s 1.35s ease-out both}
-.lg-below{animation:lgFade .4s 1.5s ease-out both}
+.lg-strap{animation:lgWipeIn .5s 1.35s cubic-bezier(.7,0,.2,1) both}
+.lg-strap::before{transform-origin:50% 100%;animation:lgBar .35s 1.25s cubic-bezier(.7,0,.2,1) both}
+.lg-form{animation:lgFade .35s 1.7s ease-out both}
+.lg-below{animation:lgFade .4s 1.85s ease-out both}
+.lg-name{position:relative;justify-self:center;margin:0 0 10px;padding-bottom:10px;font-family:"Big Shoulders Display",Impact,sans-serif;font-weight:600;font-size:clamp(22px,3.6vw,40px);letter-spacing:.06em;line-height:1;color:var(--paper);text-align:center}
+.lg-word{display:inline-block;white-space:nowrap}.lg-word span{display:inline-block;animation:lgLetter .5s calc(.6s + var(--i) * 28ms) cubic-bezier(.2,.8,.2,1) both}
+.lg-name::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--signal);transform-origin:0 50%;animation:lgRule .6s 1.25s cubic-bezier(.7,0,.2,1) both}
+@keyframes lgLetter{from{opacity:0;transform:translateY(.6em);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
+@keyframes lgRule{from{transform:scaleX(0)}to{transform:none}}
+.lg.is-on .lg-name::after{background:var(--go);transition:background .3s}
+@media (max-width:720px){.lg-name{font-size:clamp(18px,6.2vw,28px);letter-spacing:.03em}}
 @keyframes lgWipeIn{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
 @keyframes lgBar{from{transform:scaleY(0)}to{transform:none}}
 .lg-strap.is-wrong{animation:lgShake .38s cubic-bezier(.36,.07,.19,.97) both}
@@ -325,8 +332,8 @@ button{cursor:pointer}
   function loginScreen(extra){
     if(lgRaf)cancelAnimationFrame(lgRaf);
     root.innerHTML='<div class="lg" id="lg"><div class="lg-wrap"><div class="lg-monitor"><div class="lg-screen">'+
-      '<div class="lg-top"><span class="lg-tally"><span class="lg-lamp" aria-hidden="true"></span><span id="lgState">Standby</span></span><span class="lg-brand"><img src="/official-logo.png" alt="FBI">Live control room</span></div>'+
-      '<div class="lg-center"><div class="lg-tc" id="lgTc" aria-hidden="true">00:00:00<span class="ff">:00</span></div><div class="lg-tc-note">Accra time, 25 fps</div></div>'+
+      '<div class="lg-top"><span class="lg-tally"><span class="lg-lamp" aria-hidden="true"></span><span id="lgState">Standby</span></span><span class="lg-brand"><img src="/official-logo.png" alt="FBI"></span></div>'+
+      '<div class="lg-center"><h2 class="lg-name" aria-label="FBI Live Broadcast Studio">'+(()=>{let n=0;return 'FBI Live Broadcast Studio'.split(' ').map(w=>'<span class="lg-word" aria-hidden="true">'+w.split('').map(c=>'<span style="--i:'+(n++)+'">'+c+'</span>').join('')+'</span>').join(' ')})()+'</h2><div class="lg-tc" id="lgTc" aria-hidden="true">00:00:00<span class="ff">:00</span></div><div class="lg-tc-note">Accra time, 25 fps</div></div>'+
       '<form class="lg-strap" id="lgForm" novalidate><div class="lg-form"><h1>Sign in to go live</h1>'+
       '<div class="lg-field"><label for="email">Admin email</label><input id="email" type="email" autocomplete="username" required></div>'+
       '<div class="lg-field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required></div>'+
