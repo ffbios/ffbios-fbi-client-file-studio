@@ -22,7 +22,7 @@ const WATCH_CSS = `
 body{background:radial-gradient(circle at 50% -12%,rgba(70,82,120,.30),transparent 42%),#09090a}
 .lv-topbar{position:sticky;top:0;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 18px;background:rgba(9,9,10,.86);backdrop-filter:blur(14px);border-bottom:1px solid #26262b}
 .lv-brand{display:flex;align-items:center;gap:10px;color:#e8c448;font-weight:900;letter-spacing:.16em;font-size:12px;text-decoration:none}
-.lv-brand i{display:grid;place-items:center;width:34px;height:28px;border:1px solid #5b4d1e;background:#17150b;font-style:normal;font-size:11px}
+.lv-brand img{display:block;height:28px;width:auto;object-fit:contain}
 .lv-chip{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:999px;border:1px solid #2c2c33;background:#111114;color:#f6f6f7;font:inherit;font-size:13px;font-weight:700;text-decoration:none;cursor:pointer;transition:.15s}
 .lv-chip:hover{border-color:#3d3d46;background:#18181c}
 .lv-chip.on{border-color:rgba(232,196,72,.6);color:#e8c448;background:#1c180a}
@@ -50,7 +50,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(70,82,120,.30),transpare
 `;
 
 const WATCH_TOPBAR =
-  '<div class="lv-topbar"><a class="lv-brand" href="/library"><i>FBI</i>FBI LIVE</a>' +
+  '<div class="lv-topbar"><a class="lv-brand" href="/library"><img src="/official-logo.png" alt="FBI">FBI LIVE</a>' +
   '<a class="lv-chip" href="/library">&#9733; My Saved</a></div>';
 
 const WATCH_ACTIONS =
@@ -109,7 +109,7 @@ html,body{margin:0;min-height:100%;background:radial-gradient(circle at 50% -12%
 a{color:inherit;text-decoration:none}button{font:inherit;cursor:pointer}
 .top{position:sticky;top:0;z-index:20;padding:11px 18px;background:rgba(9,9,10,.86);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
 .brand{display:inline-flex;align-items:center;gap:10px;color:var(--gold);font-weight:900;letter-spacing:.16em;font-size:12px}
-.brand i{display:grid;place-items:center;width:34px;height:28px;border:1px solid #5b4d1e;background:#17150b;font-style:normal;font-size:11px}
+.brand img{display:block;height:28px;width:auto;object-fit:contain}
 .wrap{max-width:1240px;margin:0 auto;padding:26px 18px 50px}
 h1{font-size:clamp(26px,4vw,40px);margin:6px 0 4px;letter-spacing:-.01em}
 .sub{color:var(--muted);font-size:14px;margin-bottom:24px}
@@ -163,7 +163,7 @@ function libraryPage() {
     '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">' +
     '<meta name="theme-color" content="#09090a"><title>My Saved \u2022 FBI Live</title>' +
     "<style>" + LIB_CSS + "</style></head><body>" +
-    '<header class="top"><span class="brand"><i>FBI</i>FBI LIVE</span></header>' +
+    '<header class="top"><span class="brand"><img src="/official-logo.png" alt="FBI">FBI LIVE</span></header>' +
     '<main class="wrap"><h1>My Saved</h1>' +
     '<div class="sub">Broadcasts and replays you saved to watch later. Saved on this device and browser.</div>' +
     '<div class="grid" id="grid"></div></main><div class="toast" id="toast" role="status"></div>' +
