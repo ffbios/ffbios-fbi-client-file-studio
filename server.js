@@ -7,7 +7,26 @@ const fs=require("fs");
 const fsp=fs.promises;
 const path=require("path");
 const {spawn}=require("child_process");
-let ffmpegPath="";try{ffmpegPath=require("ffmpeg-static")||""}catch(e){console.warn("ffmpeg-static is unavailable; video thumbnails will use fallback cards.")}
+// FFmpeg selection. The ffmpeg-static binaries (johnvansickle 6.x/7.x static
+// builds) SEGFAULT (signal SIGSEGV, no stderr) when demuxing MPEG-TS or
+// resolving a hostname -- i.e. on every live HLS input the replay recorder and
+// audio meter use. They are fine for local MP4 thumbnails. Prefer a system FFmpeg (installed on Railway through
+// RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg), then fall back to ffmpeg-static.
+let ffmpegStaticPath="";try{ffmpegStaticPath=require("ffmpeg-static")||""}catch(e){}
+function findSystemFfmpeg(){
+  const candidates=[process.env.FFMPEG_PATH,"/usr/bin/ffmpeg","/usr/local/bin/ffmpeg","/bin/ffmpeg"].filter(Boolean);
+  for(const dir of String(process.env.PATH||"").split(":"))if(dir)candidates.push(path.join(dir,"ffmpeg"));
+  for(const p of candidates){
+    try{if(p!==ffmpegStaticPath&&fs.statSync(p).isFile()){fs.accessSync(p,fs.constants.X_OK);return p}}catch{}
+  }
+  return "";
+}
+const systemFfmpegPath=findSystemFfmpeg();
+let ffmpegPath=systemFfmpegPath||ffmpegStaticPath;
+const ffmpegIsStatic=!systemFfmpegPath&&!!ffmpegStaticPath;
+if(!ffmpegPath)console.warn("FFmpeg is unavailable; video thumbnails will use fallback cards and live replays cannot be recorded.");
+else if(ffmpegIsStatic)console.error("FFmpeg: only the ffmpeg-static build is available ("+ffmpegPath+"). It crashes on live HLS input, so live replays will NOT be saved. Install system FFmpeg (Railway variable RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg).");
+else console.log("FFmpeg: "+ffmpegPath+" (system build)");
 let webpush=null;try{webpush=require("web-push")}catch(e){console.warn("web-push is unavailable; push notifications disabled.")}
 const {S3Client,PutObjectCommand,GetObjectCommand,DeleteObjectCommand,DeleteObjectsCommand,HeadObjectCommand,CreateMultipartUploadCommand,UploadPartCommand,CompleteMultipartUploadCommand,AbortMultipartUploadCommand,ListPartsCommand,PutBucketCorsCommand}=require("@aws-sdk/client-s3");
 const {Upload}=require("@aws-sdk/lib-storage");
@@ -868,6 +887,13 @@ async function initDb(){
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS idx_stream_recordings_stream ON stream_recordings(stream_id,created_at DESC);
+    ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS heartbeat_at timestamptz;
+    UPDATE stream_recordings sr SET status='failed',ended_at=COALESCE(sr.ended_at,now()),
+      error=CASE WHEN COALESCE(sr.error,'')='' THEN 'Duplicate recorder.' ELSE sr.error END
+      WHERE sr.status='recording' AND EXISTS(
+        SELECT 1 FROM stream_recordings o WHERE o.stream_id=sr.stream_id AND o.status='recording'
+          AND (o.created_at>sr.created_at OR (o.created_at=sr.created_at AND o.id>sr.id)));
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_stream_recordings_active ON stream_recordings(stream_id) WHERE status='recording';
     CREATE TABLE IF NOT EXISTS stream_viewers(
       id uuid PRIMARY KEY,
       stream_id uuid NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
@@ -1381,12 +1407,20 @@ function ensureStreamAudioMeter(row){
 
 const activeStreamRecordings=new Map();
 const streamRecordingStarts=new Map();
+// Back off after a recorder fails so a broken input cannot spawn hundreds of
+// FFmpeg processes (and hundreds of failed rows) per minute.
+const streamRecordingRetryAt=new Map();
+const streamRecordingFailures=new Map();
+const RECORDING_HEARTBEAT_MS=10000;
+const RECORDING_STALE_MS=45000;
+const RECORDING_MIN_BYTES=64*1024;
 const streamStatusRefreshes=new Map();
 const streamOfflineSince=new Map();
 const STREAM_OFFLINE_GRACE_MS=15000;
 
 async function startStreamRecording(row){
   if(!row?.id||activeStreamRecordings.has(row.id)||!row.record_enabled||!ffmpegPath||!s3Ready())return;
+  if(Date.now()<(streamRecordingRetryAt.get(row.id)||0))return;
   const inFlight=streamRecordingStarts.get(row.id);
   if(inFlight)return inFlight;
   const task=startStreamRecordingImpl(row);
@@ -1403,7 +1437,21 @@ async function startStreamRecordingImpl(row){
   const id=uid();
   const filename=safeName((row.name||"live-stream")+"-"+new Date().toISOString().replace(/[:.]/g,"-")+".mp4");
   const storageKey="recordings/"+row.id+"/"+id+"/"+filename;
-  await pool.query("INSERT INTO stream_recordings(id,stream_id,filename,storage_key,status,started_at) VALUES($1,$2,$3,$4,'recording',now())",[id,row.id,filename,storageKey]);
+
+  // Only one server instance may record a stream. Several services (and the
+  // old/new containers during a deploy) share this database, so the claim is
+  // made in Postgres: a recorder whose heartbeat stopped is released, then the
+  // partial unique index lets exactly one 'recording' row exist per stream.
+  await pool.query(
+    "UPDATE stream_recordings SET status='failed',ended_at=COALESCE(ended_at,now()),error=CASE WHEN COALESCE(error,'')='' THEN 'Recorder stopped sending heartbeats.' ELSE error END WHERE stream_id=$1 AND status='recording' AND COALESCE(heartbeat_at,started_at)<now()-($2::int*interval '1 millisecond')",
+    [row.id,RECORDING_STALE_MS]
+  );
+  try{
+    await pool.query("INSERT INTO stream_recordings(id,stream_id,filename,storage_key,status,started_at,heartbeat_at) VALUES($1,$2,$3,$4,'recording',now(),now())",[id,row.id,filename,storageKey]);
+  }catch(e){
+    if(e?.code==="23505")return; // another instance is already recording this stream
+    throw e;
+  }
 
   const proc=spawn(ffmpegPath,[
     "-hide_banner","-loglevel","warning",
@@ -1431,9 +1479,15 @@ async function startStreamRecordingImpl(row){
     leavePartsOnError:false
   }).done();
 
+  const heartbeat=setInterval(()=>{
+    pool.query("UPDATE stream_recordings SET heartbeat_at=now(),size_bytes=$2 WHERE id=$1 AND status='recording'",[id,bytes])
+      .catch(e=>console.warn("Recording heartbeat failed:",e?.message||e));
+  },RECORDING_HEARTBEAT_MS);
+
   let finalizePromise=null;
   const finalize=(status,errorText)=>{
     if(finalizePromise)return finalizePromise;
+    clearInterval(heartbeat);
     finalizePromise=(async()=>{
       try{await uploadDone}catch(uploadErr){
         status="failed";
@@ -1447,6 +1501,15 @@ async function startStreamRecordingImpl(row){
           "UPDATE stream_recordings SET status=$2,ended_at=COALESCE(ended_at,now()),size_bytes=$3,error=$4 WHERE id=$1",
           [id,status,bytes,String(errorText||"")]
         );
+        if(status==="completed"){
+          streamRecordingFailures.delete(row.id);
+          streamRecordingRetryAt.delete(row.id);
+          console.log("Stream replay saved:",JSON.stringify({streamId:row.id,recordingId:id,bytes}));
+        }else{
+          const n=(streamRecordingFailures.get(row.id)||0)+1;
+          streamRecordingFailures.set(row.id,n);
+          streamRecordingRetryAt.set(row.id,Date.now()+Math.min(120000,5000*2**Math.min(n-1,5)));
+        }
       }catch(dbErr){
         console.error("Recording database finalization failed:",dbErr?.message||dbErr);
       }finally{
@@ -1467,10 +1530,12 @@ async function startStreamRecordingImpl(row){
 
   proc.on("close",async(code,signal)=>{
     try{if(!proc.stdout.readableEnded)pass.end()}catch{}
-    // FFmpeg commonly exits non-zero when it is deliberately interrupted to
-    // close a live MP4. Preserve valid bytes from an intentional stop.
+    // FFmpeg commonly exits non-zero when it is deliberately interrupted, or
+    // when the live playlist disappears because the broadcaster stopped. The
+    // output is fragmented MP4, so everything written so far is playable:
+    // keep any real recording instead of throwing the broadcast away.
     const normalStop=active.stopRequested;
-    const status=bytes>0&&(code===0||normalStop)?"completed":"failed";
+    const status=(bytes>=RECORDING_MIN_BYTES||(bytes>0&&(code===0||normalStop)))?"completed":"failed";
     const failure=status==="failed"
       ?(stderr||((code===null?"FFmpeg was terminated by signal "+String(signal||"unknown"):"FFmpeg exited with code "+String(code))+"; bytes captured: "+bytes))
       :"";
@@ -3233,15 +3298,25 @@ app.get("/api/public/stream/:token/replay",async(req,res)=>{
     const r=await publicStreamByToken(req.params.token);
     if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
     const stream=r.rows[0];
-    const q=await pool.query("SELECT id,filename,status,size_bytes,started_at,ended_at,created_at,storage_key,error FROM stream_recordings WHERE stream_id=$1 ORDER BY created_at DESC LIMIT 1",[stream.id]);
+    // Prefer an in-progress recording (newest broadcast still being saved),
+    // then the newest saved replay. A failed attempt (e.g. a quick reconnect)
+    // must not hide a replay that was saved successfully. Only look at the
+    // latest broadcast (recordings within 12h of the newest attempt) so an old
+    // event's replay is never shown for a newer broadcast that failed.
+    const q=await pool.query(`SELECT id,filename,status,size_bytes,started_at,ended_at,created_at,storage_key,error,
+        (status='recording' AND COALESCE(heartbeat_at,started_at)>now()-interval '90 seconds') AS recorder_alive
+      FROM stream_recordings WHERE stream_id=$1
+        AND created_at>=(SELECT max(created_at)-interval '12 hours' FROM stream_recordings WHERE stream_id=$1)
+      ORDER BY CASE WHEN status='recording' AND COALESCE(heartbeat_at,started_at)>now()-interval '90 seconds' THEN 0 WHEN status='completed' AND size_bytes>0 THEN 1 ELSE 2 END, created_at DESC
+      LIMIT 1`,[stream.id]);
     const recording=q.rows[0];
 
     if(!s3Ready())return res.json({available:false,status:"storage_unavailable"});
     if(!recording)return res.json({available:false,status:"none"});
-    if(recording.status==="recording"){
+    if(recording.status==="recording"&&recording.recorder_alive){
       return res.json({available:false,status:"recording",recording:{id:recording.id,filename:recording.filename,started_at:recording.started_at}});
     }
-    if(recording.status==="failed"){
+    if(recording.status==="failed"||recording.status==="recording"){
       return res.json({available:false,status:"failed",message:"Replay could not be saved for this broadcast."});
     }
     if(recording.status!=="completed"||Number(recording.size_bytes)<=0){
