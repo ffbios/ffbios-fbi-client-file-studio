@@ -1309,6 +1309,15 @@ function streamInputHlsUrl(row){
 // to the media playlist, so MediaMTX answers 401 on main_stream.m3u8. With
 // cookieCheck=1 the session is written into every playlist/segment URL instead
 // (the same mechanism the viewer HLS proxy relies on).
+// MediaMTX also binds each HLS session to the reader's IP address. Railway's
+// public edge spreads requests over many source IPs, so through the public
+// URL every request after the first is rejected with 401. Read over the
+// private network instead -- the same internal address the viewer proxy uses.
+function recorderHlsBase(row){
+  const internal=String(process.env.STREAM_HLS_INTERNAL||"http://fbi-live-ingest:8888").replace(/\/+$/,"");
+  const p=String(row?.stream_path||"").replace(/^\/+/,"");
+  return p?internal+"/"+p:streamInputHlsUrl(row);
+}
 function recorderHlsInput(base){
   return String(base||"").replace(/\/+$/,"")+"/index.m3u8?cookieCheck=1";
 }
@@ -1372,7 +1381,7 @@ function ensureStreamAudioMeter(row){
   // Use the same HLS input that the existing recording engine already
   // uses successfully. This keeps metering on the proven live media path and
   // avoids depending on a separate RTMP connection.
-  const hlsBase=streamInputHlsUrl(row);
+  const hlsBase=recorderHlsBase(row);
   const input=hlsBase&&hlsBase.startsWith("http")?recorderHlsInput(hlsBase):streamInputRtmpUrl(row);
   if(!input)return null;
 
@@ -1438,7 +1447,7 @@ async function startStreamRecording(row){
 }
 async function startStreamRecordingImpl(row){
   if(activeStreamRecordings.has(row.id)||!row.record_enabled||!ffmpegPath||!s3Ready())return;
-  const inputBase=streamInputHlsUrl(row);
+  const inputBase=recorderHlsBase(row);
   const input=inputBase&&inputBase.startsWith("http")?recorderHlsInput(inputBase):streamInputRtmpUrl(row);
   if(!input)return;
 
