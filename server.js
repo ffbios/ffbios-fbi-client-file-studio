@@ -3389,6 +3389,14 @@ app.get("/api/public/stream/:token/replay/file",async(req,res)=>{
     if(!recording)return res.status(404).json({error:"Replay recording was not found."});
     if(recording.status!=="completed")return res.status(409).json({error:"Replay recording is still being finalized."});
     if(!s3Ready())return res.status(503).json({error:"Replay storage is not ready."});
+    // Send the player straight to storage with a short-lived signed link.
+    // This avoids proxying video bytes through this server (whose own
+    // connection to the bucket can stall). ?proxy=1 keeps the old behaviour.
+    if(String(req.query.proxy||"")!=="1"){
+      const signed=await getSignedUrl(replayS3,new GetObjectCommand({Bucket:bucket(),Key:recording.storage_key,ResponseContentType:"video/mp4",ResponseContentDisposition:"inline"}),{expiresIn:6*3600});
+      res.setHeader("Cache-Control","no-store");
+      return res.redirect(302,signed);
+    }
     let total=Number(recording.size_bytes||0);
     const t0=Date.now();
     try{
@@ -3769,7 +3777,7 @@ async function loadReplay(){
     // server proxy only if the direct link cannot be played.
     video.onerror=null;
     if(d.play_url){
-      video.onerror=function(){video.onerror=null;video.src=proxySrc;video.load();video.play().catch(()=>{})};
+      video.onerror=function(){video.onerror=null;video.src=proxySrc+(proxySrc.includes("?")?"&":"?")+"proxy=1";video.load();video.play().catch(()=>{})};
       video.src=d.play_url;
     }else{
       video.src=proxySrc;
