@@ -3324,7 +3324,7 @@ app.get("/api/public/stream/:token/replay",async(req,res)=>{
         (status='recording' AND COALESCE(heartbeat_at,started_at)>now()-interval '90 seconds') AS recorder_alive
       FROM stream_recordings WHERE stream_id=$1
         AND created_at>=(SELECT max(created_at)-interval '12 hours' FROM stream_recordings WHERE stream_id=$1)
-      ORDER BY CASE WHEN status='recording' AND COALESCE(heartbeat_at,started_at)>now()-interval '90 seconds' THEN 0 WHEN status='completed' AND size_bytes>0 THEN 1 ELSE 2 END, created_at DESC
+      ORDER BY CASE WHEN status='recording' AND COALESCE(heartbeat_at,started_at)>now()-interval '90 seconds' THEN 0 WHEN status='completed' AND size_bytes>0 THEN 1 ELSE 2 END, CASE WHEN status='completed' THEN size_bytes ELSE 0 END DESC, created_at DESC
       LIMIT 1`,[stream.id]);
     const recording=q.rows[0];
 
