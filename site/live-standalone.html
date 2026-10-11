@@ -14,6 +14,8 @@
 <link rel="manifest" href="/manifest.webmanifest?live=v7">
 <link rel="icon" href="/live-pwa-icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="/official-logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{color-scheme:dark;--bg:#07080a;--panel:#0f1217;--panel2:#141820;--line:#1c212a;--line2:#2a303b;--text:#eef0f5;--muted:#8b93a1;--dim:#5f6775;--gold:#e8c85a;--gold2:#c9a53a;--green:#3ddc84;--red:#ff5d6c;--amber:#f5b942;--r:14px;--mh:176px}
 *{box-sizing:border-box}
@@ -163,6 +165,41 @@ button{cursor:pointer}
 .smallbtn.primary{background:linear-gradient(180deg,#f1da7e,#d8b744);color:#17150a;border-color:#d8b744}
 .footer{margin-top:14px;color:var(--dim);font-size:12px;text-align:center}
 
+/* ---------- sign-in: program monitor on standby ---------- */
+.lg{--slate:#14181d;--glass:#0a0d10;--bezel:#262c34;--bezel2:#323943;--paper:#eee8db;--quiet:#8c939c;--signal:#e8c85a;--tally:#e8402f;--go:#36d278;
+  min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:28px 18px;background:radial-gradient(120% 80% at 50% 0%,#1b2027 0%,var(--slate) 60%);font-family:"Instrument Sans",Inter,system-ui,sans-serif;color:var(--paper)}
+.lg-wrap{width:min(920px,100%)}
+.lg-monitor{position:relative;border-radius:18px;padding:12px;background:linear-gradient(180deg,var(--bezel2),var(--bezel));box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 30px 80px -30px rgba(0,0,0,.8)}
+.lg-screen{position:relative;border-radius:9px;background:var(--glass);aspect-ratio:16/9;overflow:hidden;display:grid;grid-template-rows:auto 1fr auto}
+.lg-screen::after{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(180deg,rgba(255,255,255,.018) 0 1px,transparent 1px 3px)}
+.lg-top{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;font-size:13px;color:var(--quiet)}
+.lg-tally{display:inline-flex;align-items:center;gap:10px;color:var(--paper);font-weight:600}
+.lg-lamp{width:12px;height:12px;border-radius:50%;background:var(--tally);box-shadow:0 0 0 3px rgba(232,64,47,.18),0 0 18px rgba(232,64,47,.55);animation:lgPulse 2.4s ease-in-out infinite}
+.lg.is-on .lg-lamp{background:var(--go);box-shadow:0 0 0 3px rgba(54,210,120,.2),0 0 22px rgba(54,210,120,.7);animation:none}
+@keyframes lgPulse{50%{opacity:.45}}
+.lg-brand{display:flex;align-items:center;gap:10px}.lg-brand img{height:22px;width:auto;opacity:.9}
+.lg-center{display:grid;place-content:center;text-align:center;gap:6px;padding:0 16px}
+.lg-tc{font-family:"Big Shoulders Display",Impact,sans-serif;font-weight:800;font-size:clamp(56px,11vw,128px);line-height:.9;letter-spacing:.01em;font-variant-numeric:tabular-nums;color:var(--paper)}
+.lg-tc .ff{color:var(--signal)}
+.lg-tc-note{font-size:13px;color:var(--quiet)}
+.lg-strap{position:relative;z-index:1;display:grid;grid-template-columns:auto 1fr;margin:0 20px 20px;background:rgba(20,24,29,.92);border-radius:8px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,.05) inset}
+.lg-strap::before{content:"";width:6px;background:var(--signal)}
+.lg.is-on .lg-strap::before{background:var(--go);transition:background .3s}
+.lg-form{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) auto;gap:10px;align-items:end;padding:14px 16px 16px}
+.lg-form h1{grid-column:1/-1;margin:0 0 2px;font-family:"Big Shoulders Display",Impact,sans-serif;font-weight:800;font-size:26px;letter-spacing:.01em;line-height:1}
+.lg-field{display:grid;gap:5px}
+.lg-field label{font-size:12px;color:var(--quiet)}
+.lg-field input{width:100%;height:42px;border-radius:7px;border:1px solid #2d343e;background:#0c0f13;color:var(--paper);padding:0 12px;font:inherit;font-size:14px;outline:none;transition:border-color .15s}
+.lg-field input:focus{border-color:var(--signal)}
+.lg-go{height:42px;padding:0 20px;border:0;border-radius:7px;background:var(--signal);color:#1a1606;font:600 14px "Instrument Sans",system-ui,sans-serif;cursor:pointer;white-space:nowrap}
+.lg-go:hover{filter:brightness(1.06)}.lg-go:disabled{opacity:.6;cursor:wait}
+.lg.is-on .lg-go{background:var(--go);color:#06210f}
+.lg-field input:focus-visible,.lg-go:focus-visible,.lg-link:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+.lg-below{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;padding:16px 6px 0;font-size:13px;color:var(--quiet)}
+.lg-link{background:none;border:0;padding:0;color:var(--paper);font:inherit;text-decoration:underline;text-underline-offset:3px;text-decoration-color:#4a525d;cursor:pointer}
+.lg-msg{min-height:18px;text-align:right}.lg-msg.err{color:#ff8a7c}.lg-msg.note{color:var(--signal)}
+@media (max-width:720px){.lg-screen{aspect-ratio:auto;min-height:520px}.lg-form{grid-template-columns:1fr}.lg-go{width:100%}.lg-top{padding:14px}.lg-strap{margin:0 12px 12px}.lg-below{flex-direction:column}.lg-msg{text-align:left}}
+@media (prefers-reduced-motion:reduce){.lg-lamp{animation:none}}
 /* ---------- login ---------- */
 .login-page{min-height:100vh;display:grid;place-items:center;padding:24px;position:relative;overflow:hidden;background:radial-gradient(650px 420px at 50% 40%,rgba(232,200,90,.10),transparent 68%),var(--bg)}
 .login-glow{position:absolute;width:680px;height:680px;border-radius:50%;background:radial-gradient(circle,rgba(232,200,90,.08),transparent 66%);pointer-events:none}
@@ -257,7 +294,37 @@ button{cursor:pointer}
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
   async function api(url,options){const r=await fetch(url,Object.assign({credentials:'same-origin'},options||{}));let d={};try{d=await r.json()}catch{}if(r.status===401&&!String(url).startsWith('/api/auth/')){stopPolling();login('login','Your session has ended. Please sign in again.');throw new Error('Sign in required')}if(!r.ok)throw new Error(d.error||'Request failed');return d}
   function stopPolling(){if(refreshTimer){clearInterval(refreshTimer);refreshTimer=null}if(typeof viewerCountTimer!=='undefined'&&viewerCountTimer){clearInterval(viewerCountTimer);viewerCountTimer=0}}
+  let lgRaf=0;
+  function loginScreen(extra){
+    if(lgRaf)cancelAnimationFrame(lgRaf);
+    root.innerHTML='<div class="lg" id="lg"><div class="lg-wrap"><div class="lg-monitor"><div class="lg-screen">'+
+      '<div class="lg-top"><span class="lg-tally"><span class="lg-lamp" aria-hidden="true"></span><span id="lgState">Standby</span></span><span class="lg-brand"><img src="/official-logo.png" alt="FBI">Live control room</span></div>'+
+      '<div class="lg-center"><div class="lg-tc" id="lgTc" aria-hidden="true">00:00:00<span class="ff">:00</span></div><div class="lg-tc-note">Accra time, 25 fps</div></div>'+
+      '<form class="lg-strap" id="lgForm" novalidate><div class="lg-form"><h1>Sign in to go live</h1>'+
+      '<div class="lg-field"><label for="email">Admin email</label><input id="email" type="email" autocomplete="username" required></div>'+
+      '<div class="lg-field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required></div>'+
+      '<button class="lg-go" id="loginBtn" type="submit">Sign in</button></div></form>'+
+      '</div></div><div class="lg-below"><button class="lg-link" id="forgotBtn" type="button">Forgot your password?</button><div class="lg-msg'+(extra?' note':'')+'" id="authError" role="status" aria-live="polite">'+esc(extra||'')+'</div></div></div></div>';
+    const tc=document.getElementById('lgTc'),pad=n=>String(n).padStart(2,'0');
+    const tick=()=>{if(!document.body.contains(tc))return;const d=new Date();tc.innerHTML=pad(d.getUTCHours())+':'+pad(d.getUTCMinutes())+':'+pad(d.getUTCSeconds())+'<span class="ff">:'+pad(Math.floor(d.getUTCMilliseconds()/40))+'</span>';lgRaf=requestAnimationFrame(tick)};tick();
+    const msg=(m,kind)=>{const e=document.getElementById('authError');if(!e)return;e.textContent=m||'';e.className='lg-msg'+(m?' '+(kind||'err'):'')};
+    const btn=document.getElementById('loginBtn'),email=document.getElementById('email'),pw=document.getElementById('password');
+    email.focus();
+    document.getElementById('lgForm').onsubmit=async e=>{
+      e.preventDefault();msg('');
+      if(!email.value.trim()||!pw.value){msg('Enter your admin email and password.');return}
+      btn.disabled=true;btn.textContent='Checking…';
+      try{
+        await api('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email.value.trim(),password:pw.value})});
+        document.getElementById('lg').classList.add('is-on');document.getElementById('lgState').textContent='On air';btn.textContent='Signed in';
+        const wait=matchMedia('(prefers-reduced-motion: reduce)').matches?0:650;
+        setTimeout(()=>{if(lgRaf)cancelAnimationFrame(lgRaf);boot()},wait);
+      }catch(err){btn.disabled=false;btn.textContent='Sign in';pw.select();msg(err.message==='Invalid email or password'?'That email and password don’t match the admin account.':err.message)}
+    };
+    document.getElementById('forgotBtn').onclick=()=>msg('Reset it in Railway: change ADMIN_PASSWORD on the fbi-live-standalone service, then sign in with the new password.','note');
+  }
   function authCard(mode,extra){
+    if(mode!=='setup'&&mode!=='forgot'){loginScreen(extra);return}
     const setup=mode==='setup',forgot=mode==='forgot';
     const title=setup?'Create Live Admin Account':forgot?'Reset Admin Password':'FBI Live Broadcast Studio';
     const subtitle=setup?'Set up the administrator account for this standalone control room.':forgot?'Recover access using your security question.':'Standalone professional live production control room';
