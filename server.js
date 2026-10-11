@@ -919,6 +919,9 @@ async function initDb(){
     ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS optimize_error text;
     ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS thumb_key text;
     ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS duration_seconds numeric;
+    -- Joined replays: pieces of one broadcast point at the joined recording.
+    ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS merged_into uuid;
+    ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS is_merged boolean NOT NULL DEFAULT false;
     CREATE TABLE IF NOT EXISTS stream_viewers(
       id uuid PRIMARY KEY,
       stream_id uuid NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
@@ -1489,7 +1492,10 @@ async function drainRecordingOptimizeQueue(){
   try{
     while(recordingOptimizeQueue.length){
       const job=recordingOptimizeQueue.shift();
-      try{await optimizeRecording(job.rec,job.localPath)}catch(e){console.error("Replay optimize crashed:",e?.message||e)}
+      try{
+        if(job.merge)await mergeBroadcastSession(job.merge.stream_id,job.merge.session_id);
+        else await optimizeRecording(job.rec,job.localPath);
+      }catch(e){console.error("Replay job crashed:",e?.message||e)}
     }
   }finally{recordingOptimizeRunning=false}
 }
@@ -1527,6 +1533,8 @@ async function optimizeRecording(rec,localPath){
     await new Upload({client:s3,params:{Bucket:bucket(),Key:rec.storage_key,Body:fs.createReadStream(out),ContentType:"video/mp4",CacheControl:"private, max-age=31536000"},queueSize:2,partSize:64*1024*1024,leavePartsOnError:false}).done();
     await pool.query("UPDATE stream_recordings SET optimize_state='done',optimize_error=NULL,thumb_key=COALESCE($2,thumb_key),duration_seconds=$3,size_bytes=$4 WHERE id=$1",[rec.id,thumbKey,duration||null,outStat.size]);
     console.log("Replay optimized:",JSON.stringify({recordingId:rec.id,seconds:Math.round(duration),bytes:outStat.size,thumbnail:!!thumbKey,ms:Date.now()-t0,source:localPath?"local":"storage"}));
+    const sess=await pool.query("SELECT stream_id,session_id FROM stream_recordings WHERE id=$1",[rec.id]).catch(()=>({rows:[]}));
+    if(sess.rows[0]?.session_id)mergeTimer(sess.rows[0].stream_id,sess.rows[0].session_id);
   }catch(e){
     console.error("Replay optimize failed:",JSON.stringify({recordingId:rec.id,error:String(e?.message||e).slice(0,500)}));
     await pool.query("UPDATE stream_recordings SET optimize_state='failed',optimize_error=$2 WHERE id=$1",[rec.id,String(e?.message||e).slice(0,1000)]).catch(()=>{});
@@ -1546,8 +1554,81 @@ async function backfillRecordingOptimize(){
           OR (optimize_state='failed' AND optimize_attempts<3 AND optimize_started_at<now()-interval '30 minutes')
           OR (optimize_state='working' AND optimize_started_at<now()-interval '2 hours'))
       ORDER BY created_at DESC LIMIT 1`,[RECORDING_OPTIMIZE_MIN_BYTES]);
-    if(r.rowCount)queueRecordingOptimize(r.rows[0],null);
+    if(r.rowCount)return queueRecordingOptimize(r.rows[0],null);
+    // A join interrupted by a restart: release its pieces so it can run again.
+    await pool.query(`WITH stale AS (DELETE FROM stream_recordings WHERE status='merging' AND created_at<now()-interval '2 hours' RETURNING id)
+      UPDATE stream_recordings SET merged_into=NULL WHERE merged_into IN (SELECT id FROM stale)`);
+    const m=await pool.query(`SELECT sr.stream_id,sr.session_id FROM stream_recordings sr JOIN streams s ON s.id=sr.stream_id
+      WHERE sr.status='completed' AND sr.session_id IS NOT NULL AND sr.merged_into IS NULL AND NOT sr.is_merged AND sr.size_bytes>=$1
+        AND NOT (s.session_id=sr.session_id AND (s.status='live' OR s.ended_at>now()-interval '10 minutes'))
+        AND NOT EXISTS(SELECT 1 FROM stream_recordings x WHERE x.session_id=sr.session_id AND (x.status IN ('recording','merging') OR (x.is_merged AND x.status='failed')))
+      GROUP BY sr.stream_id,sr.session_id HAVING count(*)>=2 AND bool_and(sr.optimize_state='done')
+      ORDER BY max(sr.ended_at) DESC LIMIT 1`,[RECORDING_OPTIMIZE_MIN_BYTES]);
+    if(m.rowCount)recordingOptimizeQueue.push({merge:m.rows[0]}),drainRecordingOptimizeQueue();
   }catch(e){console.warn("Replay backfill check failed:",e?.message||e)}
+}
+function mergeTimer(streamId,sessionId){
+  // Wait past the 10-minute reconnect window before joining a broadcast.
+  const t=setTimeout(()=>{recordingOptimizeQueue.push({merge:{stream_id:streamId,session_id:sessionId}});if(!recordingOptimizeRunning)drainRecordingOptimizeQueue()},11*60*1000);
+  if(t.unref)t.unref();
+}
+// Join all pieces of one finished broadcast (a stream that dropped and
+// reconnected) into a single fast-start replay. Pieces are kept in storage so
+// existing links still work; they are hidden from Past broadcasts once the
+// joined replay is ready. Lossless (-c copy); if the pieces cannot be joined
+// (e.g. the encoder changed resolution mid-broadcast) they stay as they are.
+async function mergeBroadcastSession(streamId,sessionId){
+  const live=await pool.query("SELECT 1 FROM streams WHERE id=$1 AND session_id=$2 AND (status='live' OR ended_at>now()-interval '10 minutes')",[streamId,sessionId]);
+  if(live.rowCount)return;
+  const pieces=(await pool.query(`SELECT id,storage_key,size_bytes,started_at,ended_at,thumb_key,optimize_state,filename FROM stream_recordings
+    WHERE stream_id=$1 AND session_id=$2 AND status='completed' AND merged_into IS NULL AND NOT is_merged AND size_bytes>=$3
+    ORDER BY started_at ASC`,[streamId,sessionId,RECORDING_OPTIMIZE_MIN_BYTES])).rows;
+  if(pieces.length<2||pieces.some(p=>p.optimize_state!=="done"))return;
+  const busy=await pool.query("SELECT 1 FROM stream_recordings WHERE stream_id=$1 AND session_id=$2 AND (status IN ('recording','merging') OR (is_merged AND status='failed'))",[streamId,sessionId]);
+  if(busy.rowCount)return;
+  const id=uid();
+  const filename=safeName(String(pieces[0].filename||"replay.mp4").replace(/\.mp4$/i,"")+"-full.mp4");
+  const storageKey="recordings/"+streamId+"/"+id+"/"+filename;
+  const best=pieces.reduce((a,b)=>Number(b.size_bytes)>Number(a.size_bytes)?b:a);
+  // Claim: create the joined row, then attach every piece only if none was taken.
+  const client=await pool.connect();
+  try{
+    await client.query("BEGIN");
+    await client.query(`INSERT INTO stream_recordings(id,stream_id,filename,storage_key,status,started_at,ended_at,session_id,is_merged,optimize_state,thumb_key)
+      VALUES($1,$2,$3,$4,'merging',$5,$6,$7,true,'working',$8)`,[id,streamId,filename,storageKey,pieces[0].started_at,pieces[pieces.length-1].ended_at,sessionId,best.thumb_key||null]);
+    const upd=await client.query("UPDATE stream_recordings SET merged_into=$1 WHERE id=ANY($2::uuid[]) AND merged_into IS NULL",[id,pieces.map(p=>p.id)]);
+    if(upd.rowCount!==pieces.length){await client.query("ROLLBACK");return}
+    await client.query("COMMIT");
+  }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e}finally{client.release()}
+  const work=path.join(RECORDING_TMP_DIR,"merge-"+id),t0=Date.now();
+  try{
+    await fsp.mkdir(work,{recursive:true});
+    const list=[];
+    for(let i=0;i<pieces.length;i++){
+      const f=path.join(work,"part"+i+".mp4");
+      const get=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:pieces[i].storage_key}),{abortSignal:AbortSignal.timeout(20*60*1000)});
+      await require("stream/promises").pipeline(get.Body,fs.createWriteStream(f));
+      list.push("file '"+f.replace(/'/g,"'\\''")+"'");
+    }
+    await fsp.writeFile(path.join(work,"list.txt"),list.join("\n")+"\n");
+    const out=path.join(work,"full.mp4");
+    const r=await runFfmpeg(["-hide_banner","-loglevel","error","-y","-f","concat","-safe","0","-i",path.join(work,"list.txt"),"-map","0","-c","copy","-movflags","+faststart","-f","mp4",out]);
+    const st=await fsp.stat(out).catch(()=>null);
+    if(r.code!==0||!st)throw new Error("Join failed: "+String(r.stderr||"").slice(-500));
+    const duration=parseFfmpegDuration((await runFfmpeg(["-hide_banner","-i",out],60000)).stderr);
+    const sum=pieces.reduce((a,p)=>a+Math.max(0,(new Date(p.ended_at)-new Date(p.started_at))/1000),0);
+    if(!(duration>0)||duration<sum*0.6)throw new Error("Joined replay too short ("+Math.round(duration)+"s of ~"+Math.round(sum)+"s)");
+    await new Upload({client:s3,params:{Bucket:bucket(),Key:storageKey,Body:fs.createReadStream(out),ContentType:"video/mp4",CacheControl:"private, max-age=31536000"},queueSize:2,partSize:64*1024*1024,leavePartsOnError:false}).done();
+    await pool.query("UPDATE stream_recordings SET status='completed',optimize_state='done',size_bytes=$2,duration_seconds=$3 WHERE id=$1",[id,st.size,duration]);
+    console.log("Broadcast joined:",JSON.stringify({recordingId:id,streamId,pieces:pieces.length,seconds:Math.round(duration),bytes:st.size,ms:Date.now()-t0}));
+  }catch(e){
+    console.error("Broadcast join failed:",JSON.stringify({recordingId:id,streamId,pieces:pieces.length,error:String(e?.message||e).slice(0,500)}));
+    await pool.query("UPDATE stream_recordings SET merged_into=NULL WHERE merged_into=$1",[id]).catch(()=>{});
+    // Keep the failed row (status 'failed') so this broadcast is not retried endlessly.
+    await pool.query("UPDATE stream_recordings SET status='failed',optimize_state='failed',error=$2 WHERE id=$1",[id,String(e?.message||e).slice(0,1000)]).catch(()=>{});
+  }finally{
+    await fsp.rm(work,{recursive:true,force:true}).catch(()=>{});
+  }
 }
 setTimeout(()=>{backfillRecordingOptimize();const t=setInterval(backfillRecordingOptimize,2*60*1000);if(t.unref)t.unref()},90*1000).unref?.();
 const streamStatusRefreshes=new Map();
@@ -3464,15 +3545,29 @@ app.use("/api/public/stream/:token/hls",async(req,res)=>{
 // session are grouped when one starts within 10 minutes of the previous end.
 // The longest piece is the one that plays; tiny reconnect fragments are hidden.
 async function streamBroadcastGroups(streamId){
-  const q=await pool.query(`SELECT id,size_bytes,started_at,ended_at,session_id,thumb_key,duration_seconds FROM stream_recordings
-    WHERE stream_id=$1 AND status='completed' AND size_bytes>=262144
-    ORDER BY started_at ASC LIMIT 2000`,[streamId]);
+  // Pieces already joined into a complete replay stay addressable (old links,
+  // comments) but are hidden: the joined replay represents the broadcast.
+  const q=await pool.query(`SELECT sr.id,sr.size_bytes,sr.started_at,sr.ended_at,sr.session_id,sr.thumb_key,sr.duration_seconds,sr.is_merged,
+      (sr.merged_into IS NOT NULL AND EXISTS(SELECT 1 FROM stream_recordings m WHERE m.id=sr.merged_into AND m.status='completed')) AS hidden
+    FROM stream_recordings sr
+    WHERE sr.stream_id=$1 AND sr.status='completed' AND sr.size_bytes>=262144
+    ORDER BY sr.started_at ASC, sr.is_merged ASC LIMIT 2000`,[streamId]);
   const GAP=10*60*1000,groups=[];
   for(const row of q.rows){
     const start=new Date(row.started_at).getTime(),end=new Date(row.ended_at||row.started_at).getTime();
     const secs=Number(row.duration_seconds)>0?Number(row.duration_seconds):Math.max(0,(end-start)/1000);
     const g=groups[groups.length-1];
     const same=g&&(row.session_id?g.session_id===row.session_id:(!g.session_id&&start-g.end<=GAP));
+    if(row.hidden){
+      if(same)g.ids.push(row.id);
+      else groups.push({recording_id:row.id,session_id:row.session_id||null,best_size:0,start,end,seconds:0,parts:0,ids:[row.id],thumb_key:row.thumb_key||null});
+      continue;
+    }
+    if(same&&row.is_merged){
+      // The joined replay replaces the pieces' playback and duration.
+      g.recording_id=row.id;g.best_size=Infinity;g.seconds=secs;g.parts=1;g.end=Math.max(g.end,end);g.ids.push(row.id);g.thumb_key=row.thumb_key||g.thumb_key;
+      continue;
+    }
     if(same){
       g.end=Math.max(g.end,end);g.seconds+=secs;g.parts++;g.ids.push(row.id);
       if(Number(row.size_bytes)>g.best_size){g.best_size=Number(row.size_bytes);g.recording_id=row.id;g.thumb_key=row.thumb_key||g.thumb_key}
