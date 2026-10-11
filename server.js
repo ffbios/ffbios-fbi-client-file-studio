@@ -455,20 +455,34 @@ async function userPasswordMatches(password,stored){
     return actual.length===derived.length&&crypto.timingSafeEqual(actual,derived);
   }catch{return false}
 }
+// Team workspace (Studio plan): members of an owner's team can open, preview,
+// download and upload to every project the owner has. Uploads count against
+// the owner's storage. Access lapses automatically if the owner's Studio plan
+// is no longer active. $2 must be the requesting user's id.
+const TEAM_PLAN_IDS=["studio"];
+const TEAM_SEAT_LIMIT=Math.max(1,Number(process.env.TEAM_SEAT_LIMIT||3));
+const TEAM_ACCESS_P2="EXISTS(SELECT 1 FROM team_members tm JOIN creator_subscriptions tcs ON tcs.user_id=tm.owner_id WHERE tm.owner_id=p.owner_id AND tm.member_id=$2 AND tcs.plan_id IN ('"+TEAM_PLAN_IDS.join("','")+"') AND tcs.status IN ('active','trialing') AND tcs.current_period_end>now())";
+function teamPlanActive(sub){
+  return !!sub&&TEAM_PLAN_IDS.includes(String(sub.plan_id))&&["active","trialing"].includes(String(sub.status))&&new Date(sub.current_period_end).getTime()>Date.now();
+}
+async function portalProjectWritable(userId,projectId){
+  const r=await pool.query("SELECT p.* FROM projects p WHERE p.id=$1 AND (p.owner_id=$2 OR "+TEAM_ACCESS_P2+")",[projectId,userId]);
+  return r.rows[0]||null;
+}
 async function portalProjectOwned(userId,projectId){
   const r=await pool.query("SELECT * FROM projects WHERE id=$1 AND owner_id=$2",[projectId,userId]);
   return r.rows[0]||null;
 }
 async function portalProjectAccessible(userId,projectId){
   const r=await pool.query(
-    "SELECT p.* FROM projects p LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE p.id=$1 AND (p.owner_id=$2 OR pc.user_id=$2)",
+    "SELECT p.* FROM projects p LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE p.id=$1 AND (p.owner_id=$2 OR pc.user_id=$2 OR "+TEAM_ACCESS_P2+")",
     [projectId,userId]
   );
   return r.rows[0]||null;
 }
 async function portalFileAccessible(userId,fileId){
   const r=await pool.query(
-    "SELECT f.*,p.name project_name,p.client_name,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND (p.owner_id=$2 OR pc.user_id=$2)",
+    "SELECT f.*,p.name project_name,p.client_name,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND (p.owner_id=$2 OR pc.user_id=$2 OR "+TEAM_ACCESS_P2+")",
     [fileId,userId]
   );
   return r.rows[0]||null;
@@ -866,6 +880,16 @@ async function initDb(){
     );
     CREATE INDEX IF NOT EXISTS idx_project_collaborators_user ON project_collaborators(user_id,created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_project_collaborators_project ON project_collaborators(project_id,created_at DESC);
+    CREATE TABLE IF NOT EXISTS team_members(
+      id uuid PRIMARY KEY,
+      owner_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      member_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role text NOT NULL DEFAULT 'member',
+      invited_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE(owner_id,member_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_team_members_member ON team_members(member_id,created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_upload_sessions_project ON upload_sessions(project_id);
     ALTER TABLE upload_sessions ADD COLUMN IF NOT EXISTS content_fingerprint text;
     ALTER TABLE upload_sessions ADD COLUMN IF NOT EXISTS upload_protocol_version integer;
@@ -2262,7 +2286,7 @@ app.post("/api/portal/projects",portalUser,async(req,res)=>{
  }catch(e){console.error(e);res.status(500).json({error:"Could not create project."})}
 });
 app.get("/api/portal/projects/:id",portalUser,async(req,res)=>{
- try{const p=await portalProjectAccessible(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const f=await pool.query("SELECT * FROM files WHERE project_id=$1 AND trashed_at IS NULL ORDER BY created_at DESC",[p.id]);res.json({project:p,files:f.rows,read_only:p.owner_id!==req.portalUser.id});}
+ try{const p=await portalProjectAccessible(req.portalUser.id,req.params.id);if(!p)return res.status(404).json({error:"Project not found."});const f=await pool.query("SELECT * FROM files WHERE project_id=$1 AND trashed_at IS NULL ORDER BY created_at DESC",[p.id]);const isOwner=p.owner_id===req.portalUser.id;let teamAccess=false,teamOwner=null;if(!isOwner){teamAccess=!!(await portalProjectWritable(req.portalUser.id,p.id));if(teamAccess)teamOwner=(await pool.query("SELECT full_name,email FROM users WHERE id=$1",[p.owner_id])).rows[0]||null;}res.json({project:p,files:f.rows,read_only:!isOwner&&!teamAccess,can_manage:isOwner,team_access:teamAccess,team_owner:teamOwner?{name:teamOwner.full_name||"",email:teamOwner.email||""}:null});}
  catch(e){console.error(e);res.status(500).json({error:"Could not load project."})}
 });
 app.patch("/api/portal/projects/:id",portalUser,async(req,res)=>{
@@ -2308,6 +2332,53 @@ app.delete("/api/portal/projects/:id/collaborators/:userId",portalUser,async(req
   await pool.query("DELETE FROM project_collaborators WHERE project_id=$1 AND user_id=$2",[p.id,req.params.userId]);
   res.json({ok:true});
  }catch(e){console.error(e);res.status(500).json({error:"Could not remove collaborator."})}
+});
+app.get("/api/portal/team",portalUser,async(req,res)=>{
+ try{
+  const sub=await getCreatorSubscription(req.portalUser.id);
+  const eligible=teamPlanActive(sub);
+  const members=await pool.query("SELECT tm.member_id user_id,u.full_name,u.email,tm.role,tm.created_at FROM team_members tm JOIN users u ON u.id=tm.member_id WHERE tm.owner_id=$1 ORDER BY tm.created_at ASC",[req.portalUser.id]);
+  const teams=await pool.query("SELECT tm.owner_id,u.full_name owner_name,u.email owner_email,tm.created_at joined_at,cs.plan_id,cs.status,cs.current_period_end FROM team_members tm JOIN users u ON u.id=tm.owner_id LEFT JOIN creator_subscriptions cs ON cs.user_id=tm.owner_id WHERE tm.member_id=$1 ORDER BY tm.created_at ASC",[req.portalUser.id]);
+  const memberships=[];
+  for(const t of teams.rows){
+   const active=teamPlanActive({plan_id:t.plan_id,status:t.status,current_period_end:t.current_period_end});
+   let projects=[];
+   if(active){
+    projects=(await pool.query("SELECT p.id,p.name,p.client_name,p.updated_at,COALESCE((SELECT count(*) FROM files f WHERE f.project_id=p.id AND f.trashed_at IS NULL),0)::int file_count,COALESCE((SELECT sum(size_bytes) FROM files f WHERE f.project_id=p.id AND f.trashed_at IS NULL),0) total_bytes FROM projects p WHERE p.owner_id=$1 ORDER BY p.updated_at DESC LIMIT 500",[t.owner_id])).rows;
+   }
+   memberships.push({owner_id:t.owner_id,owner_name:t.owner_name,owner_email:t.owner_email,joined_at:t.joined_at,active,projects});
+  }
+  res.json({plan_id:sub?.plan_id||"trial",eligible,seat_limit:TEAM_SEAT_LIMIT,members:members.rows,memberships});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not load your team."})}
+});
+app.post("/api/portal/team/members",portalUser,async(req,res)=>{
+ try{
+  const sub=await getCreatorSubscription(req.portalUser.id);
+  if(!teamPlanActive(sub))return res.status(402).json({error:"Team workspace is included with the Studio (2 TB) plan. Upgrade in Billing to invite team members.",code:"TEAM_PLAN_REQUIRED"});
+  const email=String(req.body.email||"").trim().toLowerCase();
+  if(!email)return res.status(400).json({error:"Enter your team member's account email."});
+  if(email===String(req.portalUser.email||"").trim().toLowerCase())return res.status(400).json({error:"You are already the owner of this team."});
+  const u=await pool.query("SELECT id,full_name,email FROM users WHERE lower(email)=lower($1) LIMIT 1",[email]);
+  if(!u.rowCount)return res.status(404).json({error:"That email does not have an FBI Client File Studio account yet. Ask them to create a free account first, then add them here."});
+  const exists=await pool.query("SELECT 1 FROM team_members WHERE owner_id=$1 AND member_id=$2",[req.portalUser.id,u.rows[0].id]);
+  if(exists.rowCount)return res.status(409).json({error:"That person is already on your team."});
+  const count=Number((await pool.query("SELECT count(*)::int n FROM team_members WHERE owner_id=$1",[req.portalUser.id])).rows[0]?.n||0);
+  if(count>=TEAM_SEAT_LIMIT)return res.status(409).json({error:"Your Studio plan includes "+TEAM_SEAT_LIMIT+" team members. Remove someone to add a new member.",code:"TEAM_SEATS_FULL"});
+  await pool.query("INSERT INTO team_members(id,owner_id,member_id,invited_by) VALUES($1,$2,$3,$2) ON CONFLICT(owner_id,member_id) DO NOTHING",[uid(),req.portalUser.id,u.rows[0].id]);
+  res.json({ok:true,member:{user_id:u.rows[0].id,full_name:u.rows[0].full_name,email:u.rows[0].email}});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not add that team member."})}
+});
+app.delete("/api/portal/team/members/:userId",portalUser,async(req,res)=>{
+ try{
+  await pool.query("DELETE FROM team_members WHERE owner_id=$1 AND member_id=$2",[req.portalUser.id,req.params.userId]);
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not remove that team member."})}
+});
+app.delete("/api/portal/team/memberships/:ownerId",portalUser,async(req,res)=>{
+ try{
+  await pool.query("DELETE FROM team_members WHERE owner_id=$1 AND member_id=$2",[req.params.ownerId,req.portalUser.id]);
+  res.json({ok:true});
+ }catch(e){console.error(e);res.status(500).json({error:"Could not leave that team."})}
 });
 app.get("/api/portal/files",portalUser,async(req,res)=>{
  try{
@@ -2509,7 +2580,7 @@ app.post("/api/portal/push/test",portalUser,async(req,res)=>{
 });
 app.get("/api/portal/thumb/:id",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
+  const q=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2 OR "+TEAM_ACCESS_P2+")",[req.params.id,req.portalUser.id]);
   if(!q.rowCount)return res.status(404).send("File not found.");
   const f=q.rows[0];
   const width=Math.max(160,Math.min(640,Number(req.query.w||360))),height=Math.max(160,Math.min(720,Number(req.query.h||540)));
@@ -2554,7 +2625,7 @@ app.delete("/api/portal/projects/:id",portalUser,async(req,res)=>{
 });
 app.get("/api/portal/media/:id",portalUser,async(req,res)=>{
   try{
-    const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
+    const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2 OR "+TEAM_ACCESS_P2+")",[req.params.id,req.portalUser.id]);
     if(!r.rowCount)return res.status(404).send("File not found.");
     if(!isTransportStreamVideo(r.rows[0])&&s3Ready())return redirectToBucket(res,r.rows[0].storage_path,"private, no-store");
     await streamStoredObject(req,res,r.rows[0]);
@@ -2562,13 +2633,13 @@ app.get("/api/portal/media/:id",portalUser,async(req,res)=>{
 });
 app.head("/api/portal/media/:id",portalUser,async(req,res)=>{
   try{
-    const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);
+    const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2 OR "+TEAM_ACCESS_P2+")",[req.params.id,req.portalUser.id]);
     if(!r.rowCount)return res.status(404).end();
     await streamStoredObject(req,res,r.rows[0]);
   }catch(e){console.error("Portal media HEAD failed:",e?.stack||e);res.status(500).end()}
 });
 app.get("/api/portal/file/:id",portalUser,async(req,res)=>{
- try{const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2)",[req.params.id,req.portalUser.id]);if(!r.rowCount)return res.status(404).send("File not found.");const f=r.rows[0];const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:900});res.redirect(url);}
+ try{const r=await pool.query("SELECT f.*,p.owner_id FROM files f JOIN projects p ON p.id=f.project_id LEFT JOIN project_collaborators pc ON pc.project_id=p.id AND pc.user_id=$2 WHERE f.id=$1 AND f.trashed_at IS NULL AND (p.owner_id=$2 OR pc.user_id=$2 OR "+TEAM_ACCESS_P2+")",[req.params.id,req.portalUser.id]);if(!r.rowCount)return res.status(404).send("File not found.");const f=r.rows[0];const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:900});res.redirect(url);}
  catch(e){console.error(e);res.status(500).send("Unable to serve file.")}
 });
 app.get("/api/projects",admin,async(req,res)=>{
@@ -4587,10 +4658,11 @@ app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
  try{
   if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
   const projectId=String(req.body.projectId||""),originalName=String(req.body.name||"").trim(),relativePath=safeRelativePath(req.body.relativePath,originalName),size=Number(req.body.size||0),mimeType=String(req.body.mimeType||"application/octet-stream"),fingerprint=String(req.body.fingerprint||"").trim().slice(0,128),fingerprintType=String(req.body.fingerprintType||"full").trim().toLowerCase();
-  const project=await portalProjectOwned(req.portalUser.id,projectId);
+  const project=await portalProjectWritable(req.portalUser.id,projectId);
   if(!project)return res.status(404).json({error:"Project not found."});
+  const storageOwnerId=project.owner_id||req.portalUser.id;
   if(!originalName||!Number.isFinite(size)||size<0||size>MAX_FILE_SIZE)return res.status(400).json({error:"Invalid file."});
-  const entitlement=await creatorQuota(req.portalUser.id);
+  const entitlement=await creatorQuota(storageOwnerId);
   if(!entitlement.active)return res.status(402).json({error:"Your storage trial or subscription is not active. Open Billing to choose a plan.",code:"SUBSCRIPTION_REQUIRED",storage:{quota_bytes:entitlement.quotaBytes,used_bytes:entitlement.usedBytes,reserved_bytes:entitlement.reservedBytes,available_bytes:entitlement.availableBytes}});
   // Sample-based large-file identity is only for resumable session binding,
   // not strong enough for duplicate detection.
@@ -4614,7 +4686,7 @@ app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
     await pool.query("UPDATE upload_sessions SET status='aborted',updated_at=now() WHERE id=$1",[u.id]);
   }
   let quotaForNewUpload;
-  try{quotaForNewUpload=await assertCreatorQuotaForUpload(req.portalUser.id,null,size)}
+  try{quotaForNewUpload=await assertCreatorQuotaForUpload(storageOwnerId,null,size)}
   catch(e){
     const status=e.code==="STORAGE_QUOTA_EXCEEDED"?413:e.code==="SUBSCRIPTION_REQUIRED"?402:500;
     return res.status(status).json({error:e.message,code:e.code||"UPLOAD_QUOTA_ERROR",storage:e.quota?{quota_bytes:e.quota.quotaBytes,used_bytes:e.quota.usedBytes,reserved_bytes:e.quota.reservedBytes,available_bytes:e.quota.availableBytes,projected_bytes:e.quota.projectedBytes}:undefined});
@@ -4641,7 +4713,7 @@ app.post("/api/portal/uploads/init",portalUser,async(req,res)=>{
 });
 app.get("/api/portal/uploads/:id/state",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  const q=await pool.query("SELECT u.*,p.owner_id project_owner_id FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND (p.owner_id=$2 OR "+TEAM_ACCESS_P2+")",[req.params.id,req.portalUser.id]);
   if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
   const u=q.rows[0];
   if(u.mode!=="multipart")return res.json({uploadId:u.id,mode:u.mode,status:u.status,parts:[]});
@@ -4665,7 +4737,7 @@ app.get("/api/portal/uploads/:id/state",portalUser,async(req,res)=>{
 app.post("/api/portal/uploads/:id/part-fallback",portalUser,express.raw({type:"application/octet-stream",limit:"80mb"}),async(req,res)=>{
   try{
     if(!s3Ready())return res.status(503).json({error:"Cloud storage is not ready."});
-    const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+    const q=await pool.query("SELECT u.*,p.owner_id project_owner_id FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND (p.owner_id=$2 OR "+TEAM_ACCESS_P2+")",[req.params.id,req.portalUser.id]);
     if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
     const u=q.rows[0];
     if(u.mode!=="multipart"||!u.multipart_upload_id)return res.status(400).json({error:"This upload does not use multipart storage."});
@@ -4696,7 +4768,7 @@ app.post("/api/portal/uploads/:id/part-fallback",portalUser,express.raw({type:"a
 });
 app.post("/api/portal/uploads/:id/parts",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  const q=await pool.query("SELECT u.*,p.owner_id project_owner_id FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND (p.owner_id=$2 OR "+TEAM_ACCESS_P2+")",[req.params.id,req.portalUser.id]);
   if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
   const u=q.rows[0];
   await pool.query("UPDATE upload_sessions SET updated_at=now() WHERE id=$1 AND status='active'",[u.id]);
@@ -4719,12 +4791,12 @@ app.post("/api/portal/uploads/:id/parts",portalUser,async(req,res)=>{
 });
 app.post("/api/portal/uploads/:id/complete",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  const q=await pool.query("SELECT u.*,p.owner_id project_owner_id FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND (p.owner_id=$2 OR "+TEAM_ACCESS_P2+")",[req.params.id,req.portalUser.id]);
   if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
   const u=q.rows[0];
 
   try{
-    try{await assertCreatorQuotaForUpload(req.portalUser.id,u.id,Number(u.size_bytes||0));}
+    try{await assertCreatorQuotaForUpload(u.project_owner_id||req.portalUser.id,u.id,Number(u.size_bytes||0));}
     catch(e){
       const status=e.code==="STORAGE_QUOTA_EXCEEDED"?413:e.code==="SUBSCRIPTION_REQUIRED"?402:500;
       return res.status(status).json({error:e.message,code:e.code||"UPLOAD_QUOTA_ERROR"});
@@ -4759,7 +4831,7 @@ app.post("/api/portal/uploads/:id/complete",portalUser,async(req,res)=>{
 });
 app.post("/api/portal/uploads/:id/abort",portalUser,async(req,res)=>{
  try{
-  const q=await pool.query("SELECT u.* FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND p.owner_id=$2",[req.params.id,req.portalUser.id]);
+  const q=await pool.query("SELECT u.*,p.owner_id project_owner_id FROM upload_sessions u JOIN projects p ON p.id=u.project_id WHERE u.id=$1 AND (p.owner_id=$2 OR "+TEAM_ACCESS_P2+")",[req.params.id,req.portalUser.id]);
   if(!q.rowCount)return res.status(404).json({error:"Upload session not found."});
   const u=q.rows[0];
   if(u.mode==="multipart"&&u.multipart_upload_id)await s3.send(new AbortMultipartUploadCommand({Bucket:bucket(),Key:u.storage_key,UploadId:u.multipart_upload_id})).catch(function(){});
