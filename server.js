@@ -484,6 +484,19 @@ const s3=s3Ready()?new S3Client({
   credentials:{accessKeyId:process.env.S3_ACCESS_KEY_ID,secretAccessKey:process.env.S3_SECRET_ACCESS_KEY}
 }):null;
 const bucket=()=>process.env.S3_BUCKET;
+// Separate client for viewer-facing replay reads, with hard timeouts, so a slow
+// or stuck storage connection can never hang the public watch page.
+let replayS3=s3;
+try{
+  if(s3Ready()){
+    const {NodeHttpHandler}=require("@smithy/node-http-handler");
+    replayS3=new S3Client({
+      region:process.env.S3_REGION,endpoint:process.env.S3_ENDPOINT,forcePathStyle:false,maxAttempts:3,
+      credentials:{accessKeyId:process.env.S3_ACCESS_KEY_ID,secretAccessKey:process.env.S3_SECRET_ACCESS_KEY},
+      requestHandler:new NodeHttpHandler({connectionTimeout:5000,requestTimeout:60000})
+    });
+  }
+}catch(e){console.warn("Replay storage client fallback:",e?.message||e)}
 
 function choosePartSize(size){
   // Use 64 MiB parts as the normal floor. Scale only when needed to keep the
@@ -3320,6 +3333,7 @@ app.get("/api/public/stream/:token/replay",async(req,res)=>{
     // must not hide a replay that was saved successfully. Only look at the
     // latest broadcast (recordings within 12h of the newest attempt) so an old
     // event's replay is never shown for a newer broadcast that failed.
+    const tq=Date.now();
     const q=await pool.query(`SELECT id,filename,status,size_bytes,started_at,ended_at,created_at,storage_key,error,
         (status='recording' AND COALESCE(heartbeat_at,started_at)>now()-interval '90 seconds') AS recorder_alive
       FROM stream_recordings WHERE stream_id=$1
@@ -3327,6 +3341,7 @@ app.get("/api/public/stream/:token/replay",async(req,res)=>{
       ORDER BY CASE WHEN status='recording' AND COALESCE(heartbeat_at,started_at)>now()-interval '90 seconds' THEN 0 WHEN status='completed' AND size_bytes>0 THEN 1 ELSE 2 END, CASE WHEN status='completed' THEN size_bytes ELSE 0 END DESC, created_at DESC
       LIMIT 1`,[stream.id]);
     const recording=q.rows[0];
+    if(Date.now()-tq>2000)console.warn("Replay lookup query slow:",Date.now()-tq,"ms");
 
     if(!s3Ready())return res.json({available:false,status:"storage_unavailable"});
     if(!recording)return res.json({available:false,status:"none"});
@@ -3339,10 +3354,18 @@ app.get("/api/public/stream/:token/replay",async(req,res)=>{
     if(recording.status!=="completed"||Number(recording.size_bytes)<=0){
       return res.json({available:false,status:"empty"});
     }
-    const meta=await headObjectWithRetry({Bucket:bucket(),Key:recording.storage_key});
-    const total=Number(meta.ContentLength||recording.size_bytes||0);
+    // Do not block the watch page on storage: one quick HEAD with a short
+    // timeout, falling back to the size recorded in the database.
+    let total=Number(recording.size_bytes||0);
+    const t0=Date.now();
+    try{
+      const meta=await replayS3.send(new HeadObjectCommand({Bucket:bucket(),Key:recording.storage_key}),{abortSignal:AbortSignal.timeout(5000)});
+      total=Number(meta.ContentLength||total);
+    }catch(headErr){
+      console.error("Replay HEAD failed:",JSON.stringify({recordingId:recording.id,key:recording.storage_key,ms:Date.now()-t0,name:headErr?.name,status:headErr?.$metadata?.httpStatusCode,message:String(headErr?.message||headErr).slice(0,300)}));
+    }
     if(!Number.isFinite(total)||total<=0)return res.json({available:false,status:"empty"});
-    const play_url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:recording.storage_key,ResponseContentType:"video/mp4",ResponseContentDisposition:"inline"}),{expiresIn:3600});
+    const play_url=await getSignedUrl(replayS3,new GetObjectCommand({Bucket:bucket(),Key:recording.storage_key,ResponseContentType:"video/mp4",ResponseContentDisposition:"inline"}),{expiresIn:3600});
     res.json({available:true,status:"completed",play_url,recording:{id:recording.id,filename:recording.filename,size_bytes:total,started_at:recording.started_at,ended_at:recording.ended_at}});
   }catch(e){
     console.error("Public replay load failed:",e?.stack||e);
@@ -3366,8 +3389,14 @@ app.get("/api/public/stream/:token/replay/file",async(req,res)=>{
     if(!recording)return res.status(404).json({error:"Replay recording was not found."});
     if(recording.status!=="completed")return res.status(409).json({error:"Replay recording is still being finalized."});
     if(!s3Ready())return res.status(503).json({error:"Replay storage is not ready."});
-    const meta=await headObjectWithRetry({Bucket:bucket(),Key:recording.storage_key});
-    const total=Number(meta.ContentLength||recording.size_bytes||0);
+    let total=Number(recording.size_bytes||0);
+    const t0=Date.now();
+    try{
+      const meta=await replayS3.send(new HeadObjectCommand({Bucket:bucket(),Key:recording.storage_key}),{abortSignal:AbortSignal.timeout(5000)});
+      total=Number(meta.ContentLength||total);
+    }catch(headErr){
+      console.error("Replay file HEAD failed:",JSON.stringify({recordingId:recording.id,key:recording.storage_key,ms:Date.now()-t0,name:headErr?.name,status:headErr?.$metadata?.httpStatusCode,message:String(headErr?.message||headErr).slice(0,300)}));
+    }
     if(!Number.isFinite(total)||total<=0)return res.status(404).json({error:"Replay file is empty."});
     const range=String(req.headers.range||"").match(/^bytes=(\d*)-(\d*)$/i);
     let start=0,end=total-1;
@@ -3398,7 +3427,7 @@ app.get("/api/public/stream/:token/replay/file",async(req,res)=>{
     res.setHeader("X-FBI-Replay-Recording",String(recording.id));
     res.setHeader("X-FBI-Replay-Bytes",String(total));
     if(req.method==="HEAD")return res.end();
-    const get=await s3.send(new GetObjectCommand({
+    const get=await replayS3.send(new GetObjectCommand({
       Bucket:bucket(),
       Key:recording.storage_key,
       ...(partial?{Range:"bytes="+start+"-"+end}:{}),
