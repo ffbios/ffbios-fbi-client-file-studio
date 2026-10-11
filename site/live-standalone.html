@@ -221,6 +221,21 @@ button{cursor:pointer}
 .tools-warning{margin-top:12px;padding:11px 13px;border:1px solid rgba(232,200,90,.22);background:rgba(232,200,90,.05);border-radius:10px;color:#aeb4c0;font-size:12.5px;line-height:1.55}
 .tools-foot{display:flex;justify-content:space-between;gap:10px;padding:14px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
 .tools-foot-left,.tools-foot-right{display:flex;gap:8px}
+.channel-actions{display:flex;align-items:center;gap:6px;flex:none}
+.channel-del{width:28px;height:28px;display:grid;place-items:center;border:1px solid transparent;background:none;color:var(--muted);border-radius:8px;cursor:pointer;padding:0;opacity:.7;transition:.15s}
+.channel-del:hover,.channel-del:focus-visible{opacity:1;color:#ffb3bc;border-color:rgba(255,93,108,.4);background:rgba(255,93,108,.08);outline:none}
+.channel-del svg{width:15px;height:15px}
+.delete-modal{position:fixed;inset:0;z-index:130;display:grid;place-items:center;background:rgba(0,0,0,.76);padding:18px;backdrop-filter:blur(3px)}
+.delete-modal.hidden{display:none}
+.delete-box{width:min(480px,100%);border:1px solid rgba(255,93,108,.35);border-radius:16px;background:linear-gradient(180deg,#1a1517,#0f1115);box-shadow:0 30px 90px rgba(0,0,0,.62);overflow:hidden}
+.delete-box .channel-head b{color:#ffb3bc}
+.delete-list{margin:0 0 14px;padding-left:18px;color:#dcdfe6;font-size:13px;line-height:1.7}
+.delete-note{margin:0 0 14px;padding:10px 12px;border-radius:10px;font-size:12.5px;line-height:1.5;border:1px solid rgba(255,93,108,.35);background:rgba(255,93,108,.07);color:#ffc9cf}
+.delete-box input{width:100%;background:#090b0e;border:1px solid var(--line2);color:#f3f4f7;border-radius:11px;padding:12px 13px;font-size:14px;outline:none}
+.delete-box input:focus{border-color:rgba(255,93,108,.6);box-shadow:0 0 0 3px rgba(255,93,108,.12)}
+.delete-box label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:700;margin-bottom:7px}
+.delete-box label code{color:#f3f4f7;text-transform:none;letter-spacing:0;font:700 12px ui-monospace,SFMono-Regular,Menlo,monospace}
+.danger-btn:disabled{opacity:.4;cursor:not-allowed}
 .danger-btn{border:1px solid rgba(255,93,108,.4);background:rgba(255,93,108,.06);color:#ffb3bc;border-radius:10px;padding:9px 13px;font-size:12px;font-weight:800;cursor:pointer}
 
 /* ---------- responsive ---------- */
@@ -233,7 +248,7 @@ button{cursor:pointer}
 <body>
 <div id="root"></div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-<div class="channel-modal hidden" id="channelModal"><div class="channel-box"><div class="channel-head"><b>Create Live Channel</b><button class="channel-close" id="channelClose">×</button></div><div class="channel-body"><p class="channel-help">Create a channel for OBS, vMix, Streamlabs or another RTMP encoder. The existing live streaming engine is unchanged.</p><div class="field"><label>Channel Name</label><input id="newChannelName" placeholder="e.g. Wedding Live"></div><div class="field"><label>Stream Title</label><input id="newChannelTitle" placeholder="Title viewers will see"></div><div class="field"><label>Description</label><textarea id="newChannelDescription" placeholder="Optional broadcast description"></textarea></div><div id="channelResult" class="channel-result" style="display:none"></div></div><div class="channel-foot"><button class="btn" id="channelCancel">Cancel</button><button class="btn primary" id="channelCreate">CREATE CHANNEL</button></div></div></div>
+<div class="channel-modal hidden" id="channelModal"><div class="channel-box"><div class="channel-head"><b>Create Live Channel</b><button class="channel-close" id="channelClose">×</button></div><div class="channel-body"><p class="channel-help">Create a channel for OBS, vMix, Streamlabs or another RTMP encoder. The existing live streaming engine is unchanged.</p><div class="field"><label>Channel Name</label><input id="newChannelName" placeholder="e.g. Wedding Live"></div><div class="field"><label>Stream Title</label><input id="newChannelTitle" placeholder="Title viewers will see"></div><div class="field"><label>Description</label><textarea id="newChannelDescription" placeholder="Optional broadcast description"></textarea></div><div id="channelResult" class="channel-result" style="display:none"></div></div><div class="channel-foot"><button class="btn" id="channelCancel">Cancel</button><button class="btn primary" id="channelCreate">CREATE CHANNEL</button></div></div></div><div class="delete-modal hidden" id="deleteModal" role="dialog" aria-modal="true" aria-labelledby="deleteTitle"><div class="delete-box"><div class="channel-head"><b id="deleteTitle">Delete channel</b><button class="channel-close" id="deleteClose" aria-label="Close">×</button></div><div class="channel-body"><div id="deleteBody"><p class="channel-help">Checking channel…</p></div><div id="deleteConfirmWrap" style="display:none"><label for="deleteConfirmInput">Type <code id="deleteNameHint"></code> to confirm</label><input id="deleteConfirmInput" autocomplete="off" spellcheck="false"></div></div><div class="channel-foot"><button class="btn" id="deleteCancel">Cancel</button><button class="danger-btn" id="deleteConfirmBtn" disabled>DELETE CHANNEL</button></div></div></div>
 <script>
 (function(){
   const root=document.getElementById('root');
@@ -303,7 +318,7 @@ button{cursor:pointer}
   function renderShell(){
     // Keep the install control visible; supported browsers use the native PWA prompt,
     // while unsupported browsers are given the browser-menu installation fallback.
-    root.innerHTML='<div class="app"><aside class="sidebar"><div class="brand"><img src="/official-logo.png" alt="FBI"><div><strong>FBI LIVE</strong><span>Standalone Broadcast Studio</span></div></div><div class="sidebar-head"><div class="sidebar-head-left"><h2>Live Channels</h2><span id="channelCount">0</span></div><button class="add-channel-btn" id="addChannelBtn">＋ ADD CHANNEL</button></div><div class="channels" id="channels"></div><div class="engine"><i class="edot" id="engineDot"></i><div><b id="engineText">Connecting…</b><span>Control room</span></div></div></aside><main class="main"><div class="topbar"><div class="top-title"><h1>FBI Live Broadcast Studio</h1><p>Monitor your live signal, program output, viewers and audio from one control surface.</p></div><div class="top-actions"><span class="chip gold">OPEN CONTROL MODE</span><button class="btn" id="installBtn">INSTALL APP</button><button class="btn" id="toolsBtn">TOOLS</button></div></div><section class="studio" id="studio"><div class="placeholder"><div><b>Select a live channel</b><span>Choose a channel from the left to open the control room.</span></div></div></section></main></div><div class="tools-modal hidden" id="toolsModal"><div class="tools-box"><div class="tools-head"><div><b>Encoder Tools</b><span id="toolsChannelName">Selected channel</span></div><button class="tools-close" id="toolsClose">×</button></div><div class="tools-body"><div class="encoder-grid"><div class="encoder-field"><label>RTMP Server URL</label><div class="encoder-value"><code id="toolsRtmp">—</code><button class="copy-value" data-copy-id="toolsRtmp">COPY</button></div></div><div class="encoder-field"><label>Stream Key</label><div class="encoder-value"><code id="toolsKey">—</code><button class="copy-value" data-copy-id="toolsKey">COPY</button></div></div><div class="encoder-field"><label>HLS Playback URL</label><div class="encoder-value"><code id="toolsHls">—</code><button class="copy-value" data-copy-id="toolsHls">COPY</button></div></div><div class="encoder-field"><label>Viewer / Share URL</label><div class="encoder-value"><code id="toolsViewer">—</code><button class="copy-value" data-copy-id="toolsViewer">COPY</button></div></div></div><div class="tools-warning">Use the RTMP Server URL and Stream Key in OBS, vMix, Streamlabs, or your encoder. Regenerating the key immediately invalidates the previous key.</div></div><div class="tools-foot"><div class="tools-foot-left"><button class="smallbtn" id="copyEncoderSetup">COPY ENCODER SETUP</button></div><div class="tools-foot-right"><button class="danger-btn" id="regenerateKeyBtn">REGENERATE STREAM KEY</button><button class="smallbtn" id="toolsDone">DONE</button></div></div></div></div>';
+    root.innerHTML='<div class="app"><aside class="sidebar"><div class="brand"><img src="/official-logo.png" alt="FBI"><div><strong>FBI LIVE</strong><span>Standalone Broadcast Studio</span></div></div><div class="sidebar-head"><div class="sidebar-head-left"><h2>Live Channels</h2><span id="channelCount">0</span></div><button class="add-channel-btn" id="addChannelBtn">＋ ADD CHANNEL</button></div><div class="channels" id="channels"></div><div class="engine"><i class="edot" id="engineDot"></i><div><b id="engineText">Connecting…</b><span>Control room</span></div></div></aside><main class="main"><div class="topbar"><div class="top-title"><h1>FBI Live Broadcast Studio</h1><p>Monitor your live signal, program output, viewers and audio from one control surface.</p></div><div class="top-actions"><span class="chip gold">OPEN CONTROL MODE</span><button class="btn" id="installBtn">INSTALL APP</button><button class="btn" id="toolsBtn">TOOLS</button></div></div><section class="studio" id="studio"><div class="placeholder"><div><b>Select a live channel</b><span>Choose a channel from the left to open the control room.</span></div></div></section></main></div><div class="tools-modal hidden" id="toolsModal"><div class="tools-box"><div class="tools-head"><div><b>Encoder Tools</b><span id="toolsChannelName">Selected channel</span></div><button class="tools-close" id="toolsClose">×</button></div><div class="tools-body"><div class="encoder-grid"><div class="encoder-field"><label>RTMP Server URL</label><div class="encoder-value"><code id="toolsRtmp">—</code><button class="copy-value" data-copy-id="toolsRtmp">COPY</button></div></div><div class="encoder-field"><label>Stream Key</label><div class="encoder-value"><code id="toolsKey">—</code><button class="copy-value" data-copy-id="toolsKey">COPY</button></div></div><div class="encoder-field"><label>HLS Playback URL</label><div class="encoder-value"><code id="toolsHls">—</code><button class="copy-value" data-copy-id="toolsHls">COPY</button></div></div><div class="encoder-field"><label>Viewer / Share URL</label><div class="encoder-value"><code id="toolsViewer">—</code><button class="copy-value" data-copy-id="toolsViewer">COPY</button></div></div></div><div class="tools-warning">Use the RTMP Server URL and Stream Key in OBS, vMix, Streamlabs, or your encoder. Regenerating the key immediately invalidates the previous key.</div></div><div class="tools-foot"><div class="tools-foot-left"><button class="smallbtn" id="copyEncoderSetup">COPY ENCODER SETUP</button><button class="danger-btn" id="toolsDeleteBtn">DELETE CHANNEL</button></div><div class="tools-foot-right"><button class="danger-btn" id="regenerateKeyBtn">REGENERATE STREAM KEY</button><button class="smallbtn" id="toolsDone">DONE</button></div></div></div></div>';
     const toolsBtn=document.getElementById('toolsBtn'),toolsModal=document.getElementById('toolsModal'),toolsClose=document.getElementById('toolsClose'),toolsDone=document.getElementById('toolsDone'),regen=document.getElementById('regenerateKeyBtn'),copySetup=document.getElementById('copyEncoderSetup');
     const installBtn=document.getElementById('installBtn');if(installBtn){installBtn.onclick=installLivePwa;if(isStandalone())installBtn.style.display='none';}
     if(toolsBtn)toolsBtn.onclick=showTools;if(toolsClose)toolsClose.onclick=()=>toolsModal.classList.add('hidden');if(toolsDone)toolsDone.onclick=()=>toolsModal.classList.add('hidden');if(toolsModal)toolsModal.onclick=e=>{if(e.target===toolsModal)toolsModal.classList.add('hidden')};document.querySelectorAll('.copy-value').forEach(btn=>btn.onclick=async()=>{const el=document.getElementById(btn.dataset.copyId);const value=el?.textContent||'';try{await navigator.clipboard.writeText(value);btn.textContent='COPIED';setTimeout(()=>btn.textContent='COPY',1200)}catch{btn.textContent='FAILED'}});if(copySetup)copySetup.onclick=async()=>{const s=getSelected();if(!s)return;const text=['RTMP Server: '+(s.rtmp_server||''),'Stream Key: '+(s.stream_key||''),'HLS URL: '+(s.hls_url?(location.origin+s.hls_url):''),'Viewer URL: '+(s.viewer_url||'')].join('\\n');try{await navigator.clipboard.writeText(text);copySetup.textContent='COPIED';setTimeout(()=>copySetup.textContent='COPY ENCODER SETUP',1200)}catch{copySetup.textContent='COPY FAILED'}};if(regen)regen.onclick=async()=>{const s=getSelected();if(!s)return;if(!confirm('Regenerate the stream key for "'+s.name+'"? The current encoder will stop working until you update it with the new key.'))return;regen.disabled=true;regen.textContent='REGENERATING…';try{const d=await api('/api/live/streams/'+encodeURIComponent(s.id)+'/regenerate-key',{method:'POST'});const next=d.stream;streams=streams.map(x=>x.id===next.id?next:x);selectedId=next.id;showTools();renderChannels();renderedStudioSignature='';renderStudio();toast('Stream key regenerated. Update your encoder with the new key.')}catch(e){toast(e.message||'Could not regenerate stream key')}finally{regen.disabled=false;regen.textContent='REGENERATE STREAM KEY'}};
@@ -313,8 +328,9 @@ button{cursor:pointer}
   function renderChannels(){
     const el=document.getElementById('channels'),count=document.getElementById('channelCount');if(!el)return;
     count.textContent=streams.length+' channel'+(streams.length===1?'':'s');
-    el.innerHTML=streams.length?streams.map(s=>'<div class="channel '+(s.id===selectedId?'active':'')+'" data-id="'+esc(s.id)+'"><div class="channel-top"><div class="channel-name">'+esc(s.name)+'</div><span class="badge '+(s.status==='live'?'live':'')+'">'+(s.status==='live'?'LIVE':'OFFLINE')+'</span></div><div class="channel-meta">'+esc(s.title||'')+'<br>'+Number(s.current_viewers||0)+' watching now</div></div>').join(''):'<div class="placeholder" style="min-height:160px"><div><b>No live channels</b><span>Create a channel from the main Studio when needed.</span></div></div>';
+    el.innerHTML=streams.length?streams.map(s=>'<div class="channel '+(s.id===selectedId?'active':'')+'" data-id="'+esc(s.id)+'"><div class="channel-top"><div class="channel-name">'+esc(s.name)+'</div><div class="channel-actions"><span class="badge '+(s.status==='live'?'live':'')+'">'+(s.status==='live'?'LIVE':'OFFLINE')+'</span><button class="channel-del" data-del="'+esc(s.id)+'" title="Delete channel" aria-label="Delete channel '+esc(s.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg></button></div></div><div class="channel-meta">'+esc(s.title||'')+'<br>'+Number(s.current_viewers||0)+' watching now</div></div>').join(''):'<div class="placeholder" style="min-height:160px"><div><b>No live channels</b><span>Use ＋ ADD CHANNEL to create one.</span></div></div>';
     el.querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>{selectedId=x.dataset.id;renderChannels();renderedStudioSignature='';renderStudio();refreshViewerCount()});
+    el.querySelectorAll('[data-del]').forEach(b=>b.onclick=e=>{e.stopPropagation();openDeleteModal(b.dataset.del)});
   }
   function placeholder(msg,sub){return '<div class="placeholder"><div><b>'+esc(msg)+'</b><span>'+esc(sub)+'</span></div></div>'}
   const ICON={
@@ -697,6 +713,7 @@ button{cursor:pointer}
     // intentionally accessible without an administrative login for now.
     renderShell();
     bindChannelCreator();
+    bindChannelDelete();
     await load();
     startViewerCountPolling();
     if(refreshTimer)clearInterval(refreshTimer);
@@ -721,6 +738,56 @@ button{cursor:pointer}
         await load();setTimeout(closeChannelModal,1000);
       }catch(e){toast(e.message||'Could not create channel')}
       finally{create.disabled=false;create.textContent='CREATE CHANNEL'}
+    };
+  }
+
+  let deleteTarget=null;
+  function fmtBytes(n){n=Number(n||0);if(n<1024)return n+' B';const u=['KB','MB','GB','TB'];let i=-1;do{n/=1024;i++}while(n>=1024&&i<u.length-1);return n.toFixed(n>=10?0:1)+' '+u[i]}
+  function closeDeleteModal(){const m=document.getElementById('deleteModal');if(m)m.classList.add('hidden');deleteTarget=null}
+  async function openDeleteModal(id){
+    const m=document.getElementById('deleteModal');if(!m||!id)return;
+    const s=streams.find(x=>x.id===id);
+    const body=document.getElementById('deleteBody'),wrap=document.getElementById('deleteConfirmWrap'),input=document.getElementById('deleteConfirmInput'),btn=document.getElementById('deleteConfirmBtn'),hint=document.getElementById('deleteNameHint');
+    deleteTarget=null;btn.disabled=true;btn.textContent='DELETE CHANNEL';input.value='';wrap.style.display='none';
+    document.getElementById('deleteTitle').textContent='Delete '+(s?.name?'"'+s.name+'"':'channel');
+    body.innerHTML='<p class="channel-help">Checking channel…</p>';
+    const tools=document.getElementById('toolsModal');if(tools)tools.classList.add('hidden');
+    m.classList.remove('hidden');
+    try{
+      const d=await api('/api/live/streams/'+encodeURIComponent(id)+'/delete-check',{cache:'no-store'});
+      if(d.blocked){
+        body.innerHTML='<div class="delete-note">'+(d.status==='live'?'This channel is <b>live right now</b>. Stop the stream in OBS/vMix first, then delete it.':'A recording for this channel is still being saved. Try again in a few minutes.')+'</div>';
+        return;
+      }
+      deleteTarget=d;
+      const rec=d.recordings?('<li><b>'+d.recordings+' past broadcast recording'+(d.recordings===1?'':'s')+'</b> ('+esc(fmtBytes(d.bytes))+')</li>'):'<li>No past broadcast recordings</li>';
+      body.innerHTML='<p class="channel-help">This permanently removes:</p><ul class="delete-list"><li>The channel, its stream key and viewer link</li>'+rec+'<li>Viewer history and comments</li></ul><div class="delete-note">This cannot be undone. Any encoder still using this stream key will stop working.</div>';
+      hint.textContent=d.name;wrap.style.display='block';
+      input.oninput=()=>{btn.disabled=input.value.trim()!==String(d.name||'').trim()};
+      input.onkeydown=e=>{if(e.key==='Enter'&&!btn.disabled)btn.click()};
+      setTimeout(()=>input.focus(),30);
+    }catch(e){body.innerHTML='<div class="delete-note">'+esc(e.message||'Could not check channel')+'</div>'}
+  }
+  function bindChannelDelete(){
+    const m=document.getElementById('deleteModal'),btn=document.getElementById('deleteConfirmBtn'),toolsDel=document.getElementById('toolsDeleteBtn');
+    document.getElementById('deleteClose').onclick=closeDeleteModal;
+    document.getElementById('deleteCancel').onclick=closeDeleteModal;
+    m.onclick=e=>{if(e.target===m)closeDeleteModal()};
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!m.classList.contains('hidden'))closeDeleteModal()});
+    if(toolsDel)toolsDel.onclick=()=>{const s=getSelected();if(s)openDeleteModal(s.id)};
+    btn.onclick=async()=>{
+      const d=deleteTarget;if(!d)return;
+      const typed=document.getElementById('deleteConfirmInput').value.trim();
+      btn.disabled=true;btn.textContent='DELETING…';
+      try{
+        await api('/api/live/streams/'+encodeURIComponent(d.id),{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_name:typed})});
+        streams=streams.filter(x=>x.id!==d.id);
+        if(selectedId===d.id)selectedId=streams[0]?.id||null;
+        closeDeleteModal();
+        renderChannels();renderedStudioSignature='';renderStudio();
+        notify('Channel "'+d.name+'" deleted');
+        load();
+      }catch(e){notify(e.message||'Could not delete channel');btn.disabled=false;btn.textContent='DELETE CHANNEL'}
     };
   }
 

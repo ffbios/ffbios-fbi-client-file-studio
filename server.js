@@ -3251,6 +3251,62 @@ app.post("/api/live/streams/:id/regenerate-key",async(req,res)=>{
   }catch(e){console.error(e);res.status(500).json({error:"Could not regenerate stream key"});}
 });
 
+/*
+ * Channel deletion for the standalone control room.
+ * GET  .../delete-check  -> what would be removed (shown in the confirm dialog)
+ * DELETE .../:id         -> body {confirm_name} must match the channel name exactly.
+ * Refuses while the channel is live or recording. Removes the channel row
+ * (recordings, viewers and comments cascade) and the recording/thumbnail
+ * objects from the bucket so nothing is left orphaned.
+ */
+async function liveStreamDeleteSummary(id){
+  const q=await pool.query("SELECT * FROM streams WHERE id=$1",[id]);
+  if(!q.rowCount)return null;
+  const s=await refreshStreamStatus(q.rows[0]);
+  const r=await pool.query(`SELECT count(*)::int AS recordings,
+      COALESCE(sum(size_bytes),0)::bigint AS bytes,
+      count(*) FILTER (WHERE status IN ('recording','merging'))::int AS active
+    FROM stream_recordings WHERE stream_id=$1`,[id]);
+  const row=r.rows[0]||{};
+  return {stream:s,recordings:Number(row.recordings||0),bytes:Number(row.bytes||0),active:Number(row.active||0)};
+}
+app.get("/api/live/streams/:id/delete-check",async(req,res)=>{
+  try{
+    const d=await liveStreamDeleteSummary(req.params.id);
+    if(!d)return res.status(404).json({error:"Stream not found."});
+    res.set("Cache-Control","no-store").json({
+      id:d.stream.id,name:d.stream.name,status:d.stream.status,
+      recordings:d.recordings,bytes:d.bytes,
+      blocked:d.stream.status==="live"||d.active>0
+    });
+  }catch(e){console.error(e);res.status(500).json({error:"Could not check channel."});}
+});
+app.delete("/api/live/streams/:id",async(req,res)=>{
+  try{
+    const d=await liveStreamDeleteSummary(req.params.id);
+    if(!d)return res.status(404).json({error:"Stream not found."});
+    const s=d.stream;
+    if(String((req.body&&req.body.confirm_name)||"").trim()!==String(s.name||"").trim())
+      return res.status(400).json({error:"Type the channel name exactly to confirm deletion."});
+    if(s.status==="live")return res.status(409).json({error:"This channel is live. Stop the encoder before deleting it."});
+    if(d.active>0)return res.status(409).json({error:"A recording is still being saved for this channel. Try again in a few minutes."});
+    const keys=await pool.query("SELECT storage_key,thumb_key FROM stream_recordings WHERE stream_id=$1",[s.id]);
+    const r=await pool.query("DELETE FROM streams WHERE id=$1 RETURNING id",[s.id]);
+    if(!r.rowCount)return res.status(404).json({error:"Stream not found."});
+    try{deactivateProgramRoute(s.id)}catch{}
+    const objects=[];
+    keys.rows.forEach(k=>{if(k.storage_key)objects.push({Key:k.storage_key});if(k.thumb_key)objects.push({Key:k.thumb_key})});
+    if(objects.length&&s3Ready()){
+      for(let i=0;i<objects.length;i+=1000){
+        await s3.send(new DeleteObjectsCommand({Bucket:bucket(),Delete:{Objects:objects.slice(i,i+1000),Quiet:true}}))
+          .catch(e=>console.error("Channel delete: bucket cleanup failed:",e?.message||e));
+      }
+    }
+    console.log("Deleted live channel",s.id,JSON.stringify(s.name),"recordings:",d.recordings);
+    res.json({ok:true,id:s.id,recordings_deleted:d.recordings});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not delete channel."});}
+});
+
 app.post("/api/streams",admin,async(req,res)=>{
   try{
     const name=String(req.body.name||"").trim();
