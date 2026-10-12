@@ -1955,6 +1955,16 @@ if(streamMonitor.unref)streamMonitor.unref();
 // Railway terminates TLS at one trusted proxy hop; use the client IP for throttling.
 app.set("trust proxy",1);
 app.use(express.json({limit:"2mb"}));
+// Studio diagnostics: the control-room page reports what its players are doing
+// (player start, hls.js errors, periodic video state, page errors). Logged to
+// stdout so problems in the operator's browser show up in the Railway logs.
+app.post("/api/live/diag",admin,(req,res)=>{
+  try{
+    const items=Array.isArray(req.body?.items)?req.body.items.slice(0,40):[];
+    for(const it of items)console.log("[studio-diag] "+JSON.stringify(it).slice(0,1500));
+  }catch{}
+  res.status(204).end();
+});
 app.use(express.urlencoded({extended:true}));
 
 // Small, bounded in-process rate limiter. It deliberately avoids a new dependency
