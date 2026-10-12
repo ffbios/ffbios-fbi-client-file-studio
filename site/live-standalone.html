@@ -242,13 +242,13 @@ button{cursor:pointer}
 .lg-wrap{position:relative;z-index:1}
 .lg-bg{position:absolute;inset:0;z-index:0;pointer-events:none;animation:lgFade 1.2s .2s ease-out both}
 .lg-bg svg{position:absolute;inset:0;width:100%;height:100%}
-.lg-bg::after{content:"";position:absolute;inset:0;background:radial-gradient(70% 60% at 55% 50%,rgba(20,24,29,.5),rgba(20,24,29,.82) 100%),linear-gradient(180deg,rgba(20,24,29,.15),rgba(20,24,29,.45))}
-.lg-wall rect.on{animation:lgMon 7s ease-in-out infinite}
-@keyframes lgMon{0%,100%{opacity:.9}45%{opacity:.55}55%{opacity:1}}
-.lg-cone{transform-box:fill-box;transform-origin:50% 0;animation:lgSway 14s ease-in-out infinite alternate}
-@keyframes lgSway{from{transform:rotate(-4deg)}to{transform:rotate(4deg)}}
-.lg-desk circle.blink{animation:lgBlink 2.6s steps(1,end) infinite}
-@keyframes lgBlink{50%{opacity:.25}}
+.lg-bg::after{content:"";position:absolute;inset:0;background:radial-gradient(75% 65% at 55% 50%,rgba(12,15,19,.25),rgba(12,15,19,.78) 100%),linear-gradient(90deg,rgba(12,15,19,.55),rgba(12,15,19,0) 45%)}
+.lg-bk{transform-box:fill-box;transform-origin:50% 50%;animation:lgDrift 20s ease-in-out infinite alternate}
+@keyframes lgDrift{0%{transform:translate(0,0) scale(1)}50%{transform:translate(14px,-10px) scale(1.06)}100%{transform:translate(-10px,8px) scale(.96)}}
+.lg-shaft{animation:lgShaft 12s ease-in-out infinite alternate}
+@keyframes lgShaft{from{opacity:.65}to{opacity:1}}
+.lg-led{animation:lgLed 16s ease-in-out infinite alternate}
+@keyframes lgLed{from{opacity:.85}to{opacity:1}}
 .lg-brand img{height:28px;width:auto;flex:none;max-width:none}
 @media (prefers-reduced-motion:reduce){.lg-bg,.lg-bg *{animation:none!important}}
 /* ---------- login ---------- */
@@ -347,40 +347,37 @@ button{cursor:pointer}
   function stopPolling(){if(refreshTimer){clearInterval(refreshTimer);refreshTimer=null}if(typeof viewerCountTimer!=='undefined'&&viewerCountTimer){clearInterval(viewerCountTimer);viewerCountTimer=0}}
   let lgRaf=0;
   function studioBg(){
-    // Deterministic pseudo-random so the scene is the same on every load.
-    let seed=7;const rnd=()=>(seed=(seed*9301+49297)%233280)/233280;
-    const tints=['#3a5a8c','#8c6a2e','#2e6b5a','#6b3a4a','#4a4f8c','#7a7f88'];
-    let wall='';const cols=9,rows=3,w=128,h=72,gx=14,gy=14,x0=(1600-(cols*w+(cols-1)*gx))/2,y0=150;
-    for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
-      const x=x0+c*(w+gx),y=y0+r*(h+gy),t=tints[Math.floor(rnd()*tints.length)],on=rnd()>.55;
-      wall+='<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#lgScr)" stroke="#2b3139" stroke-width="3"/>'+
-        '<rect class="'+(on?'on':'')+'" style="animation-delay:-'+(rnd()*7).toFixed(1)+'s" x="'+(x+4)+'" y="'+(y+4)+'" width="'+(w-8)+'" height="'+(h-8)+'" fill="'+t+'" opacity=".9"/>'+
-        '<rect x="'+(x+4)+'" y="'+(y+h-18)+'" width="'+(w-8)+'" height="14" fill="#0b0e12" opacity=".75"/>'+
-        (r===1&&(c===3||c===5)?'<rect x="'+(x-3)+'" y="'+(y-3)+'" width="'+(w+6)+'" height="'+(h+6)+'" rx="4" fill="none" stroke="'+(c===3?'#e8402f':'#36d278')+'" stroke-width="4"/>':'');
-    }
-    let rig='',cones='';
-    [180,470,800,1130,1420].forEach((x,i)=>{
-      rig+='<rect x="'+(x-22)+'" y="58" width="44" height="34" rx="6" fill="#2a3038"/><rect x="'+(x-6)+'" y="40" width="12" height="20" fill="#1e2329"/><ellipse cx="'+x+'" cy="94" rx="16" ry="5" fill="#fff4d6" opacity=".85"/>';
-      cones+='<path class="lg-cone" style="animation-delay:-'+(i*3.1)+'s" d="M'+(x-14)+' 94 L'+(x+14)+' 94 L'+(x+170)+' 900 L'+(x-170)+' 900 Z" fill="url(#lgBeam)"/>';
-    });
-    let desk='';
-    for(let r=0;r<3;r++)for(let c=0;c<46;c++){
-      const v=rnd(),col=v>.93?'#e8402f':v>.86?'#36d278':v>.78?'#e8c85a':'#3a414b';
-      desk+='<circle class="'+(v>.97?'blink':'')+'" cx="'+(140+c*29)+'" cy="'+(808+r*22)+'" r="5" fill="'+col+'"/>';
+    // Out-of-focus broadcast studio: LED wall, studio-light bokeh, haze, grain.
+    let seed=11;const rnd=()=>(seed=(seed*9301+49297)%233280)/233280;
+    const warm=['#ffd9a0','#ffc978','#ffe9c4','#f2b45c'],cool=['#9fc4ff','#7fa8ef','#c9dcff'];
+    let bokeh='';
+    for(let i=0;i<34;i++){
+      const big=i<10,x=rnd()*1600,y=big?60+rnd()*300:rnd()*620,r=big?38+rnd()*46:10+rnd()*26,isCool=rnd()<.32,c=(isCool?cool:warm)[Math.floor(rnd()*(isCool?3:4))],o=(big?.13:.2)+rnd()*.16;
+      bokeh+='<circle class="lg-bk" style="animation-delay:-'+(rnd()*18).toFixed(1)+'s;animation-duration:'+(14+rnd()*12).toFixed(1)+'s" cx="'+x.toFixed(0)+'" cy="'+y.toFixed(0)+'" r="'+r.toFixed(0)+'" fill="'+c+'" opacity="'+o.toFixed(2)+'"/>';
     }
     return '<div class="lg-bg" aria-hidden="true"><svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice"><defs>'+
-      '<linearGradient id="lgRoom" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1d232b"/><stop offset=".55" stop-color="#151a20"/><stop offset="1" stop-color="#0d1014"/></linearGradient>'+
-      '<linearGradient id="lgScr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#11151a"/><stop offset="1" stop-color="#0a0d10"/></linearGradient>'+
-      '<linearGradient id="lgBeam" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff1cc" stop-opacity=".28"/><stop offset=".6" stop-color="#ffe7a8" stop-opacity=".05"/><stop offset="1" stop-color="#ffe7a8" stop-opacity="0"/></linearGradient>'+
-      '<linearGradient id="lgDesk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#262c34"/><stop offset="1" stop-color="#101318"/></linearGradient>'+
-      '<filter id="lgSoft"><feGaussianBlur stdDeviation="2.2"/></filter><filter id="lgSofter"><feGaussianBlur stdDeviation="6"/></filter></defs>'+
+      '<linearGradient id="lgRoom" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#121821"/><stop offset=".6" stop-color="#0f1319"/><stop offset="1" stop-color="#0a0d11"/></linearGradient>'+
+      '<linearGradient id="lgLed" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1b3a6b"/><stop offset=".45" stop-color="#2a5ea8"/><stop offset=".62" stop-color="#7a5a2a"/><stop offset="1" stop-color="#1c2a44"/></linearGradient>'+
+      '<pattern id="lgPix" width="6" height="6" patternUnits="userSpaceOnUse"><rect width="6" height="6" fill="#000" opacity=".55"/><rect x="1" y="1" width="4" height="4" fill="#fff" opacity=".18"/></pattern>'+
+      '<linearGradient id="lgShaft" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff3d6" stop-opacity=".16"/><stop offset=".7" stop-color="#fff3d6" stop-opacity=".03"/><stop offset="1" stop-color="#fff3d6" stop-opacity="0"/></linearGradient>'+
+      '<radialGradient id="lgFloor" cx=".5" cy="0" r=".6"><stop offset="0" stop-color="#e8c85a" stop-opacity=".16"/><stop offset="1" stop-color="#e8c85a" stop-opacity="0"/></radialGradient>'+
+      '<filter id="lgDof" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="7"/></filter>'+
+      '<filter id="lgDofLed" x="-10%" y="-30%" width="120%" height="160%"><feGaussianBlur stdDeviation="5"/></filter>'+
+      '<filter id="lgHaze" x="-30%" y="-10%" width="160%" height="120%"><feGaussianBlur stdDeviation="22"/></filter>'+
+      '<filter id="lgGrain"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .5  0 0 0 0 .5  0 0 0 0 .5  0 0 0 .6 0"/></filter></defs>'+
       '<rect width="1600" height="900" fill="url(#lgRoom)"/>'+
-      '<g opacity=".72" filter="url(#lgSoft)"><rect x="'+(x0-30)+'" y="'+(y0-30)+'" width="'+(1600-2*(x0-30))+'" height="'+(rows*(h+gy)+46)+'" rx="10" fill="#0e1115"/><g class="lg-wall">'+wall+'</g></g>'+
-      '<g style="mix-blend-mode:screen">'+cones+'</g>'+
-      '<rect x="0" y="40" width="1600" height="10" fill="#22282f"/><rect x="0" y="50" width="1600" height="3" fill="#2e353e"/>'+rig+
-      '<g filter="url(#lgSofter)" opacity=".5"><ellipse cx="800" cy="760" rx="760" ry="60" fill="#e8c85a" opacity=".06"/></g>'+
-      '<path d="M0 790 Q800 760 1600 790 L1600 900 L0 900 Z" fill="url(#lgDesk)"/>'+
-      '<g class="lg-desk" opacity=".95" filter="url(#lgSoft)">'+desk+'</g>'+
+      // distant LED video wall, out of focus
+      '<g filter="url(#lgDofLed)" opacity=".68"><rect class="lg-led" x="170" y="120" width="1260" height="420" rx="6" fill="url(#lgLed)"/><rect x="170" y="120" width="1260" height="420" rx="6" fill="url(#lgPix)"/></g>'+
+      '<g filter="url(#lgHaze)" opacity=".5"><rect x="140" y="520" width="1320" height="60" fill="#2a5ea8" opacity=".35"/></g>'+
+      // volumetric light shafts through haze
+      '<g filter="url(#lgHaze)" style="mix-blend-mode:screen">'+
+        [[260,-8],[620,4],[980,-5],[1340,7]].map(([x,a],i)=>'<path class="lg-shaft" style="animation-delay:-'+(i*4)+'s" transform="rotate('+a+' '+x+' 0)" d="M'+(x-30)+' -40 L'+(x+30)+' -40 L'+(x+150)+' 900 L'+(x-150)+' 900 Z" fill="url(#lgShaft)"/>').join('')+'</g>'+
+      // studio light bokeh
+      '<g filter="url(#lgDof)" style="mix-blend-mode:screen">'+bokeh+'</g>'+
+      // floor sheen and horizon
+      '<rect x="0" y="600" width="1600" height="300" fill="url(#lgFloor)"/>'+
+      '<rect x="0" y="598" width="1600" height="2" fill="#e8c85a" opacity=".08" filter="url(#lgDofLed)"/>'+
+      '<rect width="1600" height="900" filter="url(#lgGrain)" opacity=".07"/>'+
       '</svg></div>';
   }
   function loginScreen(extra){
