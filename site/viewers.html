@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>FBI TV — Viewer report</title>
+<meta name="theme-color" content="#111113">
+<link rel="icon" type="image/png" sizes="192x192" href="/tv-icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --bg:#161618; --bar:#111113; --card:#1D1D20; --line:#2A2A2D; --chip:#26262A;
+    --text:#F2EFE8; --strong:#F7F4EC; --muted:#B3AC9E; --soft:#C9C3B6; --faint:#8E887B;
+    --gold:#E8B93A; --series:#B8861F; --live:#D62828; --grid:#2E2E32;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:'Archivo',system-ui,sans-serif}
+  a{color:var(--gold)}
+  :focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+  @media (max-width:600px){.wrap{padding:0 16px}}
+  header{background:var(--bar);border-bottom:1px solid var(--line)}
+  header .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding-top:14px;padding-bottom:14px}
+  .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--strong)}
+  .brand img{width:36px;height:36px;border-radius:9px}
+  .brand b{font-family:'Archivo Black',sans-serif;font-weight:400;font-size:20px}
+  .brand span{color:var(--muted);font-weight:600;font-size:15px}
+  .pick{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+  select{min-height:44px;border-radius:10px;border:1px solid #3A3833;background:#141416;color:var(--text);font:inherit;font-size:15px;padding:0 12px}
+  main.wrap{padding-top:24px;padding-bottom:40px;display:flex;flex-direction:column;gap:20px}
+  h1{margin:0;font-family:'Archivo Black',sans-serif;font-weight:400;font-size:clamp(22px,3vw,28px);color:var(--strong)}
+  .sub{color:var(--muted);font-size:14px;margin-top:4px}
+  .pill{display:inline-flex;align-items:center;gap:6px;background:var(--live);color:#fff;font-weight:700;font-size:12px;letter-spacing:.08em;padding:4px 8px;border-radius:6px;vertical-align:middle;margin-left:8px}
+  .pill i{width:7px;height:7px;border-radius:50%;background:#fff}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .tile .k{font-size:13px;font-weight:600;color:var(--muted)}
+  .tile .v{font-family:'Archivo Black',sans-serif;font-size:30px;line-height:1.1;color:var(--strong);margin-top:6px}
+  .tile .h{font-size:12px;color:var(--faint);margin-top:4px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px}
+  .card h2{margin:0;padding:16px 20px;font-size:16px;font-weight:700;color:var(--strong);border-bottom:1px solid var(--line)}
+  .chart{position:relative;padding:12px 12px 8px}
+  .chart svg{display:block;width:100%;height:280px}
+  .chart .empty{padding:60px 20px;text-align:center;color:var(--muted)}
+  .tip{position:absolute;pointer-events:none;background:#0B0B0C;border:1px solid #3A3833;border-radius:8px;padding:8px 10px;font-size:13px;color:var(--text);white-space:nowrap;transform:translate(-50%,-110%)}
+  .tip b{display:block;font-size:16px;color:var(--strong)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  .tablebox{overflow-x:auto}
+  th,td{text-align:left;padding:12px 16px;border-top:1px solid var(--line);white-space:nowrap}
+  th{color:var(--muted);font-weight:600;font-size:13px;border-top:0}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+  tr.sel td{background:#26241E}
+  tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--gold)}
+  td button{all:unset;cursor:pointer;color:var(--strong);font-weight:600;min-height:28px}
+  td button:hover{color:var(--gold)}
+  td button:focus-visible{outline:3px solid var(--gold);outline-offset:2px;border-radius:4px}
+  .note{font-size:13px;color:var(--faint);line-height:1.5}
+  .signin{padding:28px 22px;display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+  .btn{display:inline-flex;align-items:center;min-height:44px;padding:0 18px;border-radius:10px;background:var(--gold);color:#161618;font-weight:700;text-decoration:none}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="brand" href="/tv"><img src="/tv-icon-192.png" alt=""><b>FBI TV</b><span>Viewer report</span></a>
+    <div class="pick" id="pickWrap" hidden>
+      <label for="channel">Channel</label>
+      <select id="channel"></select>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card signin" id="signin" hidden>
+    <h1>Sign in to see the report</h1>
+    <p class="sub">The viewer report is only for the FBI Live studio team. Sign in to the studio, then come back to this page.</p>
+    <a class="btn" href="/live">Open the studio sign-in</a>
+  </section>
+
+  <section id="report" hidden>
+    <div>
+      <h1 id="bTitle">—</h1>
+      <div class="sub" id="bWhen"></div>
+    </div>
+  </section>
+
+  <div class="tiles" id="tiles" hidden>
+    <div class="tile"><div class="k">Viewers</div><div class="v" id="tViewers">—</div><div class="h">different devices that watched</div></div>
+    <div class="tile"><div class="k">Peak</div><div class="v" id="tPeak">—</div><div class="h" id="tPeakAt">most watching at once</div></div>
+    <div class="tile"><div class="k">Average audience</div><div class="v" id="tAvg">—</div><div class="h">watching at any moment</div></div>
+    <div class="tile"><div class="k">Avg watch time</div><div class="v" id="tWatch">—</div><div class="h">minutes per viewer</div></div>
+    <div class="tile"><div class="k">On air</div><div class="v" id="tDur">—</div><div class="h">length tracked</div></div>
+  </div>
+
+  <section class="card" id="chartCard" hidden>
+    <h2 id="chartH">Audience minute by minute</h2>
+    <div class="chart" id="chart"></div>
+  </section>
+
+  <section class="card" id="listCard" hidden>
+    <h2>Broadcasts</h2>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Date</th><th>Broadcast</th><th class="n">On air</th><th class="n">Viewers</th><th class="n">Peak</th><th class="n">Average</th><th class="n">Avg watch</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <p class="note" id="note" hidden></p>
+</main>
+
+<script>
+(function () {
+  const TZ = "Africa/Accra";
+  const $ = (id) => document.getElementById(id);
+  let state = { stream: "", session: "" };
+  let timer = null;
+
+  const fmtDate = (iso) => new Date(iso).toLocaleDateString("en-GB", { timeZone: TZ, weekday: "short", day: "numeric", month: "short" });
+  const fmtTime = (iso) => new Date(iso).toLocaleTimeString("en-GB", { timeZone: TZ, hour: "numeric", minute: "2-digit" });
+  const fmtDur = (m) => { if (m == null) return "—"; const h = Math.floor(m / 60), mm = m % 60; return h ? h + "h " + mm + "m" : mm + "m"; };
+  const num = (n) => (n == null ? "—" : Number(n).toLocaleString("en-GB"));
+
+  async function load() {
+    const q = new URLSearchParams();
+    if (state.stream) q.set("stream", state.stream);
+    if (state.session) q.set("session", state.session);
+    let r;
+    try { r = await fetch("/api/live/viewer-report?" + q.toString(), { cache: "no-store", credentials: "same-origin" }); }
+    catch (e) { return; }
+    if (r.status === 401) { $("signin").hidden = false; return; }
+    const d = await r.json();
+    if (!r.ok) { $("note").hidden = false; $("note").textContent = d.error || "Could not load the report."; return; }
+    render(d);
+  }
+
+  function render(d) {
+    state.stream = d.stream_id || "";
+    state.session = d.session_id || "";
+    // channel picker
+    const sel = $("channel");
+    sel.textContent = "";
+    (d.streams || []).forEach((s) => {
+      const o = document.createElement("option");
+      o.value = s.id; o.textContent = (s.name || s.title || "Channel") + (s.live ? " — live" : "");
+      if (String(s.id) === String(state.stream)) o.selected = true;
+      sel.appendChild(o);
+    });
+    $("pickWrap").hidden = !(d.streams || []).length;
+
+    const list = d.broadcasts || [];
+    const b = list.find((x) => String(x.session_id) === String(state.session)) || list[0];
+    $("report").hidden = false;
+    $("note").hidden = false;
+    $("note").textContent = "Viewer tracking for this report started on 12 October 2026, so earlier broadcasts aren't included. " +
+      "Viewers are counted per device. All-time devices on this channel: " + num(d.all_time_devices) + ".";
+
+    if (!b) {
+      $("bTitle").textContent = "No broadcasts tracked yet";
+      $("bWhen").textContent = "Numbers appear here from the next time this channel goes live.";
+      $("tiles").hidden = true; $("chartCard").hidden = true; $("listCard").hidden = true;
+      return;
+    }
+    $("bTitle").textContent = b.title || "Broadcast";
+    if (b.live) { const p = document.createElement("span"); p.className = "pill"; p.innerHTML = "<i></i>LIVE"; $("bTitle").appendChild(p); }
+    $("bWhen").textContent = fmtDate(b.started_at) + " · " + fmtTime(b.started_at) + " – " + (b.live ? "now" : fmtTime(b.last_at)) + " (Ghana time)";
+
+    $("tiles").hidden = false;
+    $("tViewers").textContent = num(b.unique_viewers);
+    $("tPeak").textContent = num(b.peak);
+    $("tAvg").textContent = b.average == null ? "—" : Number(b.average).toLocaleString("en-GB", { maximumFractionDigits: 1 });
+    $("tWatch").textContent = b.avg_watch_minutes == null ? "—" : b.avg_watch_minutes + "m";
+    $("tDur").textContent = fmtDur(b.minutes);
+    const series = d.series || [];
+    const peakPt = series.reduce((m, p) => (p.viewers > (m ? m.viewers : -1) ? p : m), null);
+    $("tPeakAt").textContent = peakPt && peakPt.viewers > 0 ? "at " + fmtTime(peakPt.at) : "most watching at once";
+
+    $("chartCard").hidden = false;
+    drawChart(series);
+
+    $("listCard").hidden = false;
+    const tb = $("rows"); tb.textContent = "";
+    list.forEach((x) => {
+      const tr = document.createElement("tr");
+      if (String(x.session_id) === String(state.session)) tr.className = "sel";
+      const cells = [
+        fmtDate(x.started_at) + ", " + fmtTime(x.started_at),
+        null,
+        fmtDur(x.minutes), num(x.unique_viewers), num(x.peak),
+        x.average == null ? "—" : Number(x.average).toLocaleString("en-GB", { maximumFractionDigits: 1 }),
+        x.avg_watch_minutes == null ? "—" : x.avg_watch_minutes + "m"
+      ];
+      cells.forEach((c, i) => {
+        const td = document.createElement("td");
+        if (i >= 2) td.className = "n";
+        if (i === 1) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = (x.title || "Broadcast") + (x.live ? " (live)" : "");
+          btn.setAttribute("aria-label", "Show report for " + (x.title || "broadcast") + ", " + fmtDate(x.started_at));
+          btn.addEventListener("click", () => { state.session = x.session_id || ""; load(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+          td.appendChild(btn);
+        } else td.textContent = c;
+        tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+
+    clearInterval(timer);
+    if (b.live) timer = setInterval(load, 60 * 1000);
+  }
+
+  // Single-series area chart with a crosshair tooltip (one measure, one axis).
+  function drawChart(series) {
+    const box = $("chart");
+    box.textContent = "";
+    if (series.length < 2) {
+      const e = document.createElement("div"); e.className = "empty";
+      e.textContent = series.length ? "Collecting data — the chart fills in minute by minute." : "No audience data for this broadcast yet.";
+      box.appendChild(e); return;
+    }
+    const W = 1000, H = 280, L = 44, R = 16, T = 14, B = 30;
+    const pts = series.map((p) => ({ t: new Date(p.at).getTime(), v: Number(p.viewers) || 0, at: p.at }));
+    const t0 = pts[0].t, t1 = pts[pts.length - 1].t || t0 + 1;
+    const vmaxRaw = Math.max(1, ...pts.map((p) => p.v));
+    const step = vmaxRaw <= 5 ? 1 : vmaxRaw <= 20 ? 5 : vmaxRaw <= 50 ? 10 : vmaxRaw <= 200 ? 50 : Math.pow(10, Math.floor(Math.log10(vmaxRaw)));
+    const vmax = Math.ceil(vmaxRaw / step) * step;
+    const x = (t) => L + (t1 === t0 ? 0 : ((t - t0) / (t1 - t0)) * (W - L - R));
+    const y = (v) => T + (1 - v / vmax) * (H - T - B);
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "Audience per minute, peak " + vmaxRaw + " watching");
+    const el = (n, a) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); return e; };
+    // grid + y labels
+    for (let v = 0; v <= vmax; v += step) {
+      svg.appendChild(el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: "#2E2E32", "stroke-width": 1, "vector-effect": "non-scaling-stroke" }));
+      const tx = el("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end", fill: "#8E887B", "font-size": 12 });
+      tx.textContent = v; svg.appendChild(tx);
+    }
+    // x labels (about 5)
+    const n = 5;
+    for (let i = 0; i <= n; i++) {
+      const t = t0 + ((t1 - t0) * i) / n;
+      const tx = el("text", { x: x(t), y: H - 8, "text-anchor": i === 0 ? "start" : i === n ? "end" : "middle", fill: "#8E887B", "font-size": 12 });
+      tx.textContent = fmtTime(new Date(t).toISOString()); svg.appendChild(tx);
+    }
+    const line = pts.map((p, i) => (i ? "L" : "M") + x(p.t).toFixed(1) + " " + y(p.v).toFixed(1)).join(" ");
+    const area = line + " L" + x(t1).toFixed(1) + " " + y(0) + " L" + x(t0).toFixed(1) + " " + y(0) + " Z";
+    svg.appendChild(el("path", { d: area, fill: "#B8861F", "fill-opacity": 0.18 }));
+    svg.appendChild(el("path", { d: line, fill: "none", stroke: "#B8861F", "stroke-width": 2, "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke" }));
+    const cross = el("line", { y1: T, y2: H - B, stroke: "#6B665C", "stroke-width": 1, "vector-effect": "non-scaling-stroke", visibility: "hidden" });
+    const dot = el("circle", { r: 5, fill: "#B8861F", stroke: "#1D1D20", "stroke-width": 2, visibility: "hidden" });
+    svg.append(cross, dot);
+    box.appendChild(svg);
+    const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; box.appendChild(tip);
+    function show(clientX) {
+      const rect = svg.getBoundingClientRect();
+      const sx = ((clientX - rect.left) / rect.width) * W;
+      let best = pts[0];
+      for (const p of pts) if (Math.abs(x(p.t) - sx) < Math.abs(x(best.t) - sx)) best = p;
+      cross.setAttribute("x1", x(best.t)); cross.setAttribute("x2", x(best.t)); cross.setAttribute("visibility", "visible");
+      dot.setAttribute("cx", x(best.t)); dot.setAttribute("cy", y(best.v)); dot.setAttribute("visibility", "visible");
+      tip.hidden = false;
+      tip.innerHTML = "";
+      const b = document.createElement("b"); b.textContent = best.v + " watching";
+      const s = document.createElement("span"); s.textContent = fmtTime(best.at);
+      tip.append(b, s);
+      tip.style.left = (rect.left - box.getBoundingClientRect().left + (x(best.t) / W) * rect.width) + "px";
+      tip.style.top = (12 + (y(best.v) / H) * rect.height) + "px";
+    }
+    function hide() { tip.hidden = true; cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); }
+    svg.addEventListener("pointermove", (e) => show(e.clientX));
+    svg.addEventListener("pointerleave", hide);
+    svg.addEventListener("pointerdown", (e) => show(e.clientX));
+  }
+
+  $("channel").addEventListener("change", (e) => { state.stream = e.target.value; state.session = ""; load(); });
+  load();
+})();
+</script>
+</body>
+</html>
