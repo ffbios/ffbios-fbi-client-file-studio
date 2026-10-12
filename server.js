@@ -3636,6 +3636,7 @@ function publicHlsSessionGet(token,upstreamPath){
   if(String(v.upstreamPath||"")!==String(upstreamPath||""))return "";
   return v.session;
 }
+function publicHlsSessionDelete(token,upstreamPath){publicHlsSessionByToken.delete(publicHlsSessionKey(token,upstreamPath))}
 function publicHlsSessionSet(token,session,upstreamPath){
   if(!token||!session||!upstreamPath)return;
   publicHlsSessionByToken.set(publicHlsSessionKey(token,upstreamPath),{session:String(session),upstreamPath:String(upstreamPath),expiresAt:Date.now()+25*60*1000});
@@ -3716,7 +3717,30 @@ async function proxyPublicHlsStream(req,res){
       }
     }
 
-    const out=await fetchPublicHlsBody(upstream,upstreamHeaders);
+    let out=await fetchPublicHlsBody(upstream,upstreamHeaders);
+    // A stored MediaMTX session dies when the encoder drops and reconnects (or
+    // the muxer idles out). Reusing it kept every viewer on 401 until it expired
+    // 25 minutes later, so playback never came back after an OBS reconnect.
+    // Drop the stale session and ask MediaMTX for a fresh one.
+    if(!out.response.ok&&[401,403,404].includes(out.response.status)){
+      publicHlsSessionDelete(token,upstreamPath);
+      upstream.searchParams.delete("session");
+      const retryHeaders=Object.assign({},upstreamHeaders,{cookie:"cookieCheck=1"});
+      if(sub!=="index.m3u8"){
+        // Variant playlists only work with a session, and MediaMTX only hands
+        // one out on the main playlist, so open a fresh session there first.
+        try{
+          const idx=new URL(internalBase+"/"+upstreamPath+"/index.m3u8");
+          const fresh=await fetchPublicHlsBody(idx,{cookie:"cookieCheck=1"});
+          let s2="";
+          const sc=typeof fresh.response.headers.getSetCookie==="function"?fresh.response.headers.getSetCookie():String(fresh.response.headers.get("set-cookie")||"").split(/,(?=\s*\w+=)/);
+          for(const c of sc){const m=String(c).match(/(?:^|;\s*)hlsSession=([^;]+)/i);if(m){s2=m[1];break;}}
+          if(!s2){const m=fresh.body.toString("utf8").match(/[?&]session=([A-Za-z0-9-]+)/);if(m)s2=m[1];}
+          if(s2){upstream.searchParams.set("session",s2);publicHlsSessionSet(token,s2,upstreamPath);delete retryHeaders.cookie;}
+        }catch{}
+      }
+      out=await fetchPublicHlsBody(upstream,retryHeaders);
+    }
     const response=out.response,type=out.type;
     let body=out.body;
     if(!response.ok)return res.status(response.status).type(type).send(body);
@@ -4289,7 +4313,7 @@ if(emojiOpen&&emojiPicker){
   });
 }
 function clearPlayer(){if(player){try{player.destroy()}catch{}player=null}try{video.pause();video.removeAttribute("src");video.load()}catch{}}
-function startPlayer(){replayMode=false;clearPlayer();offline.style.display="none";video.style.display="block";video.muted=true;streamState.textContent="Connecting…";if(window.Hls&&Hls.isSupported()){player=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:4,liveMaxLatencyDurationCount:12,maxLiveSyncPlaybackRate:1.08,maxBufferLength:45,maxMaxBufferLength:90,backBufferLength:60,maxBufferHole:0.5,liveSyncOnStallIncrease:2});let retryTimer=0;player.on(Hls.Events.ERROR,function(_,data){if(!data)return;if(data.fatal&&data.type===Hls.ErrorTypes.NETWORK_ERROR){streamState.textContent="Network recovery…";try{player.startLoad(-1);return}catch{}}if(data.fatal&&data.type===Hls.ErrorTypes.MEDIA_ERROR){streamState.textContent="Recovering playback…";try{player.recoverMediaError();return}catch{}}if(data.fatal){streamState.textContent="Reconnecting…";clearTimeout(retryTimer);retryTimer=setTimeout(()=>{if(live)startPlayer()},1200)}});player.on(Hls.Events.MANIFEST_PARSED,function(){streamState.textContent="Live playback";video.play().catch(()=>{})});player.on(Hls.Events.BUFFER_STALLED_ERROR,function(){streamState.textContent="Buffering…"});player.loadSource(hlsUrl);player.attachMedia(video);return}video.src=hlsUrl;video.play().catch(()=>{});streamState.textContent="Live playback"}
+function startPlayer(){replayMode=false;clearPlayer();offline.style.display="none";video.style.display="block";video.muted=true;streamState.textContent="Connecting…";if(window.Hls&&Hls.isSupported()){player=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:4,liveMaxLatencyDurationCount:12,maxLiveSyncPlaybackRate:1.08,maxBufferLength:45,maxMaxBufferLength:90,backBufferLength:60,maxBufferHole:0.5,liveSyncOnStallIncrease:2});let retryTimer=0;player.on(Hls.Events.ERROR,function(_,data){if(!data)return;if(data.fatal&&data.type===Hls.ErrorTypes.NETWORK_ERROR){streamState.textContent="Network recovery…";try{player.startLoad(-1);return}catch{}}if(data.fatal&&data.type===Hls.ErrorTypes.MEDIA_ERROR){streamState.textContent="Recovering playback…";try{player.recoverMediaError();return}catch{}}if(data.fatal){streamState.textContent="Reconnecting…";clearTimeout(retryTimer);retryTimer=setTimeout(()=>{if(live)startPlayer()},1200)}});player.on(Hls.Events.MANIFEST_PARSED,function(){streamState.textContent="Live playback";video.play().catch(()=>{})});player.on(Hls.Events.BUFFER_STALLED_ERROR,function(){streamState.textContent="Buffering…"});player.on(Hls.Events.FRAG_BUFFERED,function(){if(streamState.textContent!=="Live playback")streamState.textContent="Live playback"});player.loadSource(hlsUrl);player.attachMedia(video);return}video.src=hlsUrl;video.play().catch(()=>{});streamState.textContent="Live playback"}
 async function loadReplay(){
   try{
     const r=await fetch("/api/public/stream/"+encodeURIComponent(token)+"/replay",{cache:"no-store"});
