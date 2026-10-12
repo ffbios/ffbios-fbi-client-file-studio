@@ -11,8 +11,16 @@ const A={
   bridge:null,
   mv:null,
   obs:null,
-  timer:null
+  timer:null,
+  layout:"full",      // full | pip | side
+  second:"",          // second picture for pip / side by side
+  pipCorner:"br",     // tl | tr | bl | br
+  afv:true,           // audio follows video on take
+  mix:new Map()       // id -> {on,gain}
 };
+const mixFor=id=>{if(!A.mix.has(id))A.mix.set(id,{on:id==="channel",gain:1});return A.mix.get(id)};
+const hasAudio=s=>!!s&&(s.kind==="CHANNEL"||!!s.stream?.getAudioTracks?.().length);
+const isVisual=s=>!!s&&s.kind!=="AUDIO";
 
 const svg=p=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+p+'</svg>';
 const ICON={
@@ -24,6 +32,9 @@ const ICON={
   capture:svg('<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h3v4H7zM14 10h3M14 14h3"/>'),
   meet:svg('<path d="M4 6h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4z"/><path d="m16 10 4-3v10l-4-3"/><path d="M8 12h4"/>'),
   zoom:svg('<rect x="3" y="4" width="18" height="16" rx="5"/><path d="M7 9h6a1 1 0 0 1 1 1v5H8a1 1 0 0 1-1-1z"/><path d="m14 11 3-2v6l-3-2"/>'),
+  full:svg('<rect x="3" y="5" width="18" height="14" rx="2"/>'),
+  pip:svg('<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11" width="7" height="6" rx="1" fill="currentColor" stroke="none"/>'),
+  side:svg('<rect x="3" y="6" width="8.5" height="12" rx="1.5"/><rect x="12.5" y="6" width="8.5" height="12" rx="1.5"/>'),
   plus:svg('<path d="M12 5v14M5 12h14"/>'),
   min:svg('<path d="M6 12h12"/>'),max:svg('<path d="m6 15 6-6 6 6"/>'),close:svg('<path d="M6 6l12 12M18 6 6 18"/>')
 };
@@ -142,6 +153,42 @@ function injectStyle(){
 .fbi-ls-modal-acts .fbi-ls-btn.take{height:42px;font-size:14px;background:#e8c85a;color:#1a1606;box-shadow:none}
 .fbi-ls-modal-acts .fbi-ls-btn{height:42px;font-size:13.5px}
 .fbi-ls-note{margin:14px 0 0;font-size:12.5px;color:#8d95a2;line-height:1.5}
+.fbi-ls-bus{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+.fbi-ls-mixer{position:sticky;top:0;display:grid;gap:8px;padding:12px;border:1px solid var(--ls-line);border-radius:12px;background:var(--ls-panel)}
+.fbi-ls-mixer .fbi-ls-bus-label{margin:0 0 2px}
+.fbi-ls-afv{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ls-muted);cursor:pointer}
+.fbi-ls-afv input{accent-color:#e8c85a;width:15px;height:15px}
+.fbi-ls-empty{margin:4px 0;font-size:12.5px;color:var(--ls-muted)}
+.fbi-ls-ch{display:grid;gap:6px;padding:10px;border:1px solid var(--ls-line);border-radius:10px;background:#0e1217}
+.fbi-ls-ch.off b{color:var(--ls-muted)}
+.fbi-ls-ch-top{display:flex;align-items:center;gap:8px}
+.fbi-ls-ch-top b{flex:1;min-width:0;font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fbi-ls-on{height:26px;min-width:46px;padding:0 10px;border-radius:7px;border:1px solid var(--ls-line2);background:#171c23;color:var(--ls-muted);font-weight:700;font-size:12px;font-family:inherit;cursor:pointer}
+.fbi-ls-on.on{background:rgba(54,210,120,.16);border-color:rgba(54,210,120,.6);color:#7ff0ad}
+.fbi-ls-ch-fader{display:flex;align-items:center;gap:8px}
+.fbi-ls-ch-fader input{--p:66.7%;-webkit-appearance:none;appearance:none;flex:1;height:6px;border-radius:99px;background:linear-gradient(90deg,#e8c85a var(--p),#2a313b var(--p));cursor:pointer}
+.fbi-ls-ch-fader input::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:22px;border-radius:4px;background:#dfe3e8;border:2px solid #0a0d11}
+.fbi-ls-ch-fader input::-moz-range-thumb{width:14px;height:20px;border-radius:4px;background:#dfe3e8;border:2px solid #0a0d11}
+.fbi-ls-db{width:58px;text-align:right;font-size:12px;color:var(--ls-muted);font-variant-numeric:tabular-nums}
+.fbi-ls-meter{height:6px;border-radius:99px;background:#1b2129;overflow:hidden}
+.fbi-ls-meter i{display:block;height:100%;width:0;background:var(--ls-pvw);transition:width .06s linear}
+.fbi-ls-meter i.warm{background:#e8c85a}.fbi-ls-meter i.hot{background:var(--ls-pgm)}
+.fbi-ls-layout{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 16px;border-top:1px solid var(--ls-line);background:#0c0f13}
+.fbi-ls-layout-label{font-size:12.5px;color:var(--ls-muted)}
+.fbi-ls-seg{display:inline-flex;border:1px solid var(--ls-line2);border-radius:10px;overflow:hidden}
+.fbi-ls-seg button{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 12px;border:0;border-right:1px solid var(--ls-line);background:var(--ls-panel);color:var(--ls-text);font-weight:600;font-size:13px;font-family:inherit;cursor:pointer}
+.fbi-ls-seg button:last-child{border-right:0}.fbi-ls-seg button svg{width:16px;height:16px}
+.fbi-ls-seg button.on{background:rgba(232,200,90,.16);color:var(--ls-gold)}
+.fbi-ls-layout-pick{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ls-muted)}
+.fbi-ls-layout-pick select{height:34px;max-width:220px;border-radius:8px;border:1px solid var(--ls-line2);background:#0b0e12;color:var(--ls-text);padding:0 8px;font:13px Inter,system-ui,sans-serif}
+.fbi-ls-corners{display:grid;grid-template-columns:repeat(2,20px);gap:3px;padding:3px;border:1px solid var(--ls-line2);border-radius:7px;background:#0b0e12}
+.fbi-ls-corners button{width:20px;height:13px;padding:0;border:0;border-radius:2px;background:#2a313b;cursor:pointer;position:relative}
+.fbi-ls-corners button.on{background:var(--ls-gold)}
+.fbi-ls-layout-note{margin-left:auto;font-size:12px;color:var(--ls-muted)}
+.fbi-ls-seg button:focus-visible,.fbi-ls-on:focus-visible,.fbi-ls-corners button:focus-visible,.fbi-ls-ch-fader input:focus-visible{outline:2px solid var(--ls-gold);outline-offset:2px}
+.fbi-ls.min .fbi-ls-layout{display:none}
+@media(max-width:1100px){.fbi-ls-bus{grid-template-columns:1fr}.fbi-ls-mixer{position:static}}
+@media(max-width:720px){.fbi-ls-seg button{padding:0 9px}.fbi-ls-seg button svg{display:none}.fbi-ls-layout-note{display:none}}
 @media(max-width:1500px){.fbi-ls-title p{display:none}}@media(max-width:1280px){.fbi-ls-add>span{display:none}.fbi-ls-btn .t{display:none}}
 @media(max-width:1000px){.fbi-ls{left:12px;right:12px;bottom:12px}.fbi-ls-head{flex-wrap:wrap}.fbi-ls-foot{grid-template-columns:1fr}.fbi-ls-btn.take{width:100%}}
 @media(max-width:620px){.fbi-ls-add button .t{display:none}.fbi-ls-grid{grid-template-columns:1fr 1fr}.fbi-ls-src .fbi-ls-acts button[data-act=preview]{display:none}}
@@ -190,36 +237,50 @@ function makeProgramStream(){
   return {canvas,ctx,videoStream,audio,dest,nodes:new Map(),channelAudioNode:null,recorder,raf:0,sendChain:Promise.resolve(),transition:null};
 }
 
-function drawSource(ctx,src){
-  if(!src)return false;
-  if(src.kind==="NDI"){
-    const img=src.image;
-    if(!img||!img.complete||!img.naturalWidth)return false;
-    const w=img.naturalWidth,h=img.naturalHeight;
-    const scale=Math.max(1920/w,1080/h),dw=w*scale,dh=h*scale;
-    ctx.drawImage(img,(1920-dw)/2,(1080-dh)/2,dw,dh);
-    return true;
-  }
-  const v=src.video;
-  if(!v||v.readyState<2||!v.videoWidth||!v.videoHeight)return false;
-  const scale=Math.max(1920/v.videoWidth,1080/v.videoHeight),dw=v.videoWidth*scale,dh=v.videoHeight*scale;
-  ctx.drawImage(v,(1920-dw)/2,(1080-dh)/2,dw,dh);
-  return true;
+function sourceFrame(src){
+  if(!src)return null;
+  if(src.kind==="NDI"){const img=src.image;return img&&img.complete&&img.naturalWidth?{el:img,w:img.naturalWidth,h:img.naturalHeight}:null}
+  const v=src.video;return v&&v.readyState>=2&&v.videoWidth?{el:v,w:v.videoWidth,h:v.videoHeight}:null;
 }
-
-function draw(out){
-  if(!out)return;
-  const ctx=out.ctx;ctx.fillStyle="#000";ctx.fillRect(0,0,1920,1080);
+function drawSource(ctx,src,x=0,y=0,w=1920,h=1080){
+  const f=sourceFrame(src);if(!f)return false;
+  const scale=Math.max(w/f.w,h/f.h),dw=f.w*scale,dh=f.h*scale;
+  ctx.save();ctx.beginPath();ctx.rect(x,y,w,h);ctx.clip();
+  ctx.drawImage(f.el,x+(w-dw)/2,y+(h-dh)/2,dw,dh);
+  ctx.restore();return true;
+}
+function drawMain(ctx,out,x,y,w,h){
   const tr=out.transition;
   if(tr){
     const p=Math.max(0,Math.min(1,(performance.now()-tr.started)/tr.duration));
     const from=A.sources.get(tr.fromId),to=A.sources.get(tr.toId);
-    if(from) {ctx.save();ctx.globalAlpha=1-p;drawSource(ctx,from);ctx.restore()}
-    if(to) {ctx.save();ctx.globalAlpha=p;drawSource(ctx,to);ctx.restore()}
+    if(isVisual(from)){ctx.save();ctx.globalAlpha=1-p;drawSource(ctx,from,x,y,w,h);ctx.restore()}
+    if(isVisual(to)){ctx.save();ctx.globalAlpha=p;drawSource(ctx,to,x,y,w,h);ctx.restore()}
     if(p>=1)out.transition=null;
   }else{
     const src=A.sources.get(A.localProgram)||A.sources.get("channel");
-    if(src?.kind!=="AUDIO")drawSource(ctx,src);
+    if(isVisual(src))drawSource(ctx,src,x,y,w,h);
+  }
+}
+function secondSource(){const s=A.sources.get(A.second);return A.layout!=="full"&&isVisual(s)&&A.second!==(A.localProgram||"channel")?s:null}
+function draw(out){
+  if(!out)return;
+  const ctx=out.ctx;ctx.fillStyle="#000";ctx.fillRect(0,0,1920,1080);
+  const two=secondSource();
+  if(two&&A.layout==="side"){
+    const g=ctx.createLinearGradient(0,0,0,1080);g.addColorStop(0,"#121821");g.addColorStop(1,"#07090c");ctx.fillStyle=g;ctx.fillRect(0,0,1920,1080);
+    const w=932,h=524,y=278;
+    drawMain(ctx,out,20,y,w,h);
+    drawSource(ctx,two,968,y,w,h);
+    ctx.fillStyle="#e8c85a";ctx.fillRect(20,y+h+10,w,4);ctx.fillRect(968,y+h+10,w,4);
+  }else{
+    drawMain(ctx,out,0,0,1920,1080);
+    if(two&&A.layout==="pip"){
+      const w=576,h=324,m=48,x=A.pipCorner.includes("l")?m:1920-w-m,y=A.pipCorner.includes("t")?m:1080-h-m;
+      ctx.save();ctx.shadowColor="rgba(0,0,0,.6)";ctx.shadowBlur=30;ctx.fillStyle="#000";ctx.fillRect(x,y,w,h);ctx.restore();
+      drawSource(ctx,two,x,y,w,h);
+      ctx.strokeStyle="#e8c85a";ctx.lineWidth=5;ctx.strokeRect(x-2.5,y-2.5,w+5,h+5);
+    }
   }
   out.raf=requestAnimationFrame(()=>draw(out));
 }
@@ -272,33 +333,39 @@ function setProgramMonitor(out){
   v.play().catch(()=>{});
 }
 
+function audioNode(out,src){
+  if(!out||!src)return null;
+  if(src.kind==="CHANNEL")return out.channelAudioNode||null;
+  return out.nodes.get(src.id)||null;
+}
 function ensureAudio(out,src){
   if(!out||!src)return null;
-  if(src.kind==="CHANNEL"&&src.audioElement&&out.channelAudioNode)return out.channelAudioNode;
-  if(src.kind==="CHANNEL"&&src.audioElement){
-    try{
-      const input=out.audio.createMediaElementSource(src.audioElement);
-      const gain=out.audio.createGain();gain.gain.value=0;input.connect(gain);gain.connect(out.dest);
-      out.channelAudioNode={input,gain};return out.channelAudioNode;
-    }catch{return null}
-  }
-  if(!src.stream?.getAudioTracks?.().length||out.nodes.has(src.id))return out.nodes.get(src.id)||null;
+  const existing=audioNode(out,src);if(existing)return existing;
   try{
-    const ms=new MediaStream(src.stream.getAudioTracks());
-    const input=out.audio.createMediaStreamSource(ms);
-    const gain=out.audio.createGain();gain.gain.value=0;input.connect(gain);gain.connect(out.dest);
-    out.nodes.set(src.id,{input,gain});return out.nodes.get(src.id);
+    let input;
+    if(src.kind==="CHANNEL"){if(!src.audioElement)return null;input=out.audio.createMediaElementSource(src.audioElement)}
+    else{if(!src.stream?.getAudioTracks?.().length)return null;input=out.audio.createMediaStreamSource(new MediaStream(src.stream.getAudioTracks()))}
+    const gain=out.audio.createGain();gain.gain.value=0;
+    const meter=out.audio.createAnalyser();meter.fftSize=1024;meter.smoothingTimeConstant=.3;
+    input.connect(gain);gain.connect(out.dest);gain.connect(meter);
+    const node={input,gain,meter,buf:new Float32Array(1024)};
+    if(src.kind==="CHANNEL")out.channelAudioNode=node;else out.nodes.set(src.id,node);
+    const m=mixFor(src.id);try{gain.gain.setTargetAtTime(m.on?m.gain:0,out.audio.currentTime,.03)}catch{gain.gain.value=m.on?m.gain:0}
+    return node;
   }catch{return null}
 }
-
-function selectAudio(out,id){
+function applyMix(out){
   if(!out)return;
-  const ch=ensureAudio(out,A.sources.get("channel"));
-  if(ch)try{ch.gain.gain.setTargetAtTime(id==="channel"?1:0,out.audio.currentTime,.04)}catch{ch.gain.gain.value=id==="channel"?1:0}
-  out.nodes.forEach((node,sid)=>{
-    const v=sid===id?1:0;
+  A.sources.forEach(src=>{
+    const node=audioNode(out,src);if(!node)return;
+    const m=mixFor(src.id),v=m.on?m.gain:0;
     try{node.gain.gain.setTargetAtTime(v,out.audio.currentTime,.04)}catch{node.gain.gain.value=v}
   });
+}
+function nodePeakDb(node){
+  if(!node?.meter)return -60;
+  node.meter.getFloatTimeDomainData(node.buf);let p=0;for(let i=0;i<node.buf.length;i++){const a=Math.abs(node.buf[i]);if(a>p)p=a}
+  return p>0?Math.max(-60,20*Math.log10(p)):-60;
 }
 
 async function gatewayStart(){
@@ -337,6 +404,7 @@ async function gatewayStart(){
 
     await out.audio.resume().catch(()=>{});
     A.sources.forEach(src=>ensureAudio(out,src));
+    applyMix(out);
     out.recorder.start(500);
     A.localProgram=A.localProgram||"channel";
     draw(out);
@@ -367,30 +435,49 @@ async function localTake(src){
   await refreshChannelSource();
   if(A.channelData?.status!=="live"){
     updateLocalUi();
-    toast("TAKE requires the selected channel to be LIVE from OBS/vMix.");
+    toast("Take needs the channel to be live from OBS or vMix first.");
     return;
   }
+  src=A.sources.get(src.id)||src;
   A.selectedSource=src.id;
-  if(src.kind==="CHANNEL"){await putChannelInProgram(false);return}
+  // Channel straight to air with nothing else in the mix: hand back to the plain channel.
+  if(src.kind==="CHANNEL"&&!A.bridge&&!secondSourceFor("channel")&&!otherMixAudioOn()){await putChannelInProgram(false);return}
   try{
     const previous=A.localProgram||"channel";
     const bridge=A.bridge||await gatewayStart();
     await bridge.out.audio.resume().catch(()=>{});
-    const node=ensureAudio(bridge.out,src);
-    if(src.kind!=="AUDIO"&&previous!==src.id&&bridge.out){
-      bridge.out.transition={fromId:previous,toId:src.id,started:performance.now(),duration:450};
+    A.sources.forEach(s=>ensureAudio(bridge.out,s));
+    if(src.kind==="AUDIO"){
+      mixFor(src.id).on=true;
+    }else{
+      if(previous!==src.id)bridge.out.transition={fromId:previous,toId:src.id,started:performance.now(),duration:450};
       A.localProgram=src.id;
-    }else if(src.kind!=="AUDIO"){
-      A.localProgram=src.id;
+      if(A.second===src.id)A.second=previous;            // swap pictures when taking the inset
+      if(A.afv&&previous!==src.id&&hasAudio(src)){
+        mixFor(src.id).on=true;
+        if(previous!==A.second&&hasAudio(A.sources.get(previous)))mixFor(previous).on=false;
+      }
     }
-    if(src.kind==="AUDIO"){A.audioProgram=src.id;selectAudio(bridge.out,src.id);}
-    else{selectAudio(bridge.out,node?src.id:"channel");}
+    applyMix(bridge.out);
     setProgramMonitor(bridge.out);
-    renderLocalGridOnly();
-    toast(src.name+(src.kind==="AUDIO"?" added to PROGRAM AUDIO":" is now PROGRAM / ON AIR"));
-  }catch(e){toast(e.message||"Could not put local source on air.")}
+    renderLocalGridOnly();renderMixer();
+    toast(src.kind==="AUDIO"?src.name+" is now in the audio mix":src.name+" is on program");
+  }catch(e){toast(e.message||"Could not put that source on air.")}
 }
-
+function secondSourceFor(mainId){return A.layout!=="full"&&A.second&&A.second!==mainId&&isVisual(A.sources.get(A.second))}
+function otherMixAudioOn(){return [...A.sources.values()].some(s=>s.id!=="channel"&&hasAudio(s)&&mixFor(s.id).on)}
+async function setLayout(layout){
+  A.layout=layout;
+  if(layout!=="full"&&(!A.second||A.second===(A.localProgram||"channel")||!A.sources.has(A.second))){
+    const pick=[...A.sources.values()].find(s=>isVisual(s)&&s.id!==(A.localProgram||"channel"));A.second=pick?pick.id:"";
+  }
+  renderLayoutBar();renderLocalGridOnly();
+  if(layout!=="full"&&!A.second)toast("Add a second source to use this layout.");
+  // Starting a layout while only the plain channel is on air starts the live mix.
+  if(layout!=="full"&&A.second&&!A.bridge&&A.channelData?.status==="live"){
+    const main=A.sources.get(A.localProgram||"channel");if(main)await localTake(main);
+  }
+}
 
 async function stopGateway(){
   const b=A.bridge;
@@ -403,8 +490,9 @@ async function stopGateway(){
   try{b.out.recorder.stop()}catch{}
   cancelAnimationFrame(b.out.raf);
   try{b.out.audio.close()}catch{}
-  A.bridge=null;A.localProgram="";
+  A.bridge=null;A.localProgram="";A.layout="full";
   await api("/api/live/streams/"+encodeURIComponent(id)+"/program/stop",{method:"POST"}).catch(()=>{});
+  renderLayoutBar();renderMixer();
   restoreProgram();refresh();
 }
 
@@ -574,10 +662,11 @@ function removeSource(id){
   try{s.stream?.getTracks?.().forEach(t=>t.stop())}catch{}
   try{if(s.mvVideo)destroyHls(s.mvVideo)}catch{}
   try{s.card?.remove();s.mvCard?.remove()}catch{}
-  if(A.bridge?.out?.nodes?.has(id)){const n=A.bridge.out.nodes.get(id);try{n.input.disconnect();n.gain.disconnect()}catch{}A.bridge.out.nodes.delete(id)}
+  if(A.bridge?.out?.nodes?.has(id)){const n=A.bridge.out.nodes.get(id);try{n.input.disconnect();n.gain.disconnect();n.meter.disconnect()}catch{}A.bridge.out.nodes.delete(id)}
+  A.mix.delete(id);if(A.second===id)A.second="";
   if(A.selectedSource===id)A.selectedSource="";
-  if(A.localProgram===id){A.localProgram="";restoreProgram()}
-  A.sources.delete(id);updateLocalUi();
+  if(A.localProgram===id){if(A.bridge){A.localProgram="channel";A.bridge.out.transition=null}else{A.localProgram="";restoreProgram()}}
+  A.sources.delete(id);updateLocalUi();renderMixer();renderLayoutBar();
 }
 
 
@@ -597,9 +686,11 @@ function updateLocalUi(){
   if(grid)for(const card of grid.children){
     const id=card.dataset.sourceId||"";
     if(!card.dataset.sourceId)continue;
-    const isPgm=A.bridge?id===A.localProgram:id==="channel"&&channelLive;
+    const mainId=A.bridge?(A.localProgram||"channel"):(channelLive?"channel":"");
+    const isMain=id===mainId,isSecond=!!A.bridge&&!!secondSource()&&id===A.second;
+    const isPgm=isMain||isSecond;
     card.className="fbi-ls-src "+(isPgm?"program":(id===A.selectedSource?"preview":""));
-    const tl=card.querySelector(".fbi-ls-tally");if(tl)tl.textContent=isPgm?"PROGRAM":"PREVIEW";
+    const tl=card.querySelector(".fbi-ls-tally");if(tl)tl.textContent=isSecond?(A.layout==="pip"?"INSET":"SIDE"):(isPgm?"PROGRAM":"PREVIEW");
     const t=card.querySelector("[data-act=take]");
     if(t){
       t.disabled=!channelLive;
@@ -612,8 +703,10 @@ function updateLocalUi(){
   const pill=document.getElementById("fbiLocalPill");if(pill){pill.className="fbi-ls-pill "+(A.bridge?"onair":(channelLive?"ready":""));pill.querySelector("em").textContent=A.bridge?"On air":(channelLive?"Ready to take":"Channel offline")}
   const nm=document.getElementById("fbiLocalPvwName");if(nm)nm.textContent=selected?selected.name:"nothing selected";
   const tx=document.getElementById("fbiLocalText");
+  const mainSrc=A.sources.get(A.localProgram||"channel"),two=secondSource();
+  if(st&&A.bridge)st.textContent="Live mix on air";
   if(tx)tx.textContent=A.bridge
-    ?"A local source is on program. OBS or vMix keeps feeding the channel in the background."
+    ?("On air: "+(mainSrc?mainSrc.name:"channel")+(two?(A.layout==="pip"?", with "+two.name+" in the corner":" and "+two.name+" side by side"):"")+". Viewers see this mix.")
     :(channelLive
       ?"Pick a source for preview, then take it to program."
       :"You can preview sources now. Go live from OBS or vMix to enable Take.");
@@ -663,6 +756,7 @@ function renderLocalGridOnly(){
   let ghost=document.getElementById("fbiLocalGhost");
   if(!ghost){ghost=document.createElement("button");ghost.type="button";ghost.id="fbiLocalGhost";ghost.className="fbi-ls-ghost";ghost.innerHTML='<span><b>Add a source</b>Camera, capture card, screen, Google Meet, Zoom, audio or NDI</span>';ghost.onclick=e=>{e.stopPropagation();A.openAddMenu&&A.openAddMenu()}}
   grid.appendChild(ghost);
+  renderMixer();renderLayoutBar();
   updateLocalUi();
 }
 
@@ -670,13 +764,69 @@ function renderLocalGridOnly(){
 async function takeNdi(s){return localTake(s)}
 
 function setProgramNdi(s){const v=programVideo();if(!v)return;destroyHls(v);v.srcObject=null;v.removeAttribute("src");v.load();const img=document.createElement("img");img.style.cssText="width:100%;height:100%;object-fit:cover;display:block;background:#000";img.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(s.ndiName||s.name)+"&t="+Date.now();v.style.display="none";v.parentElement?.appendChild(img)}
+function renderLayoutBar(){
+  const bar=document.getElementById("fbiLayoutBar");if(!bar)return;
+  const vis=[...A.sources.values()].filter(isVisual),mainId=A.localProgram||"channel";
+  const opt=(v,l)=>'<button type="button" data-layout="'+v+'" class="'+(A.layout===v?"on":"")+'" aria-pressed="'+(A.layout===v)+'">'+l+'</button>';
+  let html='<span class="fbi-ls-layout-label">Program layout</span><div class="fbi-ls-seg" role="group" aria-label="Program layout">'+opt("full",ICON.full+"Full screen")+opt("pip",ICON.pip+"Picture-in-picture")+opt("side",ICON.side+"Side by side")+'</div>';
+  if(A.layout!=="full"){
+    const choices=vis.filter(s=>s.id!==mainId);
+    html+='<label class="fbi-ls-layout-pick">'+(A.layout==="pip"?"Inset":"Right side")+'<select id="fbiSecond">'+(choices.length?choices.map(s=>'<option value="'+esc(s.id)+'"'+(s.id===A.second?" selected":"")+'>'+esc(s.name)+'</option>').join(""):'<option value="">Add another source first</option>')+'</select></label>';
+    if(A.layout==="pip")html+='<div class="fbi-ls-corners" role="group" aria-label="Inset corner">'+[["tl","Top left"],["tr","Top right"],["bl","Bottom left"],["br","Bottom right"]].map(([c,l])=>'<button type="button" data-corner="'+c+'" class="c-'+c+(A.pipCorner===c?" on":"")+'" title="'+l+'" aria-label="'+l+'"><i></i></button>').join("")+'</div>';
+  }
+  html+='<span class="fbi-ls-layout-note">'+(A.bridge?"Changes go out live.":"Applies when you take a source.")+'</span>';
+  bar.innerHTML=html;
+  bar.querySelectorAll("[data-layout]").forEach(b=>b.onclick=()=>setLayout(b.dataset.layout));
+  const sel=bar.querySelector("#fbiSecond");if(sel)sel.onchange=()=>{A.second=sel.value;updateLocalUi()};
+  bar.querySelectorAll("[data-corner]").forEach(b=>b.onclick=()=>{A.pipCorner=b.dataset.corner;renderLayoutBar()});
+}
+function renderMixer(){
+  const box=document.getElementById("fbiMixer");if(!box)return;
+  const rows=[...A.sources.values()].filter(hasAudio);
+  if(!rows.length){box.innerHTML='<p class="fbi-ls-empty">Sources with sound show up here.</p>';return}
+  const keep=new Set();
+  rows.forEach(s=>{
+    keep.add(s.id);const m=mixFor(s.id);
+    let row=box.querySelector('[data-mix="'+CSS.escape(s.id)+'"]');
+    if(!row){
+      row=document.createElement("div");row.className="fbi-ls-ch";row.dataset.mix=s.id;
+      row.innerHTML='<div class="fbi-ls-ch-top"><b></b><button type="button" class="fbi-ls-on"></button></div><div class="fbi-ls-ch-fader"><input type="range" min="0" max="150" step="1" aria-label="Volume"><span class="fbi-ls-db"></span></div><div class="fbi-ls-meter"><i></i></div>';
+      const on=row.querySelector(".fbi-ls-on"),fader=row.querySelector("input");
+      on.onclick=()=>{m.on=!m.on;paint();if(A.bridge)applyMix(A.bridge.out)};
+      fader.oninput=()=>{m.gain=Number(fader.value)/100;paint();if(A.bridge)applyMix(A.bridge.out)};
+      fader.ondblclick=()=>{fader.value=100;fader.oninput()};
+      const paint=()=>{on.textContent=m.on?"On":"Off";on.classList.toggle("on",m.on);on.setAttribute("aria-pressed",String(m.on));on.setAttribute("aria-label",(m.on?"Mute ":"Unmute ")+s.name);row.classList.toggle("off",!m.on);
+        const db=m.gain>0?20*Math.log10(m.gain):-Infinity;row.querySelector(".fbi-ls-db").textContent=db===-Infinity?"−∞":(db>=0?"+":"")+db.toFixed(1)+" dB";fader.style.setProperty("--p",(m.gain/1.5*100)+"%")};
+      row._paint=paint;
+    }
+    row.querySelector("b").textContent=s.name;
+    row.querySelector("input").value=Math.round(m.gain*100);row._paint();
+    box.appendChild(row);
+  });
+  [...box.children].forEach(r=>{if(!r.dataset.mix||!keep.has(r.dataset.mix))r.remove()});
+}
+function startMeters(){
+  if(A.meterRaf)return;
+  const tick=()=>{
+    const d=document.getElementById("fbiLocalDrawer");
+    if(d&&d.classList.contains("open")){
+      document.querySelectorAll("#fbiMixer [data-mix]").forEach(r=>{
+        const s=A.sources.get(r.dataset.mix),node=A.bridge?audioNode(A.bridge.out,s):null;
+        const raw=node?nodePeakDb(node):-60,db=r._db=Math.max(raw,(r._db??-60)-0.9),pct=Math.max(0,Math.min(100,(db+60)/60*100));
+        const bar=r.querySelector(".fbi-ls-meter i");bar.style.width=pct+"%";bar.className=db>-6?"hot":db>-18?"warm":"";
+      });
+    }
+    A.meterRaf=requestAnimationFrame(tick);
+  };
+  A.meterRaf=requestAnimationFrame(tick);
+}
 function menuItem(id,icon,title,desc){return '<button type="button" role="menuitem" id="'+id+'"><span class="fbi-ls-mi">'+ICON[icon]+'</span><span><b>'+title+'</b><small>'+desc+'</small></span></button>'}
 function build(){
   injectStyle();
   if(document.getElementById("fbiLocalDrawer"))return;
   const d=document.createElement("section");d.id="fbiLocalDrawer";d.className="fbi-ls";d.setAttribute("aria-label","Local Studio");
   d.innerHTML='<div class="fbi-ls-head">'+
-    '<div class="fbi-ls-title"><div><h2>Local Studio</h2><p>Switch cameras, capture cards, calls, screens and audio from this computer</p></div><span class="fbi-ls-pill" id="fbiLocalPill"><i></i><em style="font-style:normal">Channel offline</em></span></div>'+
+    '<div class="fbi-ls-title"><div><h2>Local Studio</h2><p>Mix your channel with cameras, capture cards, calls and screens into one live stream</p></div><span class="fbi-ls-pill" id="fbiLocalPill"><i></i><em style="font-style:normal">Channel offline</em></span></div>'+
     '<div class="fbi-ls-addwrap"><button type="button" class="fbi-ls-btn gold" id="fbiAddMenuBtn" aria-haspopup="menu" aria-expanded="false">'+ICON.plus+'Add source</button>'+
       '<div class="fbi-ls-menu" id="fbiAddMenu" role="menu" hidden>'+
         menuItem("fbiAddCam","cam","Camera","Webcam or USB camera")+
@@ -691,7 +841,9 @@ function build(){
     '<button type="button" class="fbi-ls-btn danger" id="fbiLocalStop" disabled>Stop local output</button>'+
     '<button type="button" class="fbi-ls-btn icon" id="fbiLocalMin" title="Minimise" aria-label="Minimise Local Studio">'+ICON.min+'</button>'+
     '<button type="button" class="fbi-ls-btn icon" id="fbiLocalClose" title="Close" aria-label="Close Local Studio">'+ICON.close+'</button></div>'+
-  '<div class="fbi-ls-bus"><div class="fbi-ls-bus-label"><span>Sources</span><span>Press <kbd>1</kbd>–<kbd>9</kbd> to preview, <kbd>Enter</kbd> to take</span></div><div id="fbiLocalGrid" class="fbi-ls-grid"></div></div>'+
+  '<div class="fbi-ls-bus"><div class="fbi-ls-srccol"><div class="fbi-ls-bus-label"><span>Sources</span><span>Press <kbd>1</kbd>–<kbd>9</kbd> to preview, <kbd>Enter</kbd> to take</span></div><div id="fbiLocalGrid" class="fbi-ls-grid"></div></div>'+
+    '<aside class="fbi-ls-mixer" aria-label="Audio mix"><div class="fbi-ls-bus-label"><span>Audio mix</span><label class="fbi-ls-afv"><input type="checkbox" id="fbiAfv" checked> Audio follows video</label></div><div id="fbiMixer"></div></aside></div>'+
+  '<div class="fbi-ls-layout" id="fbiLayoutBar"></div>'+
   '<div class="fbi-ls-foot"><div class="fbi-ls-status"><b id="fbiLocalState">Channel offline</b><span id="fbiLocalText">Pick a source for preview, then take it to program.</span></div>'+
     '<div class="fbi-ls-tbar"><input id="fbiLocalTbar" class="fbi-ls-range" type="range" min="0" max="100" value="0" step="1" disabled aria-label="T-bar: drag to program"><div class="fbi-ls-range-label"><span>Preview: <span id="fbiLocalPvwName">nothing selected</span></span><b id="fbiLocalTbarValue">0%</b><span>Program</span></div></div>'+
     '<button type="button" class="fbi-ls-btn take" id="fbiTakeLocal">Take to program</button></div>';
@@ -715,6 +867,8 @@ function build(){
   d.querySelector("#fbiLocalMin").onclick=()=>{d.classList.toggle("min");const m=d.classList.contains("min");d.querySelector("#fbiLocalMin").innerHTML=m?ICON.max:ICON.min;d.querySelector("#fbiLocalMin").title=m?"Expand":"Minimise";padMain()};
   if(window.ResizeObserver)new ResizeObserver(padMain).observe(d);
   document.addEventListener("keydown",onKeys);
+  d.querySelector("#fbiAfv").onchange=e=>{A.afv=e.target.checked};
+  renderLayoutBar();renderMixer();startMeters();
   d.querySelector("#fbiTakeLocal").onclick=()=>{const s=A.sources.get(A.selectedSource);if(s)localTake(s);else toast("Select a local source for Preview first.")};
   const range=d.querySelector("#fbiLocalTbar");const paint=n=>{range.style.background="linear-gradient(90deg,#e8402f "+n+"%,#2a313b "+n+"%)";d.querySelector("#fbiLocalTbarValue").textContent=n+"%"};range.oninput=()=>{const n=Number(range.value);paint(n);if(n>=100){const s=A.sources.get(A.selectedSource);if(s)localTake(s);setTimeout(()=>{range.value=0;paint(0)},350)}};
 }
