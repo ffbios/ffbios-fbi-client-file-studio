@@ -47,7 +47,7 @@ const CAPTURE_RX=/capture|hdmi|sdi|elgato|cam ?link|game ?capture|hd60|4k ?x|ave
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
 const api=async(url,options={})=>{const r=await fetch(url,options);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.error||"Request failed");return d};
 const activeChannelId=()=>document.querySelector("#channels .channel.active")?.dataset.id||"";
-const toast=msg=>{let t=document.getElementById("fbiLiveToast");if(!t){t=document.createElement("div");t.id="fbiLiveToast";document.body.appendChild(t)}t.textContent=msg;t.style.cssText="position:fixed;right:18px;top:18px;z-index:10000;background:#151518;color:#f4f4f6;border:1px solid #37373d;border-radius:9px;padding:10px 13px;font:600 13px Inter,system-ui,sans-serif;box-shadow:0 20px 70px rgba(0,0,0,.65)";clearTimeout(t._t);t._t=setTimeout(()=>t.remove(),2400)};
+const toast=(msg,ms)=>{let t=document.getElementById("fbiLiveToast");if(!t){t=document.createElement("div");t.id="fbiLiveToast";document.body.appendChild(t)}t.textContent=msg;t.style.cssText="position:fixed;right:18px;top:18px;z-index:10000;background:#151518;color:#f4f4f6;border:1px solid #37373d;border-radius:9px;padding:10px 13px;font:600 13px Inter,system-ui,sans-serif;box-shadow:0 20px 70px rgba(0,0,0,.65)";clearTimeout(t._t);t._t=setTimeout(()=>t.remove(),ms||(/not|could|can|fail|lost|stopp|block|error|needs|first/i.test(msg)?7000:2600))};
 
 function injectStyle(){
   if(document.getElementById("fbiLiveAddonStyle"))return;
@@ -258,12 +258,13 @@ function programVideo(){
 
 function makeProgramStream(){
   const canvas=document.createElement("canvas");canvas.width=1920;canvas.height=1080;
-  const ctx=canvas.getContext("2d",{alpha:false});const videoStream=canvas.captureStream(30);
+  const ctx=canvas.getContext("2d",{alpha:false});const videoStream=canvas.captureStream(0);// frames are pushed explicitly at 30 fps by the ticker
   const AudioContext=window.AudioContext||window.webkitAudioContext;
   if(!AudioContext)throw new Error("Web Audio is not supported.");
   const audio=new AudioContext(),dest=audio.createMediaStreamDestination();
   const finalStream=new MediaStream([...videoStream.getVideoTracks(),...dest.stream.getAudioTracks()]);
-  const types=["video/webm;codecs=vp8,opus","video/webm;codecs=vp9,opus","video/webm;codecs=vp8","video/webm"];
+  // H.264 first: Chrome/Edge usually encode it on the graphics chip, keeping CPU free for the mix.
+  const types=["video/webm;codecs=h264,opus","video/webm;codecs=avc1,opus","video/webm;codecs=vp8,opus","video/webm;codecs=vp9,opus","video/webm;codecs=vp8","video/webm"];
   const mime=types.find(t=>MediaRecorder.isTypeSupported?.(t))||"";
   if(!mime)throw new Error("This browser cannot encode the Local Studio output.");
   const recorder=new MediaRecorder(finalStream,{mimeType:mime,videoBitsPerSecond:4500000,audioBitsPerSecond:128000});
@@ -320,9 +321,25 @@ function draw(out){
       ctx.strokeStyle="#e8c85a";ctx.lineWidth=5;ctx.strokeRect(x-2.5,y-2.5,w+5,h+5);
     }
   }
-  out.raf=requestAnimationFrame(()=>draw(out));
 }
 
+function startTicker(out){
+  stopTicker(out);
+  const push=()=>{try{draw(out);const t=out.videoStream.getVideoTracks()[0];t&&t.requestFrame&&t.requestFrame()}catch(e){console.warn("Program frame failed",e)}};
+  try{
+    // Worker timers keep firing when the window is hidden or minimised (page timers and
+    // requestAnimationFrame are throttled or paused), so Program never freezes.
+    const url=URL.createObjectURL(new Blob(["let t=setInterval(()=>postMessage(0),1000/30);onmessage=e=>{if(e.data==='stop'){clearInterval(t);close()}}"],{type:"text/javascript"}));
+    const w=new Worker(url);URL.revokeObjectURL(url);
+    w.onmessage=push;out.ticker=w;
+  }catch{out.tickerTimer=setInterval(push,1000/30)}
+  push();
+}
+function stopTicker(out){
+  if(!out)return;
+  if(out.ticker){try{out.ticker.postMessage("stop");out.ticker.terminate()}catch{}out.ticker=null}
+  if(out.tickerTimer){clearInterval(out.tickerTimer);out.tickerTimer=0}
+}
 function ensureChannelSource(s){
   if(!s)return;
   let v=document.getElementById("fbiLocalChannelFeed");
@@ -406,66 +423,97 @@ function nodePeakDb(node){
   return p>0?Math.max(-60,20*Math.log10(p)):-60;
 }
 
+async function localEncoderAvailable(){
+  try{const c=new AbortController();const t=setTimeout(()=>c.abort(),1200);const r=await fetch("http://127.0.0.1:8765/status",{cache:"no-store",signal:c.signal});clearTimeout(t);return r.ok}catch{return false}
+}
+// Starts the live mix. Uses the FBI Local Studio Encoder app if it is running on
+// this computer; otherwise streams the mix to the FBI server (no install needed).
 async function gatewayStart(){
   const id=activeChannelId();if(!id)throw new Error("Select a live channel first.");
   await refreshChannelSource();
-  const s=A.channelData;
-  if(!s?.rtmp_server||!s?.stream_key)throw new Error("This channel does not have RTMP encoder details.");
-
-  try{await fetch("http://127.0.0.1:8765/status",{cache:"no-store"}).then(r=>r.json())}
-  catch{throw new Error("The FBI NDI Gateway / Local Studio Encoder is not running on this production computer.")}
-
+  if(A.channelData?.status!=="live")throw new Error("The channel must be live from OBS or vMix first.");
   const prep=await api("/api/live/streams/"+encodeURIComponent(id)+"/program/start",{method:"POST"});
+  const useLocal=await localEncoderAvailable();
   let out=null;
+  setStarting(true);
   try{
     out=makeProgramStream();
-    const start=await fetch("http://127.0.0.1:8765/local/start",{
-      method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({rtmp_url:prep.program_rtmp_url})
-    });
-    const d=await start.json().catch(()=>({}));
-    if(!start.ok||d.error)throw new Error(d.error||"Local Studio Encoder could not start.");
-
-    A.bridge={out,channelId:id,session:d.session,ready:false};
-
-    out.recorder.ondataavailable=e=>{
-      if(!e.data?.size||!A.bridge||A.bridge.session!==d.session)return;
-      out.sendChain=out.sendChain.then(async()=>{
-        if(!A.bridge||A.bridge.session!==d.session)return;
-        const body=await e.data.arrayBuffer();
-        const rr=await fetch("http://127.0.0.1:8765/local/chunk?session="+encodeURIComponent(d.session),{
-          method:"POST",headers:{"Content-Type":"application/octet-stream"},body
-        });
-        if(!rr.ok)throw new Error("Local encoder rejected Program data");
-      }).catch(err=>toast(err.message||"Local encoder input failed."));
-    };
-
     await out.audio.resume().catch(()=>{});
     A.sources.forEach(src=>ensureAudio(out,src));
     applyMix(out);
-    out.recorder.start(500);
     A.localProgram=A.localProgram||"channel";
-    draw(out);
-    const deadline=Date.now()+12000;
-    while(Date.now()<deadline){
-      try{
-        const st=await fetch("http://127.0.0.1:8765/local/status?session="+encodeURIComponent(d.session),{cache:"no-store"}).then(r=>r.json());
-        if(st.running&&Number(st.bytes)>0){out.ready=true;break}
-        if(st.error)throw new Error(st.error);
-      }catch(e){
-        if(e.message&&e.message!==""&&Date.now()+100>deadline)throw e;
+    startTicker(out);
+    if(useLocal){
+      const start=await fetch("http://127.0.0.1:8765/local/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({rtmp_url:prep.program_rtmp_url})});
+      const d=await start.json().catch(()=>({}));
+      if(!start.ok||d.error)throw new Error(d.error||"The Local Studio Encoder could not start.");
+      A.bridge={out,channelId:id,session:d.session,ready:false,via:"local"};
+      out.recorder.ondataavailable=e=>{
+        if(!e.data?.size||!A.bridge||A.bridge.session!==d.session)return;
+        out.sendChain=out.sendChain.then(async()=>{
+          if(!A.bridge||A.bridge.session!==d.session)return;
+          const rr=await fetch("http://127.0.0.1:8765/local/chunk?session="+encodeURIComponent(d.session),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:await e.data.arrayBuffer()});
+          if(!rr.ok)throw new Error("The local encoder rejected the program feed.");
+        }).catch(err=>toast(err.message||"Local encoder input failed."));
+      };
+      out.recorder.start(500);
+      const deadline=Date.now()+12000;
+      while(Date.now()<deadline){
+        try{const st=await fetch("http://127.0.0.1:8765/local/status?session="+encodeURIComponent(d.session),{cache:"no-store"}).then(r=>r.json());if(st.running&&Number(st.bytes)>0){out.ready=true;break}if(st.error)throw new Error(st.error)}
+        catch(e){if(e.message&&Date.now()+100>deadline)throw e}
+        await new Promise(r=>setTimeout(r,350));
       }
-      await new Promise(r=>setTimeout(r,350));
+      if(!out.ready)throw new Error("The local encoder did not receive the program feed.");
+    }else{
+      const ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws/live-program?stream="+encodeURIComponent(id));
+      ws.binaryType="arraybuffer";
+      A.bridge={out,channelId:id,session:null,ws,ready:false,via:"cloud"};
+      const bridge=A.bridge;
+      let readyResolve,readyReject;const ready=new Promise((res,rej)=>{readyResolve=res;readyReject=rej});
+      ws.onmessage=ev=>{
+        let m={};try{m=JSON.parse(ev.data)}catch{}
+        if(m.type==="ready"){readyResolve()}
+        else if(m.type==="warn")toast(m.error||"Upload is falling behind.");
+        else if(m.type==="error"){readyReject(new Error(m.error||"The studio server stopped the live mix."));if(bridge.ready)toast(m.error||"The live mix stopped.")}
+      };
+      ws.onclose=ev=>{
+        readyReject(new Error(ev.code===1006?"Could not connect to the studio server. Check the internet connection and sign in again.":"The studio server closed the live mix."));
+        if(A.bridge===bridge&&bridge.ready){toast("The live mix connection was lost. Viewers are back on the channel feed.");teardownBridge(bridge,false).then(()=>{restoreProgram();refresh()})}
+      };
+      await new Promise((res,rej)=>{ws.onopen=res;const t=setTimeout(()=>rej(new Error("Could not connect to the studio server.")),10000);ws.addEventListener("open",()=>clearTimeout(t));ws.addEventListener("close",()=>{clearTimeout(t);rej(new Error("Could not connect to the studio server. Sign in again and retry."))})});
+      out.recorder.ondataavailable=async e=>{
+        if(!e.data?.size||A.bridge!==bridge||ws.readyState!==1)return;
+        if(ws.bufferedAmount>24*1024*1024){if(!bridge.slowWarned){bridge.slowWarned=true;toast("Your upload is too slow for the live mix. Close other uploads or lower the number of sources.")}return}
+        ws.send(await e.data.arrayBuffer());
+      };
+      out.recorder.start(500);
+      await Promise.race([ready,new Promise((_,rej)=>setTimeout(()=>rej(new Error("The studio server did not start the program feed in time.")),20000))]);
     }
-    if(!out.ready)throw new Error("Local Program encoder did not receive video data.");
     await api("/api/live/streams/"+encodeURIComponent(id)+"/program/activate",{method:"POST"});
+    A.bridge.ready=true;
     setProgramMonitor(out);
     return A.bridge;
   }catch(e){
-    if(A.bridge){try{await fetch("http://127.0.0.1:8765/local/stop?session="+encodeURIComponent(A.bridge.session),{method:"POST"})}catch{}try{A.bridge.out.recorder.stop()}catch{}cancelAnimationFrame(A.bridge.out.raf);try{A.bridge.out.audio.close()}catch{}A.bridge=null}
+    if(A.bridge&&A.bridge.out===out)await teardownBridge(A.bridge,true);
+    else{try{out?.recorder?.state!=="inactive"&&out.recorder.stop()}catch{}if(out){stopTicker(out);try{if(out.audio.state!=="closed")out.audio.close().catch(()=>{})}catch{}}}
     await api("/api/live/streams/"+encodeURIComponent(id)+"/program/stop",{method:"POST"}).catch(()=>{});
     throw e;
-  }
+  }finally{setStarting(false)}
+}
+async function teardownBridge(b,silent){
+  if(!b)return;
+  if(A.bridge===b)A.bridge=null;
+  try{if(b.via==="local"&&b.session)await fetch("http://127.0.0.1:8765/local/stop?session="+encodeURIComponent(b.session),{method:"POST"})}catch{}
+  try{if(b.ws&&b.ws.readyState<2)b.ws.close(1000,"stopped")}catch{}
+  try{if(b.out.recorder.state!=="inactive")b.out.recorder.stop()}catch{}
+  stopTicker(b.out);
+  try{if(b.out.audio.state!=="closed")b.out.audio.close().catch(()=>{})}catch{}
+  A.localProgram="";
+}
+function setStarting(on){
+  const pill=document.getElementById("fbiLocalPill");if(pill&&on){pill.className="fbi-ls-pill ready";pill.querySelector("em").textContent="Starting live mix…"}
+  ["fbiTakeLocal","fbiCut"].forEach(id=>{const b=document.getElementById(id);if(b){b.disabled=!!on;b.classList.toggle("busy",!!on)}});
+  if(!on)updateLocalUi();
 }
 
 async function readyToTake(src){
@@ -599,14 +647,11 @@ async function stopGateway(){
     restoreProgram();return;
   }
   const id=b.channelId;
-  try{if(b.session)await fetch("http://127.0.0.1:8765/local/stop?session="+encodeURIComponent(b.session),{method:"POST"})}catch{}
-  try{b.out.recorder.stop()}catch{}
-  cancelAnimationFrame(b.out.raf);
-  try{b.out.audio.close()}catch{}
-  A.bridge=null;A.localProgram="";A.layout="full";
+  await teardownBridge(b,true);
+  A.layout="full";
   await api("/api/live/streams/"+encodeURIComponent(id)+"/program/stop",{method:"POST"}).catch(()=>{});
-  renderLayoutBar();renderMixer();
-  restoreProgram();refresh();
+  restoreProgram();refresh();renderLayoutBar();renderMixer();
+  toast("Local output stopped. Viewers are back on the channel feed.");
 }
 
 function restoreProgram(){

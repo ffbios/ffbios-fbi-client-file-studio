@@ -3357,6 +3357,7 @@ app.post("/api/live/streams/:id/program/activate",admin,async(req,res)=>{
 app.post("/api/live/streams/:id/program/stop",admin,async(req,res)=>{
   try{
     deactivateProgramRoute(req.params.id);
+    stopProgramIngest(req.params.id,"program stopped");
     res.set("Cache-Control","no-store").json({ok:true,active:false});
   }catch(e){
     console.error("Program stop failed:",e);
@@ -5943,5 +5944,92 @@ app.get("/editor.html",(req,res)=>{
 
 app.use((req,res)=>res.sendFile(path.join(ROOT,"index.html")));
 
+// ---- Cloud program ingest ---------------------------------------------------
+// Local Studio mixes in the browser and streams the mix here over a WebSocket
+// (WebM chunks). FFmpeg encodes it to H.264/AAC and publishes it to the channel's
+// Program RTMP path, so no local encoder app is needed on the production PC.
+// Admin session cookie required. If the connection or FFmpeg stops, the Program
+// route is deactivated so viewers fall back to the normal channel feed.
+const programIngests=new Map(); // streamId -> {ws,ff}
+function stopProgramIngest(streamId,reason){
+  const e=programIngests.get(String(streamId));if(!e)return;
+  programIngests.delete(String(streamId));
+  try{e.ff.stdin.end()}catch{}
+  try{e.ff.kill("SIGTERM")}catch{}
+  setTimeout(()=>{try{if(e.ff.exitCode===null)e.ff.kill("SIGKILL")}catch{}},2000);
+  try{if(e.ws.readyState===1)e.ws.close(1000,String(reason||"stopped").slice(0,100))}catch{}
+}
+function attachProgramIngest(server){
+  const {WebSocketServer}=require("ws");
+  const wss=new WebSocketServer({noServer:true,maxPayload:16*1024*1024,perMessageDeflate:false});
+  server.on("upgrade",(req,socket,head)=>{
+    let url;try{url=new URL(req.url,"http://localhost")}catch{return}
+    if(url.pathname!=="/ws/live-program")return;
+    if(!validSession(req)){try{socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n")}catch{}socket.destroy();return}
+    wss.handleUpgrade(req,socket,head,ws=>wss.emit("connection",ws,String(url.searchParams.get("stream")||"")));
+  });
+  wss.on("connection",async(ws,streamId)=>{
+    const send=o=>{try{if(ws.readyState===1)ws.send(JSON.stringify(o))}catch{}};
+    let stream;
+    try{
+      const q=await pool.query("SELECT * FROM streams WHERE id=$1 AND enabled=true",[streamId]);
+      if(!q.rowCount){send({type:"error",error:"Channel not found."});return ws.close(1008,"not found")}
+      stream=await refreshStreamStatus(q.rows[0]);
+    }catch(e){console.error("Program ingest lookup failed:",e);send({type:"error",error:"The studio server could not load this channel."});return ws.close(1011,"db")}
+    if(stream.status!=="live"){send({type:"error",error:"The channel must be live from OBS or vMix first."});return ws.close(1008,"offline")}
+    const target=streamProgramRtmpUrl(stream);
+    if(!target){send({type:"error",error:"Program output is not configured on the server."});return ws.close(1011,"no target")}
+    stopProgramIngest(stream.id,"replaced by a new Local Studio session");
+    prepareProgramRoute(stream.id);
+    const ff=spawn(ffmpegPath,[
+      "-hide_banner","-loglevel","warning","-fflags","+genpts+discardcorrupt",
+      "-thread_queue_size","1024","-f","webm","-i","pipe:0",
+      "-map","0:v:0","-map","0:a:0?",
+      "-c:v","libx264","-preset","superfast","-tune","zerolatency","-pix_fmt","yuv420p",
+      "-r","30","-g","60","-keyint_min","60","-sc_threshold","0",
+      "-b:v","4500k","-maxrate","4500k","-bufsize","9000k",
+      "-c:a","aac","-b:a","160k","-ar","48000","-ac","2",
+      "-f","flv","-flvflags","no_duration_filesize",target
+    ],{stdio:["pipe","ignore","pipe"]});
+    const entry={ws,ff,bytes:0,ready:false,err:""};
+    programIngests.set(String(stream.id),entry);
+    console.log("Program ingest started for stream "+stream.id);
+    ff.stderr.on("data",c=>{entry.err=(entry.err+String(c)).slice(-4000)});
+    ff.stdin.on("error",()=>{});
+    ff.on("exit",code=>{
+      if(programIngests.get(String(stream.id))===entry){
+        programIngests.delete(String(stream.id));
+        deactivateProgramRoute(stream.id);
+        const last=entry.err.trim().split("\n").slice(-2).join(" ").slice(0,300);
+        console.warn("Program ingest encoder stopped ("+code+") for stream "+stream.id+": "+last);
+        send({type:"error",error:"The server encoder stopped. Viewers are back on the channel feed.",detail:last});
+        try{ws.close(1011,"encoder stopped")}catch{}
+      }
+    });
+    ws.on("message",(data,isBinary)=>{
+      if(!isBinary)return;
+      if(ff.exitCode!==null||!ff.stdin.writable)return;
+      if(ff.stdin.writableLength>48*1024*1024){send({type:"warn",error:"Your upload is falling behind. Check the internet connection."});return}
+      ff.stdin.write(data);entry.bytes+=data.length;entry.chunks=(entry.chunks||0)+1;
+      // Ready once ~1.5 s of stream has arrived and FFmpeg is still running
+      // (byte counts are no good: a static or black picture compresses to almost nothing).
+      if(!entry.ready&&entry.chunks>=3){
+        entry.ready=true;
+        setTimeout(()=>{if(ff.exitCode===null&&programIngests.get(String(stream.id))===entry)send({type:"ready"})},1500);
+      }
+    });
+    ws.on("close",()=>{
+      if(programIngests.get(String(stream.id))===entry){
+        programIngests.delete(String(stream.id));
+        deactivateProgramRoute(stream.id);
+        try{ff.stdin.end()}catch{}
+        setTimeout(()=>{try{if(ff.exitCode===null)ff.kill("SIGTERM")}catch{}},1500);
+        console.log("Program ingest closed for stream "+stream.id);
+      }
+    });
+    send({type:"accepted"});
+  });
+}
+
 initDb().then(async()=>{
-  await finalizeStaleOfflineRecordings();await ensureBucketCors();app.listen(PORT,"0.0.0.0",()=>console.log("FBI Client File Studio listening on port "+PORT))}).catch(e=>{console.error(e);process.exit(1)});
+  await finalizeStaleOfflineRecordings();await ensureBucketCors();const server=app.listen(PORT,"0.0.0.0",()=>console.log("FBI Client File Studio listening on port "+PORT));attachProgramIngest(server)}).catch(e=>{console.error(e);process.exit(1)});

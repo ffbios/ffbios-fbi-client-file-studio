@@ -45,6 +45,7 @@ def reply(h, payload, code=200):
     h.send_response(code)
     h.send_header("Content-Type", "application/json")
     h.send_header("Access-Control-Allow-Origin", "*")
+    h.send_header("Access-Control-Allow-Private-Network", "true")
     h.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
     h.send_header("Access-Control-Allow-Headers", "Content-Type")
     h.send_header("Content-Length", str(len(raw)))
@@ -356,6 +357,7 @@ def stream_ndi_preview(handler, source_name):
         handler.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
         handler.send_header("Cache-Control", "no-store")
         handler.send_header("Access-Control-Allow-Origin", "*")
+        handler.send_header("Access-Control-Allow-Private-Network", "true")
         handler.end_headers()
         encoder = None
         while not STOP.is_set():
@@ -448,6 +450,7 @@ class Handler(BaseHTTPRequestHandler):
         h = self
         h.send_response(204)
         h.send_header("Access-Control-Allow-Origin", "*")
+        h.send_header("Access-Control-Allow-Private-Network", "true")
         h.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
         h.send_header("Access-Control-Allow-Headers", "Content-Type")
         h.send_header("Access-Control-Max-Age", "86400")
