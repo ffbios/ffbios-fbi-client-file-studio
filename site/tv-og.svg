@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <rect width="1200" height="630" fill="#111113"/>
+  <rect x="0" y="600" width="1200" height="30" fill="#E8B93A"/>
+  <g transform="translate(-67 0)">
+    <!-- aperture C -->
+    <g transform="translate(300 315) scale(2.396)">
+      <circle r="48" fill="#E8B93A"/>
+      <polygon points="0,-17 14.7,-8.5 14.7,8.5 0,17 -14.7,8.5 -14.7,-8.5" fill="#111113"/>
+      <polygon points="0,0 62,-25 62,25" fill="#111113"/>
+      <g stroke="#111113" stroke-width="3.6" stroke-linecap="square" fill="none">
+        <path d="M0 -17L46.9 10.1M14.7 -8.5L14.7 45.7M14.7 8.5L-32.2 35.6M0 17L-46.9 -10.1M-14.7 8.5L-14.7 -45.7M-14.7 -8.5L32.2 -35.6"/>
+      </g>
+    </g>
+    <!-- F -->
+    <path fill="#E8B93A" d="M440 240H560V278H486V297H545V333H486V390H440Z"/>
+    <!-- B -->
+    <path fill="#E8B93A" fill-rule="evenodd" d="M585 240H688Q735 240 735 278Q735 302 716 313Q745 324 745 352Q745 390 696 390H585Z M631 276H676Q690 276 690 286.5Q690 297 676 297H631Z M631 333H684Q698 333 698 343.5Q698 354 684 354H631Z"/>
+    <!-- I -->
+    <rect x="775" y="240" width="46" height="150" fill="#E8B93A"/>
+    <!-- signal waves -->
+    <g transform="translate(850 240) scale(1.5)">
+      <circle cx="12" cy="50" r="10" fill="#E8B93A"/>
+      <path d="M31.9 33.3A26 26 0 0 1 31.9 66.7" fill="none" stroke="#E8B93A" stroke-width="10" stroke-linecap="round"/>
+      <path d="M45.7 21.7A44 44 0 0 1 45.7 78.3" fill="none" stroke="#E8B93A" stroke-width="10" stroke-linecap="round" opacity=".75"/>
+      <path d="M59.5 10.1A62 62 0 0 1 59.5 89.9" fill="none" stroke="#E8B93A" stroke-width="10" stroke-linecap="round" opacity=".5"/>
+    </g>
+    <!-- TV pill -->
+    <rect x="990" y="262" width="160" height="106" rx="53" fill="#E8B93A"/>
+    <path fill="#111113" d="M1012 285H1068V301H1048V345H1032V301H1012Z"/>
+    <path fill="#111113" d="M1072 285H1090L1104 325L1118 285H1136L1112 345H1096Z"/>
+  </g>
+  <!-- LIVE badge -->
+  <rect x="532" y="452" width="148" height="44" rx="10" fill="#D62828"/>
+  <circle cx="560" cy="474" r="7" fill="#FFFFFF"/>
+  <path fill="#FFFFFF" d="M580 462h7v18h11v6h-18z M602 462h7v24h-7z M613 462h7.5l5.5 16 5.5-16h7.5l-9 24h-8z M643 462h17v6h-10v3h9v6h-9v3h10v6h-17z"/>
+</svg>

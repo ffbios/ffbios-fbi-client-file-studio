@@ -1,4 +1,5 @@
-const CACHE_NAME="fbi-client-file-studio-v14";
+const CACHE_PREFIX="fbi-client-file-studio-";
+const CACHE_NAME=CACHE_PREFIX+"v15";
 const APP_SHELL=["/","/manifest.webmanifest","/pwa-icon.svg","/official-logo.png"];
 
 self.addEventListener("install",event=>{
@@ -9,7 +10,7 @@ self.addEventListener("install",event=>{
 self.addEventListener("activate",event=>{
   event.waitUntil(
     caches.keys().then(keys=>Promise.all(
-      keys.filter(key=>key!==CACHE_NAME).map(key=>caches.delete(key))
+      keys.filter(key=>key!==CACHE_NAME&&key.startsWith(CACHE_PREFIX)).map(key=>caches.delete(key))
     ))
   );
   self.clients.claim();
@@ -24,14 +25,18 @@ self.addEventListener("fetch",event=>{
 
   event.respondWith((async()=>{
     if(req.mode==="navigate"){
+      // Cache each page under its own address so an offline fallback never
+      // shows a different page than the one asked for.
+      const key=url.pathname;
       try{
         const fresh=await fetch(req);
-        const copy=fresh.clone();
-        const cache=await caches.open(CACHE_NAME);
-        await cache.put("/",copy);
+        if(fresh.ok){
+          const cache=await caches.open(CACHE_NAME);
+          await cache.put(key,fresh.clone());
+        }
         return fresh;
       }catch{
-        return (await caches.match("/")) || Response.error();
+        return (await caches.match(key)) || (await caches.match("/")) || Response.error();
       }
     }
     const cached=await caches.match(req);

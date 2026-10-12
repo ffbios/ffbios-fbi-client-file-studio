@@ -6,6 +6,20 @@
 <title>FBI TV Live — Film Beyond Imagination</title>
 <meta name="description" content="Watch FBI TV live. Entertainment, Live TV, Talk Shows, Movies, Events and Original Productions.">
 <meta name="theme-color" content="#111113">
+<link rel="canonical" href="https://live.fbigh.com/tv">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FBI TV">
+<meta property="og:title" content="FBI TV Live — Film Beyond Imagination">
+<meta property="og:description" content="Watch FBI TV live: Entertainment, Live TV, Talk Shows, Movies, Events and Original Productions. Your World. Your Stories. Your Screen.">
+<meta property="og:url" content="https://live.fbigh.com/tv">
+<meta property="og:image" content="https://live.fbigh.com/tv-og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="FBI TV Live logo">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="FBI TV Live — Film Beyond Imagination">
+<meta name="twitter:description" content="Watch FBI TV live. Your World. Your Stories. Your Screen.">
+<meta name="twitter:image" content="https://live.fbigh.com/tv-og.png">
 <link rel="manifest" href="/tv-manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="/tv-icon-192.png">
 <link rel="apple-touch-icon" href="/tv-icon-180.png">
@@ -55,6 +69,7 @@
   .badge.live{background:var(--live);color:#fff;letter-spacing:.08em}
   .badge.live i{width:8px;height:8px;border-radius:50%;background:#fff;animation:pulse 1.6s infinite}
   .badge.off{background:rgba(0,0,0,.65);color:var(--text);letter-spacing:.08em}
+  .badge.replay{background:var(--gold);color:var(--bg);letter-spacing:.08em}
   .badge.viewers{background:rgba(0,0,0,.6);color:var(--text);font-weight:600}
   @keyframes pulse{50%{opacity:.35}}
   @media (prefers-reduced-motion:reduce){.badge.live i{animation:none}}
@@ -171,6 +186,7 @@
       <div class="badges">
         <span class="badge live" id="liveBadge" hidden><i></i>LIVE</span>
         <span class="badge off" id="offBadge" hidden>OFF AIR</span>
+        <span class="badge replay" id="replayBadge" hidden>REPLAY</span>
         <span class="badge viewers" id="viewers" hidden>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
           <span id="viewerCount">0</span>&nbsp;watching
@@ -348,7 +364,8 @@ const CONFIG = {
       li.append(t, info);
       ul.appendChild(li);
     });
-    // Now playing block
+    // Now playing block (left alone while a replay is showing)
+    if (mode === "replay") return;
     if (now) {
       $("nowKicker").textContent = "Now playing";
       $("nowTitle").textContent = now.title;
@@ -364,17 +381,85 @@ const CONFIG = {
   }
 
   // ---------- player ----------
+  // mode: "live" (the live stream), "replay" (last broadcast while off air), "off"
+  let mode = "off";
   function showOffline() {
     $("offline").hidden = false;
     $("offBadge").hidden = false;
     $("liveBadge").hidden = true;
+    $("replayBadge").hidden = true;
     $("unmute").hidden = true;
     $("controls").hidden = true;
   }
   function showLive() {
     $("offline").hidden = true;
     $("offBadge").hidden = true;
+    $("replayBadge").hidden = true;
     $("liveBadge").hidden = false;
+  }
+  function teardownVideo() {
+    try { if (window.__hls) { window.__hls.destroy(); window.__hls = null; } } catch (e) {}
+    if (video) {
+      try { video.pause(); video.removeAttribute("src"); video.load(); } catch (e) {}
+      video.remove();
+      video = null;
+    }
+  }
+  function goOffline() {
+    teardownVideo();
+    mode = "off";
+    showOffline();
+    renderSchedule();
+  }
+
+  // Off air: play the most recent saved broadcast instead of a blank screen.
+  let replayLoading = false;
+  async function startReplay() {
+    const tok = fbighToken();
+    if (!tok || replayLoading || mode === "replay") return;
+    replayLoading = true;
+    try {
+      const r = await fetch(FBIGH + "/api/public/stream/" + encodeURIComponent(tok) + "/replay", { cache: "no-store" });
+      const d = await r.json();
+      if (!r.ok || !d.available || !d.play_url) { if (mode !== "off") goOffline(); else showOffline(); return; }
+      teardownVideo();
+      mode = "replay";
+      video = document.createElement("video");
+      video.playsInline = true;
+      video.setAttribute("playsinline", "");
+      video.preload = "auto";
+      video.controls = true;               // native controls give viewers a seek bar for the replay
+      video.src = d.play_url;
+      player.insertBefore(video, player.querySelector(".badges"));
+      $("offline").hidden = true;
+      $("offBadge").hidden = true;
+      $("liveBadge").hidden = true;
+      $("replayBadge").hidden = false;
+      $("controls").hidden = true;
+      $("nowKicker").textContent = "Replay";
+      $("nowTitle").textContent = "Last broadcast";
+      const when = d.recording && (d.recording.started_at || d.recording.ended_at);
+      $("nowMeta").textContent = when
+        ? "Recorded " + new Date(when).toLocaleString("en-GB", { timeZone: CONFIG.timeZone, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) + " · We'll switch to live when we're back on air"
+        : "We'll switch to live when we're back on air";
+      video.addEventListener("volumechange", syncIcons);
+      video.addEventListener("pause", syncIcons);
+      video.addEventListener("playing", syncIcons);
+      video.addEventListener("error", () => { if (mode === "replay") goOffline(); });
+      video.muted = true;
+      video.play().catch(() => {});
+    } catch (e) {
+      if (mode !== "off") goOffline(); else showOffline();
+    } finally {
+      replayLoading = false;
+    }
+  }
+  function startLive() {
+    const tok = fbighToken();
+    if (!tok) return;
+    teardownVideo();
+    renderSchedule();
+    setupHls(FBIGH + "/api/public/stream/" + encodeURIComponent(tok) + "/hls/index.m3u8");
   }
   function addIframe(src) {
     const f = document.createElement("iframe");
@@ -386,13 +471,16 @@ const CONFIG = {
     showLive();
   }
   function setupHls(url) {
+    mode = "live";
     video = document.createElement("video");
     video.playsInline = true;
     video.setAttribute("playsinline", "");
     video.preload = "auto";
     player.insertBefore(video, $("player").querySelector(".badges"));
 
-    const onFatal = () => showOffline();
+    // Stream dropped: go off air now; the status check then loads the replay
+    // or switches back to live when the broadcast resumes.
+    const onFatal = () => { if (fbighToken()) { goOffline(); startReplay(); } else showOffline(); };
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = url;                                    // Safari / iPhone
       video.addEventListener("error", onFatal);
@@ -402,7 +490,7 @@ const CONFIG = {
       hls.attachMedia(video);
       hls.on(Hls.Events.ERROR, (e, d) => {
         if (!d.fatal) return;
-        if (d.type === Hls.ErrorTypes.NETWORK_ERROR) { setTimeout(() => hls.startLoad(), 5000); onFatal(); }
+        if (d.type === Hls.ErrorTypes.NETWORK_ERROR) onFatal();
         else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
         else onFatal();
       });
@@ -427,7 +515,7 @@ const CONFIG = {
     if (video.paused) { jumpLive(); video.play(); } else video.pause();
   }
   function jumpLive() {
-    if (!video) return;
+    if (!video || mode !== "live") return;
     if (window.__hls && window.__hls.liveSyncPosition) video.currentTime = window.__hls.liveSyncPosition;
     else if (video.seekable.length) video.currentTime = video.seekable.end(video.seekable.length - 1) - 2;
   }
@@ -510,7 +598,7 @@ const CONFIG = {
   function startStream() {
     const s = CONFIG.stream || {};
     const tok = fbighToken();
-    if (tok) return setupHls(FBIGH + "/api/public/stream/" + encodeURIComponent(tok) + "/hls/index.m3u8");
+    if (tok) return; // FBI Live channel: the first status check picks live or replay
     if (s.type === "hls" && s.url) return setupHls(s.url);
     if (s.type === "youtube" && s.channelId)
       return addIframe("https://www.youtube.com/embed/live_stream?channel=" + encodeURIComponent(s.channelId) + "&autoplay=1&mute=1");
@@ -531,11 +619,15 @@ const CONFIG = {
       const n = Number(tok ? d.current_viewers : d.viewers);
       if (Number.isFinite(n)) {
         $("viewerCount").textContent = n.toLocaleString();
-        $("viewers").hidden = false;
+        $("viewers").hidden = !(tok && d.live);
+      }
+      if (tok && r.ok) {
+        if (d.live && mode !== "live") startLive();           // back on air
+        else if (!d.live && mode !== "replay") startReplay(); // off air: show last broadcast
       }
     } catch (e) { /* keep quiet */ }
     // Count this viewer in the studio's "watching now" number
-    if (tok && video && !video.paused) {
+    if (tok && mode === "live" && video && !video.paused) {
       try {
         await fetch(FBIGH + "/api/public/stream/" + encodeURIComponent(tok) + "/heartbeat", {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionKey })

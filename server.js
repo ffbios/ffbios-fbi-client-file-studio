@@ -5972,8 +5972,13 @@ app.get("/",(req,res)=>{
   res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
   res.set("Pragma","no-cache");
   res.set("Expires","0");
-  res.type("html").sendFile(path.join(ROOT,process.env.FBI_LIVE_STANDALONE==="1"?"live-standalone.html":"index.html"));
+  res.type("html").sendFile(path.join(ROOT,isLiveStandaloneHost(req)?"live-standalone.html":"index.html"));
 });
+// live.fbigh.com must always show the FBI Live studio, never the File Studio,
+// whether it is identified by the env flag or by its hostname.
+function isLiveStandaloneHost(req){
+  return process.env.FBI_LIVE_STANDALONE==="1"||/^live\.fbigh\.com$/i.test(String(req.hostname||""));
+}
 app.get(["/tv","/tv/"],(req,res)=>{
   // Public CFBI TV watch page for viewers (plays the FBI TV channel).
   res.set("Cache-Control","no-cache, must-revalidate");
@@ -5988,6 +5993,17 @@ app.get("/tv-sw.js",(req,res)=>{
 });
 app.get("/tv-icon.svg",(req,res)=>{
   res.type("image/svg+xml").set("Cache-Control","public, max-age=86400").sendFile(path.join(ROOT,"tv-icon.svg"));
+});
+let tvOgPng=null;
+app.get("/tv-og.png",async(req,res)=>{
+  // Share-preview card (WhatsApp, Facebook, X) for live.fbigh.com/tv
+  try{
+    if(!tvOgPng)tvOgPng=await sharp(path.join(ROOT,"tv-og.svg")).resize(1200,630).png().toBuffer();
+    res.type("image/png").set("Cache-Control","public, max-age=86400").send(tvOgPng);
+  }catch(err){
+    console.error("TV share image generation failed:",err);
+    res.sendStatus(500);
+  }
 });
 app.get("/tv-icon-:size.png",async(req,res)=>{
   const size=Number(req.params.size);
@@ -6016,7 +6032,7 @@ app.get("/editor.html",(req,res)=>{
   res.type("html").sendFile(path.join(ROOT,"editor.html"));
 });
 
-app.use((req,res)=>res.sendFile(path.join(ROOT,"index.html")));
+app.use((req,res)=>res.sendFile(path.join(ROOT,isLiveStandaloneHost(req)?"live-standalone.html":"index.html")));
 
 // ---- Cloud program ingest ---------------------------------------------------
 // Local Studio mixes in the browser and streams the mix here over a WebSocket
