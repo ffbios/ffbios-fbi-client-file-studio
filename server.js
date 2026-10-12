@@ -5979,6 +5979,27 @@ app.get(["/tv","/tv/"],(req,res)=>{
   res.set("Cache-Control","no-cache, must-revalidate");
   res.type("html").sendFile(path.join(ROOT,"tv.html"));
 });
+// FBI TV watch app (PWA): manifest, service worker and icons
+app.get("/tv-manifest.webmanifest",(req,res)=>{
+  res.type("application/manifest+json").set("Cache-Control","no-cache").sendFile(path.join(ROOT,"tv-manifest.webmanifest"));
+});
+app.get("/tv-sw.js",(req,res)=>{
+  res.type("application/javascript").set("Cache-Control","no-cache, no-store, must-revalidate").sendFile(path.join(ROOT,"tv-sw.js"));
+});
+app.get("/tv-icon.svg",(req,res)=>{
+  res.type("image/svg+xml").set("Cache-Control","public, max-age=86400").sendFile(path.join(ROOT,"tv-icon.svg"));
+});
+app.get("/tv-icon-:size.png",async(req,res)=>{
+  const size=Number(req.params.size);
+  if(![180,192,512].includes(size))return res.sendStatus(404);
+  try{
+    const buffer=await sharp(path.join(ROOT,"tv-icon.svg")).resize(size,size).png().toBuffer();
+    res.type("image/png").set("Cache-Control","public, max-age=86400").send(buffer);
+  }catch(err){
+    console.error("TV app icon generation failed:",err);
+    res.sendStatus(500);
+  }
+});
 app.get("/live",(req,res)=>{
   // /live is the dedicated standalone FBI Live Control Center. It must never
   // fall back to the main File Studio page, regardless of environment flags.
