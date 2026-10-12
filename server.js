@@ -5974,6 +5974,11 @@ app.get("/",(req,res)=>{
   res.set("Expires","0");
   res.type("html").sendFile(path.join(ROOT,process.env.FBI_LIVE_STANDALONE==="1"?"live-standalone.html":"index.html"));
 });
+app.get(["/tv","/tv/"],(req,res)=>{
+  // Public CFBI TV watch page for viewers (plays the FBI TV channel).
+  res.set("Cache-Control","no-cache, must-revalidate");
+  res.type("html").sendFile(path.join(ROOT,"tv.html"));
+});
 app.get("/live",(req,res)=>{
   // /live is the dedicated standalone FBI Live Control Center. It must never
   // fall back to the main File Studio page, regardless of environment flags.

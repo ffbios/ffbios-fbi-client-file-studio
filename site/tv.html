@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CFBI TV Live — Watch now</title>
+<meta name="description" content="Watch CFBI TV live.">
+<meta name="theme-color" content="#111113">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --bg:#161618; --bar:#111113; --card:#1D1D20; --line:#2A2A2D; --chip:#26262A;
+    --text:#F2EFE8; --strong:#F7F4EC; --muted:#B3AC9E; --soft:#C9C3B6;
+    --gold:#E8B93A; --gold-hi:#F6D47A; --live:#D62828;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:'Archivo',system-ui,sans-serif}
+  a{color:var(--gold)} a:hover{color:var(--gold-hi)}
+  button{font-family:inherit}
+  :focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+  .wrap{max-width:1280px;margin:0 auto;padding:0 24px}
+  @media (max-width:600px){.wrap{padding:0 16px}}
+
+  header{background:var(--bar);border-bottom:1px solid var(--line)}
+  header .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding-top:12px;padding-bottom:12px}
+  .brand{display:flex;align-items:center;gap:8px;text-decoration:none}
+  .brand .fbi{font-family:'Archivo Black',sans-serif;font-size:38px;line-height:1;color:var(--gold)}
+  .brand .tv{font-family:'Archivo Black',sans-serif;font-size:15px;line-height:1;color:var(--bg);background:var(--gold);padding:6px 10px;border-radius:999px}
+  nav{display:flex;flex-wrap:wrap;gap:6px}
+  nav a{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border-radius:8px;color:var(--soft);text-decoration:none;font-weight:500;font-size:15px}
+  nav a[aria-current="page"]{background:#222225;color:var(--text);font-weight:600}
+  nav a:hover{color:var(--text)}
+
+  main.wrap{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start;padding-top:24px;padding-bottom:32px}
+  .col-main{flex:999 1 600px;min-width:0;display:flex;flex-direction:column;gap:20px}
+  .col-side{flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:16px}
+
+  .player{position:relative;width:100%;aspect-ratio:16/9;background:#0B0B0C;border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px var(--line)}
+  .player:fullscreen{border-radius:0}
+  .player video,.player iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}
+  .player .watermark{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+  .player .watermark svg{width:34%;opacity:.08}
+  .badges{position:absolute;left:16px;top:16px;display:flex;gap:8px;z-index:3}
+  .badge{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:13px;padding:6px 10px;border-radius:6px}
+  .badge.live{background:var(--live);color:#fff;letter-spacing:.08em}
+  .badge.live i{width:8px;height:8px;border-radius:50%;background:#fff;animation:pulse 1.6s infinite}
+  .badge.off{background:rgba(0,0,0,.65);color:var(--text);letter-spacing:.08em}
+  .badge.viewers{background:rgba(0,0,0,.6);color:var(--text);font-weight:600}
+  @keyframes pulse{50%{opacity:.35}}
+  @media (prefers-reduced-motion:reduce){.badge.live i{animation:none}}
+  .bigplay{position:absolute;inset:0;margin:auto;width:88px;height:88px;border-radius:50%;border:0;background:var(--gold);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 8px 30px rgba(0,0,0,.5);z-index:3}
+  .bigplay:hover{background:var(--gold-hi)}
+  .offline{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:24px;z-index:2}
+  .offline strong{font-family:'Archivo Black',sans-serif;font-weight:400;font-size:clamp(20px,3vw,28px);color:var(--strong)}
+  .offline span{color:var(--muted);font-size:15px}
+  .controls{position:absolute;left:0;right:0;bottom:0;padding:8px 10px;background:linear-gradient(transparent,rgba(0,0,0,.7));display:flex;align-items:center;gap:2px;z-index:3;transition:opacity .2s}
+  .player.idle .controls{opacity:0}
+  .ctl{width:44px;height:44px;border:0;background:transparent;color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:8px}
+  .ctl:hover{background:rgba(255,255,255,.1)}
+  .ctl svg{width:20px;height:20px}
+  .livebar{flex:1;display:flex;align-items:center;gap:8px;padding:0 8px}
+  .livebar div{flex:1;height:4px;border-radius:2px;background:var(--gold)}
+  .livebar span{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--gold)}
+  input[type=range]{width:80px;accent-color:var(--gold)}
+  @media (max-width:600px){input[type=range]{display:none}}
+
+  .now{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:16px}
+  .now .kicker{font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold)}
+  .now h1{margin:6px 0;font-family:'Archivo Black',sans-serif;font-weight:400;font-size:clamp(22px,3vw,30px);line-height:1.15;color:var(--strong)}
+  .now .meta{font-size:15px;color:var(--muted)}
+  .btn{min-height:44px;padding:0 18px;border-radius:10px;border:1px solid #3A3833;background:#1F1F22;color:var(--text);font-weight:600;font-size:15px;display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+  .btn:hover{border-color:var(--gold)}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px}
+  .card h2{margin:0;font-size:17px;font-weight:700;color:var(--strong)}
+  .about{padding:20px 22px}
+  .about p{margin:8px 0 0;font-size:15px;line-height:1.6;color:var(--soft)}
+  .sched h2{padding:18px 20px 14px;border-bottom:1px solid var(--line)}
+  .sched ul{list-style:none;margin:0;padding:0}
+  .sched li{display:flex;gap:14px;padding:14px 20px;border-top:1px solid var(--line);border-left:3px solid transparent}
+  .sched li:first-child{border-top:0}
+  .sched li.is-now{background:#26241E;border-left-color:var(--gold)}
+  .sched .t{width:62px;flex:none;font-size:14px;font-weight:600;color:var(--muted)}
+  .sched li.is-now .t{color:var(--gold);font-weight:700}
+  .sched .p{font-size:15px;font-weight:600;color:#E6E1D6}
+  .sched .h{font-size:13px;color:var(--muted);margin-top:2px}
+  .sched .empty{padding:16px 20px;color:var(--muted);font-size:14px}
+  .social{padding:18px 20px}
+  .social div{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .social a{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border-radius:10px;background:var(--chip);color:var(--text);text-decoration:none;font-size:14px;font-weight:600}
+  .social a:hover{background:#303035}
+
+  footer{background:var(--bar);border-top:1px solid var(--line)}
+  footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;padding-top:20px;padding-bottom:20px;font-size:14px;color:#9C9688}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--strong);color:var(--bg);font-weight:600;padding:10px 16px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast.show{opacity:1}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<!--
+  ======================================================================
+  EDIT HERE — everything you need to change is in CONFIG further below
+  (search for "const CONFIG"). You don't need to touch anything else.
+  ======================================================================
+-->
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <mask id="apC" maskUnits="userSpaceOnUse" x="-50" y="-50" width="100" height="100">
+      <circle r="48" fill="#fff"/>
+      <polygon points="0,-17 14.7,-8.5 14.7,8.5 0,17 -14.7,8.5 -14.7,-8.5" fill="#000"/>
+      <polygon points="0,0 60,-24 60,24" fill="#000"/>
+      <path d="M0 -17L46.9 10.1M14.7 -8.5L14.7 45.7M14.7 8.5L-32.2 35.6M0 17L-46.9 -10.1M-14.7 8.5L-14.7 -45.7M-14.7 -8.5L32.2 -35.6" stroke="#000" stroke-width="4" fill="none"/>
+    </mask>
+    <symbol id="aperture" viewBox="-50 -50 100 100">
+      <rect x="-50" y="-50" width="100" height="100" fill="#E8B93A" mask="url(#apC)"/>
+    </symbol>
+    <symbol id="waves" viewBox="0 0 80 100">
+      <circle cx="12" cy="50" r="10" fill="#E8B93A"/>
+      <path d="M31.9 33.3A26 26 0 0 1 31.9 66.7" fill="none" stroke="#E8B93A" stroke-width="10" stroke-linecap="round"/>
+      <path d="M45.7 21.7A44 44 0 0 1 45.7 78.3" fill="none" stroke="#E8B93A" stroke-width="10" stroke-linecap="round" opacity=".75"/>
+      <path d="M59.5 10.1A62 62 0 0 1 59.5 89.9" fill="none" stroke="#E8B93A" stroke-width="10" stroke-linecap="round" opacity=".5"/>
+    </symbol>
+  </defs>
+</svg>
+
+<header>
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="CFBI TV home">
+      <svg width="40" height="40" aria-hidden="true"><use href="#aperture"/></svg>
+      <span class="fbi">FBI</span>
+      <svg width="26" height="34" aria-hidden="true"><use href="#waves"/></svg>
+      <span class="tv">TV</span>
+    </a>
+    <nav aria-label="Main">
+      <a href="#watch" aria-current="page">Watch live</a>
+      <a href="#schedule">Schedule</a>
+      <a href="#about">About</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap" id="watch">
+  <section class="col-main" aria-label="Live stream">
+    <div class="player" id="player">
+      <div class="watermark"><svg viewBox="-50 -50 100 100" aria-hidden="true"><use href="#aperture"/></svg></div>
+      <div class="badges">
+        <span class="badge live" id="liveBadge" hidden><i></i>LIVE</span>
+        <span class="badge off" id="offBadge" hidden>OFF AIR</span>
+        <span class="badge viewers" id="viewers" hidden>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span id="viewerCount">0</span>&nbsp;watching
+        </span>
+      </div>
+      <div class="offline" id="offline" hidden>
+        <strong>We'll be back on air soon</strong>
+        <span id="offlineNext"></span>
+      </div>
+      <button class="bigplay" id="bigPlay" type="button" aria-label="Play live stream" hidden>
+        <svg width="34" height="34" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="#161618" stroke="#161618" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="controls" id="controls" hidden>
+        <button class="ctl" id="btnPlay" type="button" aria-label="Pause">
+          <svg id="icoPause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M9 5v14M15 5v14"/></svg>
+          <svg id="icoPlay" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg>
+        </button>
+        <button class="ctl" id="btnMute" type="button" aria-label="Mute">
+          <svg id="icoVol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+          <svg id="icoMuted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/></svg>
+        </button>
+        <label class="sr" for="vol">Volume</label>
+        <input type="range" id="vol" min="0" max="1" step="0.05" value="1">
+        <div class="livebar"><div></div><span>LIVE</span></div>
+        <button class="ctl" id="btnLive" type="button" aria-label="Jump to live" title="Jump to live">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 4 10 8-10 8zM19 5v14"/></svg>
+        </button>
+        <button class="ctl" id="btnFull" type="button" aria-label="Full screen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="now">
+      <div>
+        <div class="kicker" id="nowKicker">Now playing</div>
+        <h1 id="nowTitle">CFBI TV Live</h1>
+        <div class="meta" id="nowMeta"></div>
+      </div>
+      <button class="btn" id="btnShare" type="button">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>
+        Share
+      </button>
+    </div>
+
+    <section class="card about" id="about" aria-labelledby="aboutH">
+      <h2 id="aboutH">About CFBI TV</h2>
+      <p id="aboutText"></p>
+    </section>
+  </section>
+
+  <aside class="col-side" id="schedule">
+    <section class="card sched" aria-labelledby="schedH">
+      <h2 id="schedH">On today</h2>
+      <ul id="schedList"></ul>
+    </section>
+    <section class="card social" aria-labelledby="socH" id="socialCard">
+      <h2 id="socH">Follow CFBI TV</h2>
+      <div id="socialLinks"></div>
+    </section>
+  </aside>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© <span id="year"></span> CFBI TV</span>
+    <span>live.fbigh.com</span>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
+<script>
+/* ==========================================================================
+   CONFIG — edit these values for your station
+   ========================================================================== */
+const CONFIG = {
+  // Your live stream. Pick ONE type and fill in its value:
+  //   { type: "hls",     url: "https://your-server/live/stream.m3u8" }   // your own streaming server / CDN
+  //   { type: "youtube", channelId: "UCxxxxxxxxxxxxxxxxxxxxxx" }         // YouTube Live (your channel ID)
+  //   { type: "youtube", videoId: "xxxxxxxxxxx" }                        // one specific YouTube live video
+  //   { type: "iframe",  url: "https://player.example.com/embed/..." }   // any other embed link (Facebook, Vimeo, etc.)
+  //   { type: "fbigh",   watchLink: "https://live.fbigh.com/watch/XXXX" } // a channel from the FBI Live Broadcast Studio
+  //                                                                      // (also shows the live viewer count automatically)
+  stream: { type: "fbigh", watchLink: "https://live.fbigh.com/watch/7UqojM_oCDlDRA4I3izc8Z_gsT-OE4lJ" }, // FBI TV
+
+  // Time zone your schedule is written in (Ghana = Africa/Accra)
+  timeZone: "Africa/Accra",
+
+  // Today's programs, 24-hour times. The page highlights the one on air now.
+  // Use "days" to limit a show to certain days (0=Sun … 6=Sat); leave it out for every day.
+  schedule: [
+    { start: "06:00", end: "09:00", title: "Program name", host: "Presenter name" },
+    { start: "09:00", end: "12:00", title: "Program name", host: "" },
+    { start: "12:00", end: "15:00", title: "Program name", host: "" },
+    { start: "15:00", end: "18:00", title: "Program name", host: "" },
+    { start: "18:00", end: "22:00", title: "Program name", host: "", days: [1,2,3,4,5] }
+  ],
+
+  about: "Add a short description of CFBI TV here: what you broadcast, who it's for, and when you're on air.",
+
+  // Social links — delete any you don't use
+  social: [
+    { label: "Facebook",  url: "" },
+    { label: "YouTube",   url: "" },
+    { label: "Instagram", url: "" },
+    { label: "TikTok",    url: "" }
+  ],
+
+  // Optional: a URL that returns JSON like {"viewers": 123}. Leave "" to hide the viewer count.
+  viewerCountUrl: ""
+};
+
+/* ==========================================================================
+   Page logic — no need to edit below
+   ========================================================================== */
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const player = $("player");
+  let video = null;
+
+  // ---------- time helpers (in the station's time zone) ----------
+  function stationNow() {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: CONFIG.timeZone, hour12: false, weekday: "short", hour: "2-digit", minute: "2-digit"
+    }).formatToParts(new Date());
+    const get = (t) => parts.find((p) => p.type === t).value;
+    const days = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+    return { day: days[get("weekday")], mins: (+get("hour") % 24) * 60 + (+get("minute")) };
+  }
+  const toMins = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
+  function fmt(hhmm) {
+    const [h, m] = hhmm.split(":").map(Number);
+    const ap = h >= 12 && h < 24 ? "PM" : "AM";
+    const h12 = ((h + 11) % 12) + 1;
+    return h12 + (m ? ":" + String(m).padStart(2, "0") : "") + " " + ap;
+  }
+
+  // ---------- schedule ----------
+  function todaysShows() {
+    const { day } = stationNow();
+    return CONFIG.schedule
+      .filter((s) => !s.days || s.days.includes(day))
+      .sort((a, b) => toMins(a.start) - toMins(b.start));
+  }
+  function currentShow(list) {
+    const { mins } = stationNow();
+    return list.find((s) => {
+      const a = toMins(s.start), b = toMins(s.end);
+      return b > a ? mins >= a && mins < b : mins >= a || mins < b; // handles shows past midnight
+    });
+  }
+  function renderSchedule() {
+    const list = todaysShows();
+    const now = currentShow(list);
+    const ul = $("schedList");
+    ul.innerHTML = "";
+    if (!list.length) {
+      ul.innerHTML = '<li class="empty">No programs listed for today.</li>';
+    }
+    list.forEach((s) => {
+      const li = document.createElement("li");
+      if (s === now) li.className = "is-now";
+      const t = document.createElement("div"); t.className = "t";
+      t.textContent = s === now ? "NOW" : fmt(s.start);
+      const info = document.createElement("div");
+      const p = document.createElement("div"); p.className = "p"; p.textContent = s.title;
+      info.appendChild(p);
+      const sub = [s.host, fmt(s.start) + " – " + fmt(s.end)].filter(Boolean).join(" · ");
+      const h = document.createElement("div"); h.className = "h"; h.textContent = sub;
+      info.appendChild(h);
+      li.append(t, info);
+      ul.appendChild(li);
+    });
+    // Now playing block
+    if (now) {
+      $("nowKicker").textContent = "Now playing";
+      $("nowTitle").textContent = now.title;
+      $("nowMeta").textContent = [now.host, fmt(now.start) + " – " + fmt(now.end)].filter(Boolean).join(" · ");
+    } else {
+      const { mins } = stationNow();
+      const next = list.find((s) => toMins(s.start) > mins);
+      $("nowKicker").textContent = "CFBI TV Live";
+      $("nowTitle").textContent = next ? "Up next: " + next.title : "CFBI TV Live";
+      $("nowMeta").textContent = next ? "Starts at " + fmt(next.start) : "";
+      $("offlineNext").textContent = next ? "Next up: " + next.title + " at " + fmt(next.start) : "";
+    }
+  }
+
+  // ---------- player ----------
+  function showOffline() {
+    $("offline").hidden = false;
+    $("offBadge").hidden = false;
+    $("liveBadge").hidden = true;
+    $("bigPlay").hidden = true;
+    $("controls").hidden = true;
+  }
+  function showLive() {
+    $("offline").hidden = true;
+    $("offBadge").hidden = true;
+    $("liveBadge").hidden = false;
+  }
+  function addIframe(src) {
+    const f = document.createElement("iframe");
+    f.src = src;
+    f.title = "CFBI TV live stream";
+    f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+    f.allowFullscreen = true;
+    player.appendChild(f);
+    showLive();
+  }
+  function setupHls(url) {
+    video = document.createElement("video");
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.preload = "auto";
+    player.insertBefore(video, $("player").querySelector(".badges"));
+
+    const onFatal = () => showOffline();
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = url;                                    // Safari / iPhone
+      video.addEventListener("error", onFatal);
+    } else if (window.Hls && Hls.isSupported()) {
+      const hls = new Hls({ lowLatencyMode: true, liveSyncDurationCount: 3 });
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.ERROR, (e, d) => {
+        if (!d.fatal) return;
+        if (d.type === Hls.ErrorTypes.NETWORK_ERROR) { setTimeout(() => hls.startLoad(), 5000); onFatal(); }
+        else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+        else onFatal();
+      });
+      hls.on(Hls.Events.MANIFEST_PARSED, () => { showLive(); $("bigPlay").hidden = false; });
+      window.__hls = hls;
+    } else {
+      onFatal();
+      return;
+    }
+    video.addEventListener("loadedmetadata", () => { showLive(); $("bigPlay").hidden = false; });
+    video.addEventListener("playing", () => { $("bigPlay").hidden = true; $("controls").hidden = false; $("offline").hidden = true; syncIcons(); });
+    video.addEventListener("pause", syncIcons);
+    video.addEventListener("volumechange", syncIcons);
+    video.addEventListener("click", togglePlay);
+
+    // Try to autoplay muted; viewers can unmute
+    video.muted = true;
+    video.play().catch(() => { $("bigPlay").hidden = false; });
+  }
+  function togglePlay() {
+    if (!video) return;
+    if (video.paused) { jumpLive(); video.play(); } else video.pause();
+  }
+  function jumpLive() {
+    if (!video) return;
+    if (window.__hls && window.__hls.liveSyncPosition) video.currentTime = window.__hls.liveSyncPosition;
+    else if (video.seekable.length) video.currentTime = video.seekable.end(video.seekable.length - 1) - 2;
+  }
+  function syncIcons() {
+    if (!video) return;
+    $("icoPause").hidden = video.paused; $("icoPlay").hidden = !video.paused;
+    $("btnPlay").setAttribute("aria-label", video.paused ? "Play" : "Pause");
+    const muted = video.muted || video.volume === 0;
+    $("icoVol").hidden = muted; $("icoMuted").hidden = !muted;
+    $("btnMute").setAttribute("aria-label", muted ? "Unmute" : "Mute");
+    $("vol").value = muted ? 0 : video.volume;
+  }
+
+  $("bigPlay").addEventListener("click", () => {
+    if (!video) return;
+    video.muted = false;
+    jumpLive();
+    video.play();
+  });
+  $("btnPlay").addEventListener("click", togglePlay);
+  $("btnMute").addEventListener("click", () => {
+    if (!video) return;
+    video.muted = !video.muted;
+    if (!video.muted && video.volume === 0) video.volume = 1;
+  });
+  $("vol").addEventListener("input", (e) => {
+    if (!video) return;
+    video.volume = +e.target.value;
+    video.muted = video.volume === 0;
+  });
+  $("btnLive").addEventListener("click", () => { jumpLive(); if (video) video.play(); });
+  $("btnFull").addEventListener("click", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else if (player.requestFullscreen) player.requestFullscreen();
+    else if (video && video.webkitEnterFullscreen) video.webkitEnterFullscreen(); // iPhone
+  });
+
+  // Hide controls when idle
+  let idleTimer;
+  player.addEventListener("mousemove", () => {
+    player.classList.remove("idle");
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => { if (video && !video.paused) player.classList.add("idle"); }, 3000);
+  });
+
+  // FBI Live Broadcast Studio channel: https://live.fbigh.com/watch/<token>
+  const FBIGH = "https://live.fbigh.com";
+  function fbighToken() {
+    const s = CONFIG.stream || {};
+    if (s.type !== "fbigh" || !s.watchLink || !s.watchLink.includes("/watch/")) return "";
+    return s.watchLink.split("/watch/").pop().split(/[?#/]/)[0];
+  }
+
+  function startStream() {
+    const s = CONFIG.stream || {};
+    const tok = fbighToken();
+    if (tok) return setupHls(FBIGH + "/api/public/stream/" + encodeURIComponent(tok) + "/hls/index.m3u8");
+    if (s.type === "hls" && s.url) return setupHls(s.url);
+    if (s.type === "youtube" && s.channelId)
+      return addIframe("https://www.youtube.com/embed/live_stream?channel=" + encodeURIComponent(s.channelId) + "&autoplay=1&mute=1");
+    if (s.type === "youtube" && s.videoId)
+      return addIframe("https://www.youtube.com/embed/" + encodeURIComponent(s.videoId) + "?autoplay=1&mute=1");
+    if (s.type === "iframe" && s.url) return addIframe(s.url);
+    showOffline();
+  }
+
+  // ---------- viewers ----------
+  async function pollViewers() {
+    const tok = fbighToken();
+    const url = tok ? FBIGH + "/api/public/stream/" + encodeURIComponent(tok) + "/status" : CONFIG.viewerCountUrl;
+    if (!url) return;
+    try {
+      const r = await fetch(url, { cache: "no-store" });
+      const d = await r.json();
+      const n = Number(tok ? d.current_viewers : d.viewers);
+      if (Number.isFinite(n)) {
+        $("viewerCount").textContent = n.toLocaleString();
+        $("viewers").hidden = false;
+      }
+    } catch (e) { /* keep quiet */ }
+    // Count this viewer in the studio's "watching now" number
+    if (tok && video && !video.paused) {
+      try {
+        await fetch(FBIGH + "/api/public/stream/" + encodeURIComponent(tok) + "/heartbeat", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionKey })
+        });
+      } catch (e) { /* keep quiet */ }
+    }
+  }
+  const sessionKey = (() => {
+    try {
+      let k = localStorage.getItem("cfbiViewerKey");
+      if (!k) { k = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)); localStorage.setItem("cfbiViewerKey", k); }
+      return k;
+    } catch (e) { return String(Math.random()).slice(2); }
+  })();
+
+  // ---------- share ----------
+  function toast(msg) {
+    const t = $("toast"); t.textContent = msg; t.classList.add("show");
+    setTimeout(() => t.classList.remove("show"), 2200);
+  }
+  $("btnShare").addEventListener("click", async () => {
+    const data = { title: "CFBI TV Live", text: "Watch CFBI TV live", url: location.href };
+    if (navigator.share) { try { await navigator.share(data); } catch (e) {} return; }
+    try { await navigator.clipboard.writeText(location.href); toast("Link copied"); }
+    catch (e) { toast(location.href); }
+  });
+
+  // ---------- about + social ----------
+  $("aboutText").textContent = CONFIG.about;
+  const socials = (CONFIG.social || []).filter((s) => s.url);
+  if (!socials.length) $("socialCard").hidden = true;
+  socials.forEach((s) => {
+    const a = document.createElement("a");
+    a.href = s.url; a.textContent = s.label; a.target = "_blank"; a.rel = "noopener";
+    $("socialLinks").appendChild(a);
+  });
+  $("year").textContent = new Date().getFullYear();
+
+  // ---------- go ----------
+  renderSchedule();
+  setInterval(renderSchedule, 60 * 1000);
+  startStream();
+  pollViewers();
+  setInterval(pollViewers, 20 * 1000);
+})();
+</script>
+</body>
+</html>
