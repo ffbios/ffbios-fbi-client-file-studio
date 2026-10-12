@@ -576,6 +576,7 @@ button{cursor:pointer}
         video.__fbiHls=hls;video.__fbiHlsUrl=url;
         hlsInstances.push(hls);hls.loadSource(url);hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED,()=>{video.play().catch(()=>{});setVideoStatusStandalone(statusId,'LIVE')});
+        hls.on(Hls.Events.FRAG_BUFFERED,()=>{if(video.__fbiHls===hls){const e=document.getElementById(statusId);if(e&&e.textContent!=='LIVE')e.textContent='LIVE'}});
         hls.on(Hls.Events.ERROR,(event,data)=>{
           if(!data||!data.fatal)return;
           // If the Local Studio has taken this video over, step aside.
