@@ -14,18 +14,111 @@ const A={
   timer:null
 };
 
+const svg=p=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+p+'</svg>';
+const ICON={
+  cam:svg('<rect x="3" y="7" width="13" height="10" rx="2"/><path d="m16 11 5-3v8l-5-3"/>'),
+  screen:svg('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>'),
+  audio:svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
+  ndi:svg('<circle cx="12" cy="12" r="2"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/>'),
+  grid:svg('<rect x="3" y="4" width="8" height="7" rx="1"/><rect x="13" y="4" width="8" height="7" rx="1"/><rect x="3" y="13" width="8" height="7" rx="1"/><rect x="13" y="13" width="8" height="7" rx="1"/>'),
+  min:svg('<path d="M6 12h12"/>'),max:svg('<path d="m6 15 6-6 6 6"/>'),close:svg('<path d="M6 6l12 12M18 6 6 18"/>')
+};
+const KIND={CHANNEL:"Channel",DEVICE:"Camera",SCREEN:"Screen",AUDIO:"Audio",NDI:"NDI"};
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
 const api=async(url,options={})=>{const r=await fetch(url,options);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.error||"Request failed");return d};
 const activeChannelId=()=>document.querySelector("#channels .channel.active")?.dataset.id||"";
-const toast=msg=>{let t=document.getElementById("fbiLiveToast");if(!t){t=document.createElement("div");t.id="fbiLiveToast";document.body.appendChild(t)}t.textContent=msg;t.style.cssText="position:fixed;right:18px;bottom:18px;z-index:10000;background:#151518;color:#f4f4f6;border:1px solid #37373d;border-radius:9px;padding:10px 13px;font:800 9px Inter,system-ui,sans-serif;box-shadow:0 20px 70px rgba(0,0,0,.65)";clearTimeout(t._t);t._t=setTimeout(()=>t.remove(),2400)};
+const toast=msg=>{let t=document.getElementById("fbiLiveToast");if(!t){t=document.createElement("div");t.id="fbiLiveToast";document.body.appendChild(t)}t.textContent=msg;t.style.cssText="position:fixed;right:18px;top:18px;z-index:10000;background:#151518;color:#f4f4f6;border:1px solid #37373d;border-radius:9px;padding:10px 13px;font:600 13px Inter,system-ui,sans-serif;box-shadow:0 20px 70px rgba(0,0,0,.65)";clearTimeout(t._t);t._t=setTimeout(()=>t.remove(),2400)};
 
 function injectStyle(){
   if(document.getElementById("fbiLiveAddonStyle"))return;
   const s=document.createElement("style");s.id="fbiLiveAddonStyle";
   s.textContent=`
-.fbi-addon-local{position:fixed;left:285px;right:18px;bottom:18px;z-index:5000;background:#0d0d10;border:1px solid #36363d;border-radius:13px;box-shadow:0 30px 110px rgba(0,0,0,.78);display:none;overflow:hidden}
-.fbi-addon-local.open{display:block}.fbi-addon-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 13px;border-bottom:1px solid #28282e;background:#111114}.fbi-addon-head b{display:block;font-size:10px}.fbi-addon-head span{display:block;color:#787881;font-size:6px;margin-top:3px}.fbi-addon-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}.fbi-addon-btn{border:1px solid #323238;background:#18181b;color:#ededf0;border-radius:7px;padding:7px 9px;font-size:7px;font-weight:850;cursor:pointer}.fbi-addon-btn.gold{background:#e7c44f;border-color:#e7c44f;color:#13130f}.fbi-addon-btn.danger{background:#321416;border-color:#68282b;color:#ffb2b9}.fbi-addon-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;padding:10px;max-height:42vh;overflow:auto}.fbi-addon-source{border:1px solid #29292f;background:#101013;border-radius:9px;overflow:hidden}.fbi-addon-source.preview{border-color:#65a7ff;box-shadow:0 0 0 1px rgba(101,167,255,.12)}.fbi-addon-source.program{border-color:#e7c44f;box-shadow:0 0 0 1px rgba(231,196,79,.12)}.fbi-addon-visual{aspect-ratio:16/9;background:#000;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}.fbi-addon-visual video,.fbi-addon-visual img{width:100%;height:100%;display:block;object-fit:cover}.fbi-addon-special{color:#e7c44f;font-size:12px;font-weight:900}.fbi-addon-special span{display:block;margin-top:4px;font-size:6px;color:#777780;text-align:center}.fbi-addon-badge{position:absolute;top:5px;left:5px;padding:3px 5px;background:rgba(0,0,0,.7);border:1px solid rgba(255,255,255,.14);border-radius:4px;font-size:5px;color:#ddd}.fbi-addon-source-body{padding:7px}.fbi-addon-source-name{font-size:8px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.fbi-addon-source-meta{font-size:6px;color:#75757d;margin-top:3px}.fbi-addon-source-actions{display:grid;grid-template-columns:1fr 1fr 28px;gap:4px;margin-top:6px}.fbi-addon-source-actions button{border:1px solid #303037;background:#18181b;color:#ededf0;border-radius:6px;padding:6px 5px;font-size:6px;font-weight:850;cursor:pointer}.fbi-addon-source-actions button.primary{background:#e7c44f;color:#14140f;border-color:#e7c44f}.fbi-addon-tbar{display:grid;grid-template-columns:minmax(180px,1fr) 2.5fr auto;gap:10px;align-items:center;padding:10px;border-top:1px solid #28282e;background:#09090c}.fbi-addon-status b{display:block;font-size:8px}.fbi-addon-status span{display:block;color:#73737b;font-size:6px;margin-top:3px;line-height:1.45}.fbi-addon-range{width:100%;accent-color:#e7c44f}.fbi-addon-range-label{display:flex;justify-content:space-between;color:#777780;font-size:6px}.fbi-addon-range-label b{color:#e7c44f}.fbi-addon-mv{position:fixed;inset:0;z-index:8000;background:rgba(0,0,0,.84);display:none;padding:18px}.fbi-addon-mv.open{display:grid;place-items:center}.fbi-addon-mv-card{width:min(1240px,100%);max-height:calc(100vh - 36px);overflow:auto;background:#0d0d10;border:1px solid #37373d;border-radius:13px;box-shadow:0 35px 120px rgba(0,0,0,.8)}.fbi-addon-mv-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:10px}.fbi-addon-mv-card-item{border:1px solid #2b2b31;border-radius:8px;overflow:hidden;background:#111114}.fbi-addon-mv-visual{aspect-ratio:16/9;background:#000;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}.fbi-addon-mv-visual video,.fbi-addon-mv-visual img{width:100%;height:100%;object-fit:cover}.fbi-addon-mv-body{padding:7px}.fbi-addon-mv-body b{display:block;font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.fbi-addon-mv-body span{display:block;margin-top:3px;font-size:6px;color:#75757d}.fbi-addon-mv-actions{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:6px}.fbi-addon-mv-actions button{border:1px solid #303037;background:#18181b;color:#ececf0;border-radius:6px;padding:6px;font-size:6px;font-weight:850;cursor:pointer}.fbi-addon-mv-actions button.primary{background:#e7c44f;color:#14140f;border-color:#e7c44f}.fbi-addon-take{border-color:#d2b33e!important;background:#2a250f!important;color:#e7c44f!important}
-@media(max-width:1000px){.fbi-addon-local{left:18px}.fbi-addon-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.fbi-addon-tbar{grid-template-columns:1fr}}@media(max-width:650px){.fbi-addon-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.fbi-addon-mv-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.fbi-ls{--ls-bg:#0d1014;--ls-panel:#12161c;--ls-raise:#171c23;--ls-line:#232a33;--ls-line2:#2f3742;--ls-text:#eef0f4;--ls-muted:#8d95a2;--ls-gold:#e8c85a;--ls-pgm:#e8402f;--ls-pvw:#36d278;
+  position:fixed;left:300px;right:14px;bottom:14px;z-index:5000;display:none;flex-direction:column;max-height:min(62vh,640px);background:var(--ls-bg);border:1px solid var(--ls-line2);border-radius:16px;box-shadow:0 -10px 60px rgba(0,0,0,.55),0 30px 90px rgba(0,0,0,.6);color:var(--ls-text);font:14px/1.4 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;transform-origin:50% 100%}
+.fbi-ls.open{display:flex;animation:fbiLsIn .28s cubic-bezier(.2,.8,.2,1)}
+@keyframes fbiLsIn{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+.fbi-ls-head{display:flex;align-items:center;gap:16px;padding:14px 16px;border-bottom:1px solid var(--ls-line);background:linear-gradient(180deg,#141920,#10141a)}
+.fbi-ls-title{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
+.fbi-ls-title>div{min-width:0}
+.fbi-ls-pill{flex:none}
+.fbi-ls-title h2{margin:0;font-size:16px;font-weight:750;letter-spacing:-.01em}
+.fbi-ls-title p{margin:2px 0 0;font-size:12.5px;color:var(--ls-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fbi-ls-pill{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--ls-line2);background:#0b0e12;font-size:12.5px;font-weight:650;white-space:nowrap}
+.fbi-ls-pill i{width:9px;height:9px;border-radius:50%;background:#59616d}
+.fbi-ls-pill.ready i{background:var(--ls-pvw);box-shadow:0 0 10px rgba(54,210,120,.7)}
+.fbi-ls-pill.onair{border-color:rgba(232,64,47,.55);background:rgba(232,64,47,.12)}.fbi-ls-pill.onair i{background:var(--ls-pgm);box-shadow:0 0 12px rgba(232,64,47,.85);animation:fbiLsPulse 1.6s ease-in-out infinite}
+@keyframes fbiLsPulse{50%{opacity:.4}}
+.fbi-ls-add{display:flex;align-items:center;border:1px solid var(--ls-line2);border-radius:11px;overflow:hidden;background:var(--ls-panel)}
+.fbi-ls-add span{padding:0 12px;font-size:12px;color:var(--ls-muted);border-right:1px solid var(--ls-line)}
+.fbi-ls-add button{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 11px;border:0;border-right:1px solid var(--ls-line);background:none;color:var(--ls-text);font-weight:600;font-size:13px;font-family:inherit;cursor:pointer}
+.fbi-ls-add button:last-child{border-right:0}.fbi-ls-add button:hover{background:var(--ls-raise)}
+.fbi-ls-add svg,.fbi-ls-btn svg{width:16px;height:16px;flex:none}
+.fbi-ls-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:36px;padding:0 13px;border:1px solid var(--ls-line2);border-radius:10px;background:var(--ls-panel);color:var(--ls-text);font-weight:600;font-size:13px;font-family:inherit;cursor:pointer;white-space:nowrap}
+.fbi-ls-btn:hover{background:var(--ls-raise)}.fbi-ls-btn:disabled{opacity:.4;cursor:not-allowed}
+.fbi-ls-btn.icon{width:36px;padding:0}
+.fbi-ls-btn.danger{border-color:rgba(232,64,47,.45);color:#ffb3aa;background:rgba(232,64,47,.08)}.fbi-ls-btn.danger:hover:not(:disabled){background:rgba(232,64,47,.18)}
+.fbi-ls-btn.take{height:52px;padding:0 26px;border:0;border-radius:12px;background:var(--ls-pgm);color:#fff;font-size:15px;font-weight:750;letter-spacing:.02em;box-shadow:0 8px 24px rgba(232,64,47,.3)}
+.fbi-ls-btn.take:hover:not(:disabled){filter:brightness(1.08);background:var(--ls-pgm)}
+.fbi-ls-btn:focus-visible,.fbi-ls-add button:focus-visible,.fbi-ls-src button:focus-visible,.fbi-ls-range:focus-visible{outline:2px solid var(--ls-gold);outline-offset:2px}
+.fbi-ls-bus{flex:1;min-height:0;overflow:auto;padding:14px 16px;scrollbar-width:thin;scrollbar-color:#2a303b transparent}
+.fbi-ls-bus-label{display:flex;justify-content:space-between;align-items:baseline;margin:0 2px 10px;font-size:12.5px;color:var(--ls-muted)}
+.fbi-ls-bus-label kbd{font-weight:600;font-size:11px;font-family:inherit;padding:1px 6px;border:1px solid var(--ls-line2);border-bottom-width:2px;border-radius:5px;color:var(--ls-text);background:var(--ls-panel)}
+.fbi-ls-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.fbi-ls-src{position:relative;border:2px solid var(--ls-line);border-radius:12px;background:var(--ls-panel);overflow:hidden;transition:border-color .15s,box-shadow .15s}
+.fbi-ls-src:hover{border-color:var(--ls-line2)}
+.fbi-ls-src.preview{border-color:var(--ls-pvw);box-shadow:0 0 0 3px rgba(54,210,120,.14)}
+.fbi-ls-src.program{border-color:var(--ls-pgm);box-shadow:0 0 0 3px rgba(232,64,47,.16)}
+.fbi-ls-vis{position:relative;aspect-ratio:16/9;background:#000;display:grid;place-items:center;overflow:hidden;cursor:pointer}
+.fbi-ls-vis video,.fbi-ls-vis img{width:100%;height:100%;object-fit:cover;display:block}
+.fbi-ls-num{position:absolute;top:8px;left:8px;min-width:24px;height:24px;padding:0 6px;display:grid;place-items:center;border-radius:6px;background:rgba(0,0,0,.72);border:1px solid rgba(255,255,255,.16);font-size:12px;font-weight:700}
+.fbi-ls-tally{position:absolute;top:8px;right:8px;height:24px;padding:0 8px;display:none;align-items:center;border-radius:6px;font-size:11.5px;font-weight:750;letter-spacing:.04em;color:#fff}
+.fbi-ls-src.preview .fbi-ls-tally{display:inline-flex;background:var(--ls-pvw);color:#062312}
+.fbi-ls-src.program .fbi-ls-tally{display:inline-flex;background:var(--ls-pgm)}
+.fbi-ls-kind{position:absolute;bottom:8px;left:8px;height:22px;padding:0 7px;display:inline-flex;align-items:center;border-radius:5px;background:rgba(0,0,0,.7);font-size:11px;color:#d5d9df}
+.fbi-ls-audio{display:grid;place-items:center;gap:8px;color:var(--ls-gold);font-size:13px;font-weight:650}
+.fbi-ls-audio svg{width:30px;height:30px}
+.fbi-ls-body{display:grid;gap:9px;padding:10px 12px 12px}
+.fbi-ls-name{flex:1;min-width:0}
+.fbi-ls-name b{display:block;font-size:13.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fbi-ls-name span{display:block;margin-top:1px;font-size:12px;color:var(--ls-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fbi-ls-src .fbi-ls-acts{display:grid;grid-template-columns:1fr 1fr 32px;gap:6px}
+.fbi-ls-src .fbi-ls-acts button{height:32px;padding:0 11px;border-radius:8px;border:1px solid var(--ls-line2);background:var(--ls-raise);color:var(--ls-text);font-weight:650;font-size:12.5px;font-family:inherit;cursor:pointer}
+.fbi-ls-src .fbi-ls-acts button[data-act=take]{background:rgba(232,64,47,.14);border-color:rgba(232,64,47,.5);color:#ffc2bb}
+.fbi-ls-src .fbi-ls-acts button[data-act=take]:hover:not(:disabled){background:var(--ls-pgm);color:#fff}
+.fbi-ls-src .fbi-ls-acts button[data-act=remove]{width:32px;padding:0;color:var(--ls-muted)}
+.fbi-ls-src .fbi-ls-acts button:disabled{opacity:.35;cursor:not-allowed}
+.fbi-ls-ghost{display:grid;place-items:center;gap:6px;min-height:100%;aspect-ratio:auto;border:2px dashed var(--ls-line2);border-radius:12px;color:var(--ls-muted);font-size:13px;text-align:center;padding:18px;cursor:pointer;background:none;font-family:inherit}
+.fbi-ls-ghost:hover{border-color:var(--ls-gold);color:var(--ls-text)}
+.fbi-ls-ghost b{display:block;font-size:14px;color:var(--ls-text)}
+.fbi-ls-foot{display:grid;grid-template-columns:minmax(200px,1fr) minmax(260px,2.2fr) auto;gap:20px;align-items:center;padding:14px 16px;border-top:1px solid var(--ls-line);background:#0a0d11}
+.fbi-ls-status b{display:block;font-size:14px;font-weight:700}
+.fbi-ls-status span{display:block;margin-top:3px;font-size:12.5px;color:var(--ls-muted);line-height:1.45}
+.fbi-ls-tbar{display:grid;gap:6px}
+.fbi-ls-range{-webkit-appearance:none;appearance:none;width:100%;height:12px;border-radius:999px;background:linear-gradient(90deg,var(--ls-pvw) 0%,#2a313b 0%);outline:none;cursor:pointer}
+.fbi-ls-range:disabled{opacity:.45;cursor:not-allowed}
+.fbi-ls-range::-webkit-slider-thumb{-webkit-appearance:none;width:30px;height:30px;border-radius:8px;background:#dfe3e8;border:3px solid #0a0d11;box-shadow:0 2px 10px rgba(0,0,0,.6)}
+.fbi-ls-range::-moz-range-thumb{width:26px;height:26px;border-radius:8px;background:#dfe3e8;border:3px solid #0a0d11}
+.fbi-ls-range-label{display:flex;justify-content:space-between;font-size:12px;color:var(--ls-muted)}
+.fbi-ls-range-label b{color:var(--ls-text);font-variant-numeric:tabular-nums}
+.fbi-ls.min .fbi-ls-bus,.fbi-ls.min .fbi-ls-add{display:none}
+.fbi-ls-pick{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;border:1px solid #29303a;border-radius:10px;margin-bottom:8px;background:#11151b}
+.fbi-ls-pick b{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fbi-ls-pick button{height:34px;padding:0 14px;border:0;border-radius:8px;background:#e8c85a;color:#1a1606;font:700 13px Inter,system-ui,sans-serif;cursor:pointer}
+.fbi-addon-mv{position:fixed;inset:0;z-index:8000;background:rgba(5,7,10,.86);display:none;padding:22px}.fbi-addon-mv.open{display:grid;place-items:center}
+.fbi-addon-mv-card{width:min(1320px,100%);max-height:calc(100vh - 44px);overflow:auto;background:#0d1014;border:1px solid #2f3742;border-radius:16px;box-shadow:0 35px 120px rgba(0,0,0,.8);color:#eef0f4;font:14px/1.4 Inter,system-ui,sans-serif}
+.fbi-addon-mv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;padding:16px}
+.fbi-addon-mv-card-item{border:2px solid #232a33;border-radius:12px;overflow:hidden;background:#12161c}
+.fbi-addon-mv-visual{aspect-ratio:16/9;background:#000;display:grid;place-items:center;position:relative;overflow:hidden}
+.fbi-addon-mv-visual video,.fbi-addon-mv-visual img{width:100%;height:100%;object-fit:cover}
+.fbi-addon-mv-body{padding:10px 12px}.fbi-addon-mv-body b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.fbi-addon-mv-body span{display:block;margin-top:2px;font-size:12px;color:#8d95a2}
+.fbi-addon-mv-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.fbi-addon-mv-actions button{height:34px;border:1px solid #2f3742;background:#171c23;color:#eef0f4;border-radius:8px;font:650 13px Inter,system-ui,sans-serif;cursor:pointer}
+.fbi-addon-mv-actions button.primary{background:#e8402f;border-color:#e8402f;color:#fff}
+#fbiLocalOpen.is-open{border-color:#e8c85a;color:#e8c85a}
+@media(max-width:1500px){.fbi-ls-title p{display:none}}@media(max-width:1280px){.fbi-ls-add>span{display:none}.fbi-ls-btn .t{display:none}}
+@media(max-width:1000px){.fbi-ls{left:12px;right:12px;bottom:12px}.fbi-ls-head{flex-wrap:wrap}.fbi-ls-foot{grid-template-columns:1fr}.fbi-ls-btn.take{width:100%}}
+@media(max-width:620px){.fbi-ls-add button .t{display:none}.fbi-ls-grid{grid-template-columns:1fr 1fr}.fbi-ls-src .fbi-ls-acts button[data-act=preview]{display:none}}
+@media (prefers-reduced-motion:reduce){.fbi-ls.open,.fbi-ls-pill.onair i{animation:none}}
 `;
   document.head.appendChild(s);
 }
@@ -116,7 +209,9 @@ function ensureChannelSource(s){
   }
   v.volume=0;v.muted=false;
   setHls(v,inputHlsUrl(s));
-  A.sources.set("channel",{id:"channel",name:s.name||"Channel Feed",kind:"CHANNEL",detail:"Existing OBS / vMix live channel feed",video:v,audioElement:v});
+  const prev=A.sources.get("channel");
+  if(prev){prev.name=s.name||"Channel Feed";prev.video=v;prev.audioElement=v;const nb=prev.card?.querySelector(".fbi-ls-name b");if(nb)nb.textContent=prev.name;return}
+  A.sources.set("channel",{id:"channel",name:s.name||"Channel Feed",kind:"CHANNEL",detail:"Your OBS or vMix feed",video:v,audioElement:v});
 }
 
 async function refreshChannelSource(){
@@ -273,7 +368,7 @@ async function localTake(src){
 async function stopGateway(){
   const b=A.bridge;
   if(!b){
-    if(M.channelData)await api("/api/live/streams/"+encodeURIComponent(M.channelData.id)+"/program/stop",{method:"POST"}).catch(()=>{});
+    if(A.channelData)await api("/api/live/streams/"+encodeURIComponent(A.channelData.id)+"/program/stop",{method:"POST"}).catch(()=>{});
     restoreProgram();return;
   }
   const id=b.channelId;
@@ -308,16 +403,16 @@ async function addCamera(){
   }
   if(!ds.length)throw new Error("No camera or USB capture device was found.");
   const modal=document.createElement("div");modal.className="channel-modal";modal.style.zIndex="9000";
-  modal.innerHTML='<div class="channel-box"><div class="channel-head"><b>CAMERA / USB CAPTURE CARD</b><button class="channel-close" id="fbiCamClose">×</button></div><div class="channel-body"><p class="channel-help">Choose the capture device to add to Local Studio.</p><div id="fbiCamList"></div></div></div>';
+  modal.innerHTML='<div class="channel-box"><div class="channel-head"><b>Add a camera or capture card</b><button class="channel-close" id="fbiCamClose">×</button></div><div class="channel-body"><p class="channel-help">Choose the capture device to add to Local Studio.</p><div id="fbiCamList"></div></div></div>';
   document.body.appendChild(modal);
   const list=modal.querySelector("#fbiCamList");
   ds.forEach((d,i)=>{
     const row=document.createElement("div");
-    row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px;border:1px solid #29292f;border-radius:7px;margin-bottom:6px";
-    row.innerHTML='<b style="font-size:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(d.label||("Video Device "+(i+1)))+'</b><button class="btn primary" style="font-size:7px">ADD</button>';
+    row.className="fbi-ls-pick";
+    row.innerHTML='<b>'+esc(d.label||("Video device "+(i+1)))+'</b><button type="button">Add</button>';
     const btn=row.querySelector("button");
     btn.onclick=async()=>{
-      btn.disabled=true;btn.textContent="OPENING…";
+      btn.disabled=true;btn.textContent="Opening…";
       try{
         let st;
         try{
@@ -327,12 +422,12 @@ async function addCamera(){
         }
         const vid=document.createElement("video");
         vid.autoplay=true;vid.muted=true;vid.playsInline=true;vid.srcObject=st;await vid.play().catch(()=>{});
-        const src={id:"device-"+crypto.randomUUID(),name:d.label||("Camera / Capture "+(i+1)),kind:"DEVICE",detail:"Camera / USB capture",stream:st,video:vid};
+        const src={id:"device-"+crypto.randomUUID(),name:d.label||("Camera / Capture "+(i+1)),kind:"DEVICE",detail:"Camera or capture card",stream:st,video:vid};
         st.getVideoTracks()[0].onended=()=>removeSource(src.id);
         A.sources.set(src.id,src);A.selectedSource=src.id;
         modal.remove();renderLocalGridOnly();selectPreview(src.id);toast(src.name+" added and ready in PREVIEW");
       }catch(e){
-        btn.disabled=false;btn.textContent="ADD";
+        btn.disabled=false;btn.textContent="Add";
         toast(e?.name==="NotAllowedError"?"Camera access was blocked.":(e?.message||"Could not open the capture device."));
       }
     };
@@ -351,7 +446,7 @@ async function addScreen(){
     try{st=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:30}},audio:false});}
     catch(err){throw new Error(err?.message||"Could not capture the selected screen or window.");}
   }
-  const id="screen-"+crypto.randomUUID(),src={id,name:"Screen / Window "+([...A.sources.values()].filter(x=>x.kind==="SCREEN").length+1),kind:"SCREEN",detail:"Desktop / Window / Browser Tab",stream:st,video:document.createElement("video")};
+  const id="screen-"+crypto.randomUUID(),src={id,name:"Screen / Window "+([...A.sources.values()].filter(x=>x.kind==="SCREEN").length+1),kind:"SCREEN",detail:"Screen, window or tab",stream:st,video:document.createElement("video")};
   src.video.autoplay=true;src.video.muted=true;src.video.playsInline=true;src.video.srcObject=st;await src.video.play().catch(()=>{});
   st.getVideoTracks()[0].onended=()=>removeSource(id);
   A.sources.set(id,src);A.selectedSource=id;renderLocalGridOnly();selectPreview(id);toast(src.name+" added and ready in PREVIEW");
@@ -361,7 +456,7 @@ async function addAudio(){
   if(!navigator.mediaDevices?.getUserMedia)throw new Error("Audio capture is not supported in this browser.");
   try{
     const st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
-    const id="audio-"+crypto.randomUUID(),src={id,name:"Audio Input "+([...A.sources.values()].filter(x=>x.kind==="AUDIO").length+1),kind:"AUDIO",detail:"Microphone / Line input",stream:st};
+    const id="audio-"+crypto.randomUUID(),src={id,name:"Audio Input "+([...A.sources.values()].filter(x=>x.kind==="AUDIO").length+1),kind:"AUDIO",detail:"Microphone or line in",stream:st};
     st.getAudioTracks()[0].onended=()=>removeSource(id);
     A.sources.set(id,src);A.selectedSource=id;if(A.bridge)ensureAudio(A.bridge.out,src);
     renderLocalGridOnly();toast(src.name+" added and ready in PREVIEW");
@@ -373,8 +468,8 @@ async function loadNdi(){
 }
 async function addNdi(){
   const names=await loadNdi();const modal=document.createElement("div");modal.className="channel-modal";modal.style.zIndex="9000";
-  modal.innerHTML='<div class="channel-box"><div class="channel-head"><b>NDI SOURCES</b><button class="channel-close" id="fbiNdiClose">×</button></div><div class="channel-body"><p class="channel-help">NDI sources are discovered automatically on the local network.</p><div id="fbiNdiList"></div></div></div>';document.body.appendChild(modal);const list=modal.querySelector("#fbiNdiList");
-  names.forEach(name=>{const row=document.createElement("div");row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px;border:1px solid #29292f;border-radius:7px;margin-bottom:6px";row.innerHTML='<b style="font-size:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(name)+'</b><button class="btn primary" style="font-size:7px">ADD</button>';row.querySelector("button").onclick=()=>{const id="ndi-"+crypto.randomUUID();const image=new Image();image.crossOrigin="anonymous";image.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(name)+"&t="+Date.now();A.sources.set(id,{id,name,kind:"NDI",detail:"NDI Gateway / LAN",ndiName:name,image});modal.remove();refresh();toast(name+" added")};list.appendChild(row)});
+  modal.innerHTML='<div class="channel-box"><div class="channel-head"><b>Add an NDI source</b><button class="channel-close" id="fbiNdiClose">×</button></div><div class="channel-body"><p class="channel-help">NDI sources are discovered automatically on the local network.</p><div id="fbiNdiList"></div></div></div>';document.body.appendChild(modal);const list=modal.querySelector("#fbiNdiList");
+  names.forEach(name=>{const row=document.createElement("div");row.className="fbi-ls-pick";row.innerHTML='<b>'+esc(name)+'</b><button type="button">Add</button>';row.querySelector("button").onclick=()=>{const id="ndi-"+crypto.randomUUID();const image=new Image();image.crossOrigin="anonymous";image.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(name)+"&t="+Date.now();A.sources.set(id,{id,name,kind:"NDI",detail:"NDI on your network",ndiName:name,image});modal.remove();refresh();toast(name+" added")};list.appendChild(row)});
   modal.querySelector("#fbiNdiClose").onclick=()=>modal.remove();modal.onclick=e=>{if(e.target===modal)modal.remove()};
 }
 function removeSource(id){
@@ -404,8 +499,10 @@ function updateLocalUi(){
   const selected=A.sources.get(A.selectedSource);
   if(grid)for(const card of grid.children){
     const id=card.dataset.sourceId||"";
-    card.className="fbi-addon-source "+(id===A.selectedSource?"preview ":"")+(id===A.localProgram?"program":"");
-    const p=card.querySelector("[data-act=preview]");if(p)p.classList.toggle("fbi-addon-take",id===A.selectedSource);
+    if(!card.dataset.sourceId)continue;
+    const isPgm=A.bridge?id===A.localProgram:id==="channel"&&channelLive;
+    card.className="fbi-ls-src "+(isPgm?"program":(id===A.selectedSource?"preview":""));
+    const tl=card.querySelector(".fbi-ls-tally");if(tl)tl.textContent=isPgm?"PROGRAM":"PREVIEW";
     const t=card.querySelector("[data-act=take]");
     if(t){
       t.disabled=!channelLive;
@@ -414,13 +511,15 @@ function updateLocalUi(){
   }
   const stop=document.getElementById("fbiLocalStop");if(stop)stop.disabled=!A.bridge;
   const range=document.getElementById("fbiLocalTbar");if(range)range.disabled=!selected;
-  const st=document.getElementById("fbiLocalState");if(st)st.textContent=A.bridge?"PROGRAM / LOCAL MIX LIVE":(channelLive?"PROGRAM / NORMAL CHANNEL":"CHANNEL OFFLINE");
+  const st=document.getElementById("fbiLocalState");if(st)st.textContent=A.bridge?"Local mix is on air":(channelLive?"Channel is live":"Channel offline");
+  const pill=document.getElementById("fbiLocalPill");if(pill){pill.className="fbi-ls-pill "+(A.bridge?"onair":(channelLive?"ready":""));pill.querySelector("em").textContent=A.bridge?"On air":(channelLive?"Ready to take":"Channel offline")}
+  const nm=document.getElementById("fbiLocalPvwName");if(nm)nm.textContent=selected?selected.name:"nothing selected";
   const tx=document.getElementById("fbiLocalText");
   if(tx)tx.textContent=A.bridge
-    ?"Local source is on Program. OBS/vMix continues feeding the same channel in the background."
+    ?"A local source is on program. OBS or vMix keeps feeding the channel in the background."
     :(channelLive
-      ?"Select a source for Preview, then TAKE it to Program."
-      :"Preview is available now. Start OBS/vMix and make this channel LIVE before using TAKE.");
+      ?"Pick a source for preview, then take it to program."
+      :"You can preview sources now. Go live from OBS or vMix to enable Take.");
   const master=document.getElementById("fbiTakeLocal");
   if(master)master.disabled=!channelLive||!selected;
 }
@@ -432,7 +531,7 @@ function renderLocalGridOnly(){
     let card=s.card;
     if(!card){
       card=document.createElement("div");card.dataset.sourceId=s.id;
-      const visual=document.createElement("div");visual.className="fbi-addon-visual";
+      const visual=document.createElement("div");visual.className="fbi-ls-vis";visual.title="Click to preview";visual.onclick=()=>selectPreview(s.id);
       if(s.kind==="CHANNEL"||s.kind==="DEVICE"||s.kind==="SCREEN"){
         const v=s.video||document.createElement("video");
         v.autoplay=true;v.muted=true;v.playsInline=true;v.style.cssText="width:100%;height:100%;display:block;object-fit:cover;background:#000";
@@ -442,26 +541,31 @@ function renderLocalGridOnly(){
         const img=s.cardImage||new Image();img.crossOrigin="anonymous";img.style.cssText="width:100%;height:100%;object-fit:cover;display:block";
         if(!img.src)img.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(s.ndiName||s.name)+"&t="+Date.now();
         s.cardImage=img;visual.appendChild(img);
-        const b=document.createElement("div");b.className="fbi-addon-badge";b.textContent="NDI";visual.appendChild(b);
-      }else visual.innerHTML='<div class="fbi-addon-special">AUDIO<span>Microphone / line input</span></div>';
-      const body=document.createElement("div");body.className="fbi-addon-source-body";
-      const name=document.createElement("div");name.className="fbi-addon-source-name";name.textContent=s.name;
-      const meta=document.createElement("div");meta.className="fbi-addon-source-meta";meta.textContent=s.kind+" • "+s.detail;
-      const acts=document.createElement("div");acts.className="fbi-addon-source-actions";
-      const p=document.createElement("button");p.textContent="PREVIEW";p.dataset.act="preview";
-      const t=document.createElement("button");t.textContent="TAKE";t.dataset.act="take";t.className="primary";t.onclick=()=>localTake(s);
-      const rm=document.createElement("button");rm.textContent="×";rm.onclick=()=>removeSource(s.id);
-      if(s.id==="channel"){rm.disabled=true;rm.style.opacity=".35"}
-      p.onclick=()=>selectPreview(s.id);acts.append(p,t,rm);body.append(name,meta,acts);card.append(visual,body);s.card=card;
+      }else visual.innerHTML='<div class="fbi-ls-audio">'+ICON.audio+'Audio input</div>';
+      visual.insertAdjacentHTML("beforeend",'<span class="fbi-ls-num"></span><span class="fbi-ls-tally">PREVIEW</span><span class="fbi-ls-kind">'+esc(KIND[s.kind]||s.kind)+'</span>');
+      const body=document.createElement("div");body.className="fbi-ls-body";
+      const nameBox=document.createElement("div");nameBox.className="fbi-ls-name";
+      const name=document.createElement("b");name.textContent=s.name;
+      const meta=document.createElement("span");meta.className="fbi-addon-source-meta";meta.textContent=s.detail;
+      nameBox.append(name,meta);
+      const acts=document.createElement("div");acts.className="fbi-ls-acts";
+      const p=document.createElement("button");p.type="button";p.textContent="Preview";p.dataset.act="preview";
+      const t=document.createElement("button");t.type="button";t.textContent="Take";t.dataset.act="take";t.onclick=()=>localTake(s);
+      const rm=document.createElement("button");rm.type="button";rm.dataset.act="remove";rm.innerHTML="&times;";rm.title="Remove source";rm.setAttribute("aria-label","Remove "+s.name);rm.onclick=()=>removeSource(s.id);
+      if(s.id==="channel"){rm.disabled=true;rm.title="The channel feed can't be removed"}
+      p.onclick=()=>selectPreview(s.id);acts.append(p,t,rm);body.append(nameBox,acts);card.append(visual,body);s.card=card;
     }else{
-      const meta=card.querySelector(".fbi-addon-source-meta");if(meta)meta.textContent=s.kind+" • "+s.detail;
+      const meta=card.querySelector(".fbi-addon-source-meta");if(meta)meta.textContent=s.detail;
       if((s.kind==="DEVICE"||s.kind==="SCREEN")&&s.video&&s.video.srcObject!==s.stream){s.video.srcObject=s.stream;s.video.play().catch(()=>{})}
       if(s.kind==="CHANNEL"&&s.video)setHls(s.video,inputHlsUrl(A.channelData||{}));
     }
-    card.className="fbi-addon-source "+(s.id===A.selectedSource?"preview ":"")+(s.id===A.localProgram?"program":"");
     grid.appendChild(card);
   }
-  for(const card of [...grid.children])if(!keep.has(card.dataset.sourceId))card.remove();
+  for(const card of [...grid.children])if(card.dataset.sourceId&&(!keep.has(card.dataset.sourceId)||A.sources.get(card.dataset.sourceId)?.card!==card))card.remove();
+  [...grid.children].filter(c=>c.dataset.sourceId).forEach((c,i)=>{const n=c.querySelector(".fbi-ls-num");if(n)n.textContent=i<9?String(i+1):""});
+  let ghost=document.getElementById("fbiLocalGhost");
+  if(!ghost){ghost=document.createElement("button");ghost.type="button";ghost.id="fbiLocalGhost";ghost.className="fbi-ls-ghost";ghost.innerHTML='<span><b>Add a source</b>Camera, capture card, screen, audio or NDI</span>';ghost.onclick=()=>addCamera().catch(e=>toast(e.message||"Could not open camera devices"))}
+  grid.appendChild(ghost);
   updateLocalUi();
 }
 
@@ -472,21 +576,48 @@ function setProgramNdi(s){const v=programVideo();if(!v)return;destroyHls(v);v.sr
 function build(){
   injectStyle();
   if(document.getElementById("fbiLocalDrawer"))return;
-  const d=document.createElement("section");d.id="fbiLocalDrawer";d.className="fbi-addon-local";
-  d.innerHTML='<div class="fbi-addon-head"><div><b>LOCAL STUDIO INPUTS</b><span>Camera • USB Capture Card • Screen • Window • Audio • NDI</span></div><div class="fbi-addon-actions"><button class="fbi-addon-btn gold" id="fbiAddCam">＋ CAMERA / CAPTURE</button><button class="fbi-addon-btn" id="fbiAddScreen">＋ SCREEN / WINDOW</button><button class="fbi-addon-btn" id="fbiAddAudio">＋ AUDIO</button><button class="fbi-addon-btn" id="fbiAddNdi">＋ NDI</button><button class="fbi-addon-btn" id="fbiMulti">MULTIVIEW</button><button class="fbi-addon-btn danger" id="fbiLocalStop" disabled>STOP LOCAL OUTPUT</button><button class="fbi-addon-btn" id="fbiLocalClose">CLOSE</button></div></div><div id="fbiLocalGrid" class="fbi-addon-grid"></div><div class="fbi-addon-tbar"><div class="fbi-addon-status"><b id="fbiLocalState">LOCAL OUTPUT STANDBY</b><span id="fbiLocalText">Select a source for Preview, then TAKE it to Program.</span></div><div><input id="fbiLocalTbar" class="fbi-addon-range" type="range" min="0" max="100" value="0" step="1" disabled><div class="fbi-addon-range-label"><span>PREVIEW</span><b id="fbiLocalTbarValue">0%</b><span>PROGRAM</span></div></div><div><button class="fbi-addon-btn gold" id="fbiTakeLocal">TAKE PREVIEW TO PROGRAM</button></div></div>';
+  const d=document.createElement("section");d.id="fbiLocalDrawer";d.className="fbi-ls";d.setAttribute("aria-label","Local Studio");
+  d.innerHTML='<div class="fbi-ls-head">'+
+    '<div class="fbi-ls-title"><div><h2>Local Studio</h2><p>Switch cameras, screens, audio and NDI from this computer</p></div><span class="fbi-ls-pill" id="fbiLocalPill"><i></i><em style="font-style:normal">Channel offline</em></span></div>'+
+    '<div class="fbi-ls-add" role="group" aria-label="Add a source"><span>Add</span>'+
+      '<button type="button" id="fbiAddCam">'+ICON.cam+'<span class="t">Camera</span></button>'+
+      '<button type="button" id="fbiAddScreen">'+ICON.screen+'<span class="t">Screen</span></button>'+
+      '<button type="button" id="fbiAddAudio">'+ICON.audio+'<span class="t">Audio</span></button>'+
+      '<button type="button" id="fbiAddNdi">'+ICON.ndi+'<span class="t">NDI</span></button></div>'+
+    '<button type="button" class="fbi-ls-btn" id="fbiMulti">'+ICON.grid+'<span class="t">Multiview</span></button>'+
+    '<button type="button" class="fbi-ls-btn danger" id="fbiLocalStop" disabled>Stop local output</button>'+
+    '<button type="button" class="fbi-ls-btn icon" id="fbiLocalMin" title="Minimise" aria-label="Minimise Local Studio">'+ICON.min+'</button>'+
+    '<button type="button" class="fbi-ls-btn icon" id="fbiLocalClose" title="Close" aria-label="Close Local Studio">'+ICON.close+'</button></div>'+
+  '<div class="fbi-ls-bus"><div class="fbi-ls-bus-label"><span>Sources</span><span>Press <kbd>1</kbd>–<kbd>9</kbd> to preview, <kbd>Enter</kbd> to take</span></div><div id="fbiLocalGrid" class="fbi-ls-grid"></div></div>'+
+  '<div class="fbi-ls-foot"><div class="fbi-ls-status"><b id="fbiLocalState">Channel offline</b><span id="fbiLocalText">Pick a source for preview, then take it to program.</span></div>'+
+    '<div class="fbi-ls-tbar"><input id="fbiLocalTbar" class="fbi-ls-range" type="range" min="0" max="100" value="0" step="1" disabled aria-label="T-bar: drag to program"><div class="fbi-ls-range-label"><span>Preview: <span id="fbiLocalPvwName">nothing selected</span></span><b id="fbiLocalTbarValue">0%</b><span>Program</span></div></div>'+
+    '<button type="button" class="fbi-ls-btn take" id="fbiTakeLocal">Take to program</button></div>';
   document.body.appendChild(d);
   d.querySelector("#fbiAddCam").onclick=()=>addCamera().catch(e=>toast(e.message||"Could not open camera devices"));
   d.querySelector("#fbiAddScreen").onclick=()=>addScreen().catch(e=>toast(e.message||"Could not capture screen"));
   d.querySelector("#fbiAddAudio").onclick=()=>addAudio().catch(e=>toast(e.message||"Could not capture audio"));
   d.querySelector("#fbiAddNdi").onclick=()=>addNdi().catch(e=>toast(e.message||"NDI Gateway unavailable"));
   d.querySelector("#fbiMulti").onclick=openMultiView;
-  d.querySelector("#fbiLocalStop").onclick=stopGateway;d.querySelector("#fbiLocalClose").onclick=()=>d.classList.remove("open");
+  d.querySelector("#fbiLocalStop").onclick=stopGateway;d.querySelector("#fbiLocalClose").onclick=closeLocal;
+  d.querySelector("#fbiLocalMin").onclick=()=>{d.classList.toggle("min");const m=d.classList.contains("min");d.querySelector("#fbiLocalMin").innerHTML=m?ICON.max:ICON.min;d.querySelector("#fbiLocalMin").title=m?"Expand":"Minimise";padMain()};
+  if(window.ResizeObserver)new ResizeObserver(padMain).observe(d);
+  document.addEventListener("keydown",onKeys);
   d.querySelector("#fbiTakeLocal").onclick=()=>{const s=A.sources.get(A.selectedSource);if(s)localTake(s);else toast("Select a local source for Preview first.")};
-  const range=d.querySelector("#fbiLocalTbar");range.oninput=()=>{const n=Number(range.value);d.querySelector("#fbiLocalTbarValue").textContent=n+"%";if(n>=100){const s=A.sources.get(A.selectedSource);if(s)localTake(s);setTimeout(()=>{range.value=0;d.querySelector("#fbiLocalTbarValue").textContent="0%"},350)}};
+  const range=d.querySelector("#fbiLocalTbar");const paint=n=>{range.style.background="linear-gradient(90deg,#e8402f "+n+"%,#2a313b "+n+"%)";d.querySelector("#fbiLocalTbarValue").textContent=n+"%"};range.oninput=()=>{const n=Number(range.value);paint(n);if(n>=100){const s=A.sources.get(A.selectedSource);if(s)localTake(s);setTimeout(()=>{range.value=0;paint(0)},350)}};
 }
-function openLocal(){build();const id=activeChannelId();if(!id){toast("Select a live channel first.");return}A.selectedChannel=id;document.getElementById("fbiLocalDrawer").classList.add("open");refresh()}
+function padMain(){const d=document.getElementById("fbiLocalDrawer"),m=document.querySelector(".main");if(!m)return;m.style.paddingBottom=d&&d.classList.contains("open")?(d.offsetHeight+30)+"px":""}
+function closeLocal(){const d=document.getElementById("fbiLocalDrawer");if(d)d.classList.remove("open");document.getElementById("fbiLocalOpen")?.classList.remove("is-open");padMain()}
+function onKeys(e){
+  const d=document.getElementById("fbiLocalDrawer");if(!d||!d.classList.contains("open"))return;
+  const t=e.target;if(t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)&&t.type!=="range"))return;
+  if(e.key==="Escape"){const open=[...document.querySelectorAll(".channel-modal")].some(m=>m.offsetParent!==null&&!m.classList.contains("hidden"));if(!open)closeLocal();return}
+  if(/^[1-9]$/.test(e.key)&&!e.ctrlKey&&!e.metaKey&&!e.altKey){const cards=[...document.querySelectorAll("#fbiLocalGrid [data-source-id]")];const c=cards[Number(e.key)-1];if(c){e.preventDefault();selectPreview(c.dataset.sourceId)}return}
+  if(e.key==="Enter"&&!(t&&t.tagName==="BUTTON")){const s=A.sources.get(A.selectedSource);const b=document.getElementById("fbiTakeLocal");if(s&&b&&!b.disabled){e.preventDefault();localTake(s)}}
+}
+function refresh(){refreshChannelSource().catch(()=>{}).then(()=>{renderLocalGridOnly();padMain()})}
+function openLocal(){build();const id=activeChannelId();if(!id){toast("Select a live channel first.");return}A.selectedChannel=id;const d=document.getElementById("fbiLocalDrawer");d.classList.add("open");document.getElementById("fbiLocalOpen")?.classList.add("is-open");refresh()}
 function addControls(){
-  const actions=document.querySelector(".top-actions");if(actions&&!document.getElementById("fbiLocalOpen")){const b=document.createElement("button");b.id="fbiLocalOpen";b.className="btn";b.textContent="LOCAL STUDIO";b.onclick=openLocal;actions.insertBefore(b,actions.firstChild)}
+  const actions=document.querySelector(".top-actions");if(actions&&!document.getElementById("fbiLocalOpen")){const b=document.createElement("button");b.id="fbiLocalOpen";b.className="btn";b.textContent="LOCAL STUDIO";b.onclick=()=>{const d=document.getElementById("fbiLocalDrawer");if(d&&d.classList.contains("open"))closeLocal();else openLocal()};actions.insertBefore(b,actions.firstChild)}
   const rack=document.querySelector("#studio .rack .panel .pb.grid2");if(rack&&!document.getElementById("fbiTakeChannel")){const b=document.createElement("button");b.className="rack-btn primary";b.id="fbiTakeChannel";b.textContent="TAKE";rack.insertBefore(b,rack.firstChild);b.onclick=()=>putChannelInProgram(true)}
   const ctrl=document.querySelector("#studio .controls .control-group");if(ctrl&&!document.getElementById("fbiTakeChannelBottom")){const b=document.createElement("button");b.className="smallbtn primary";b.id="fbiTakeChannelBottom";b.textContent="TAKE TO PROGRAM";ctrl.insertBefore(b,ctrl.firstChild);b.onclick=()=>putChannelInProgram(true)}
   build();
@@ -498,7 +629,7 @@ function protectProgram(){
 
 function openMultiView(){
   if(!A.mv){
-    const m=document.createElement("div");m.id="fbiLocalMultiView";m.className="fbi-addon-mv";m.innerHTML='<div class="fbi-addon-mv-card"><div class="fbi-addon-head"><div><b>MULTIVIEW</b><span>All Local Studio sources</span></div><div class="fbi-addon-actions"><button class="fbi-addon-btn" id="fbiMvRefresh">REFRESH</button><button class="fbi-addon-btn danger" id="fbiMvClose">CLOSE</button></div></div><div class="fbi-addon-mv-grid" id="fbiMvGrid"></div></div>';document.body.appendChild(m);A.mv=m;m.querySelector("#fbiMvClose").onclick=()=>m.classList.remove("open");m.querySelector("#fbiMvRefresh").onclick=renderMultiView;m.onclick=e=>{if(e.target===m)m.classList.remove("open")}}
+    const m=document.createElement("div");m.id="fbiLocalMultiView";m.className="fbi-addon-mv";m.innerHTML='<div class="fbi-addon-mv-card"><div class="fbi-ls-head"><div class="fbi-ls-title"><div><h2>Multiview</h2><p>Every Local Studio source at once</p></div></div><button type="button" class="fbi-ls-btn" id="fbiMvRefresh">Refresh</button><button type="button" class="fbi-ls-btn icon" id="fbiMvClose" aria-label="Close multiview">'+ICON.close+'</button></div><div class="fbi-addon-mv-grid" id="fbiMvGrid"></div></div>';document.body.appendChild(m);A.mv=m;m.querySelector("#fbiMvClose").onclick=()=>m.classList.remove("open");m.querySelector("#fbiMvRefresh").onclick=renderMultiView;m.onclick=e=>{if(e.target===m)m.classList.remove("open")}}
   A.mv.classList.add("open");renderMultiView();
 }
 function renderMultiView(){
@@ -516,13 +647,13 @@ function renderMultiView(){
         s.mvVideo=v;vwrap.appendChild(v);
       }else if(s.kind==="NDI"){
         const img=s.mvImage||new Image();img.crossOrigin="anonymous";if(!img.src)img.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(s.ndiName||s.name)+"&t="+Date.now();img.style.cssText="width:100%;height:100%;object-fit:cover;display:block";s.mvImage=img;vwrap.appendChild(img);
-      }else vwrap.innerHTML='<div class="fbi-addon-special">AUDIO<span>Audio source</span></div>';
+      }else vwrap.innerHTML='<div class="fbi-ls-audio">'+ICON.audio+'Audio input</div>';
       const body=document.createElement("div");body.className="fbi-addon-mv-body";
       const name=document.createElement("b");name.textContent=s.name;
-      const meta=document.createElement("span");meta.textContent=s.kind+" • "+s.detail;
+      const meta=document.createElement("span");meta.textContent=(KIND[s.kind]||s.kind)+", "+s.detail;
       const acts=document.createElement("div");acts.className="fbi-addon-mv-actions";
-      const p=document.createElement("button");p.textContent="PREVIEW";p.onclick=()=>{selectPreview(s.id);A.mv.classList.remove("open")};
-      const t=document.createElement("button");t.textContent=s.kind==="NDI"?"TAKE NDI":"TAKE";t.className="primary";t.onclick=()=>{A.mv.classList.remove("open");localTake(s)};
+      const p=document.createElement("button");p.textContent="Preview";p.onclick=()=>{selectPreview(s.id);A.mv.classList.remove("open")};
+      const t=document.createElement("button");t.textContent="Take";t.className="primary";t.onclick=()=>{A.mv.classList.remove("open");localTake(s)};
       acts.append(p,t);body.append(name,meta,acts);card.append(vwrap,body);s.mvCard=card;
     }else{
       const meta=card.querySelector(".fbi-addon-mv-body span");if(meta)meta.textContent=s.kind+" • "+s.detail;
