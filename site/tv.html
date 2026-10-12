@@ -3,9 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CFBI TV Live — Watch now</title>
-<meta name="description" content="Watch CFBI TV live.">
+<title>FBI TV Live — Film Beyond Imagination</title>
+<meta name="description" content="Watch FBI TV live. Entertainment, Live TV, Talk Shows, Movies, Events and Original Productions.">
 <meta name="theme-color" content="#111113">
+<link rel="manifest" href="/tv-manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="/tv-icon-192.png">
+<link rel="apple-touch-icon" href="/tv-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="FBI TV">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700&display=swap">
@@ -76,8 +83,17 @@
 
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px}
   .card h2{margin:0;font-size:17px;font-weight:700;color:var(--strong)}
-  .about{padding:20px 22px}
-  .about p{margin:8px 0 0;font-size:15px;line-height:1.6;color:var(--soft)}
+  .about{padding:20px 22px;display:flex;flex-direction:column;gap:12px}
+  .about .name{margin:0;font-family:'Archivo Black',sans-serif;font-weight:400;font-size:20px;color:var(--strong)}
+  .about .name span{color:var(--gold)}
+  .about .cats{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+  .about .cats li{font-size:13px;font-weight:600;color:var(--text);background:var(--chip);border:1px solid #33322E;padding:6px 10px;border-radius:999px}
+  .about .tag{margin:0;font-size:16px;line-height:1.5;color:var(--soft)}
+  .about .tag strong{color:var(--gold);font-weight:700}
+  .player:fullscreen,.player:-webkit-full-screen{width:100vw;height:100vh;aspect-ratio:auto;border-radius:0;box-shadow:none;background:#000}
+  .player:fullscreen video,.player:-webkit-full-screen video{object-fit:contain}
+  .install{min-height:44px;padding:0 14px;border-radius:8px;border:1px solid var(--gold);background:transparent;color:var(--gold);font-weight:700;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .install:hover{background:var(--gold);color:var(--bg)}
   .sched h2{padding:18px 20px 14px;border-bottom:1px solid var(--line)}
   .sched ul{list-style:none;margin:0;padding:0}
   .sched li{display:flex;gap:14px;padding:14px 20px;border-top:1px solid var(--line);border-left:3px solid transparent}
@@ -130,7 +146,7 @@
 
 <header>
   <div class="wrap">
-    <a class="brand" href="/" aria-label="CFBI TV home">
+    <a class="brand" href="/tv" aria-label="FBI TV home">
       <svg width="40" height="40" aria-hidden="true"><use href="#aperture"/></svg>
       <span class="fbi">FBI</span>
       <svg width="26" height="34" aria-hidden="true"><use href="#waves"/></svg>
@@ -140,6 +156,10 @@
       <a href="#watch" aria-current="page">Watch live</a>
       <a href="#schedule">Schedule</a>
       <a href="#about">About</a>
+      <button class="install" id="btnInstall" type="button" hidden>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+        Get the app
+      </button>
     </nav>
   </div>
 </header>
@@ -188,7 +208,7 @@
     <div class="now">
       <div>
         <div class="kicker" id="nowKicker">Now playing</div>
-        <h1 id="nowTitle">CFBI TV Live</h1>
+        <h1 id="nowTitle">FBI TV Live</h1>
         <div class="meta" id="nowMeta"></div>
       </div>
       <button class="btn" id="btnShare" type="button">
@@ -198,8 +218,12 @@
     </div>
 
     <section class="card about" id="about" aria-labelledby="aboutH">
-      <h2 id="aboutH">About CFBI TV</h2>
-      <p id="aboutText"></p>
+      <h2 id="aboutH">About us</h2>
+      <p class="name">FBI TV <span>|</span> Film Beyond Imagination</p>
+      <ul class="cats" aria-label="What we broadcast">
+        <li>Entertainment</li><li>Live TV</li><li>Talk Shows</li><li>Movies</li><li>Events</li><li>Original Productions</li>
+      </ul>
+      <p class="tag">Your World. Your Stories. Your Screen.<br><strong>Not Just Film. Imagination.</strong></p>
     </section>
   </section>
 
@@ -209,7 +233,7 @@
       <ul id="schedList"></ul>
     </section>
     <section class="card social" aria-labelledby="socH" id="socialCard">
-      <h2 id="socH">Follow CFBI TV</h2>
+      <h2 id="socH">Follow FBI TV</h2>
       <div id="socialLinks"></div>
     </section>
   </aside>
@@ -217,7 +241,7 @@
 
 <footer>
   <div class="wrap">
-    <span>© <span id="year"></span> CFBI TV</span>
+    <span>© <span id="year"></span> FBI TV · Film Beyond Imagination</span>
     <span>live.fbigh.com</span>
   </div>
 </footer>
@@ -252,7 +276,6 @@ const CONFIG = {
     { start: "18:00", end: "22:00", title: "Program name", host: "", days: [1,2,3,4,5] }
   ],
 
-  about: "Add a short description of CFBI TV here: what you broadcast, who it's for, and when you're on air.",
 
   // Social links — delete any you don't use
   social: [
@@ -335,8 +358,8 @@ const CONFIG = {
     } else {
       const { mins } = stationNow();
       const next = list.find((s) => toMins(s.start) > mins);
-      $("nowKicker").textContent = "CFBI TV Live";
-      $("nowTitle").textContent = next ? "Up next: " + next.title : "CFBI TV Live";
+      $("nowKicker").textContent = "FBI TV Live";
+      $("nowTitle").textContent = next ? "Up next: " + next.title : "FBI TV Live";
       $("nowMeta").textContent = next ? "Starts at " + fmt(next.start) : "";
       $("offlineNext").textContent = next ? "Next up: " + next.title + " at " + fmt(next.start) : "";
     }
@@ -358,7 +381,7 @@ const CONFIG = {
   function addIframe(src) {
     const f = document.createElement("iframe");
     f.src = src;
-    f.title = "CFBI TV live stream";
+    f.title = "FBI TV live stream";
     f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
     f.allowFullscreen = true;
     player.appendChild(f);
@@ -439,11 +462,36 @@ const CONFIG = {
     video.muted = video.volume === 0;
   });
   $("btnLive").addEventListener("click", () => { jumpLive(); if (video) video.play(); });
-  $("btnFull").addEventListener("click", () => {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else if (player.requestFullscreen) player.requestFullscreen();
-    else if (video && video.webkitEnterFullscreen) video.webkitEnterFullscreen(); // iPhone
-  });
+  // Full screen: fill the screen and turn the phone sideways (landscape)
+  const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+  async function lockLandscape() {
+    try { if (screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape"); } catch (e) { /* not supported on this device */ }
+  }
+  function unlockOrientation() {
+    try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
+  }
+  async function enterFullscreen() {
+    try {
+      if (player.requestFullscreen) { await player.requestFullscreen({ navigationUI: "hide" }); await lockLandscape(); return; }
+      if (player.webkitRequestFullscreen) { player.webkitRequestFullscreen(); await lockLandscape(); return; }
+    } catch (e) { /* fall through */ }
+    // iPhone: the native video player goes full screen and rotates with the phone
+    if (video && video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+  }
+  function exitFullscreen() {
+    unlockOrientation();
+    if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+  }
+  $("btnFull").addEventListener("click", () => { fsElement() ? exitFullscreen() : enterFullscreen(); });
+  player.addEventListener("dblclick", (e) => { if (e.target === video) { fsElement() ? exitFullscreen() : enterFullscreen(); } });
+  ["fullscreenchange", "webkitfullscreenchange"].forEach((ev) =>
+    document.addEventListener(ev, () => {
+      const on = !!fsElement();
+      $("btnFull").setAttribute("aria-label", on ? "Exit full screen" : "Full screen");
+      if (!on) unlockOrientation();
+    })
+  );
 
   // Hide controls when idle
   let idleTimer;
@@ -511,14 +559,38 @@ const CONFIG = {
     setTimeout(() => t.classList.remove("show"), 2200);
   }
   $("btnShare").addEventListener("click", async () => {
-    const data = { title: "CFBI TV Live", text: "Watch CFBI TV live", url: location.href };
+    const data = { title: "FBI TV Live", text: "Watch FBI TV live — Film Beyond Imagination", url: location.href };
     if (navigator.share) { try { await navigator.share(data); } catch (e) {} return; }
     try { await navigator.clipboard.writeText(location.href); toast("Link copied"); }
     catch (e) { toast(location.href); }
   });
 
-  // ---------- about + social ----------
-  $("aboutText").textContent = CONFIG.about;
+  // ---------- app (PWA) ----------
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/tv-sw.js", { scope: "/tv" }).catch(() => {});
+  }
+  let installPrompt = null;
+  const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    installPrompt = e;
+    if (!isStandalone()) $("btnInstall").hidden = false;
+  });
+  if (isIOS && !isStandalone()) $("btnInstall").hidden = false;
+  $("btnInstall").addEventListener("click", async () => {
+    if (installPrompt) {
+      installPrompt.prompt();
+      try { await installPrompt.userChoice; } catch (e) {}
+      installPrompt = null;
+      $("btnInstall").hidden = true;
+    } else if (isIOS) {
+      toast("Tap the Share button, then “Add to Home Screen”");
+    }
+  });
+  window.addEventListener("appinstalled", () => { $("btnInstall").hidden = true; });
+
+  // ---------- social ----------
   const socials = (CONFIG.social || []).filter((s) => s.url);
   if (!socials.length) $("socialCard").hidden = true;
   socials.forEach((s) => {
