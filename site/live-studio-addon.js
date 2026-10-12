@@ -21,9 +21,15 @@ const ICON={
   audio:svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
   ndi:svg('<circle cx="12" cy="12" r="2"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/>'),
   grid:svg('<rect x="3" y="4" width="8" height="7" rx="1"/><rect x="13" y="4" width="8" height="7" rx="1"/><rect x="3" y="13" width="8" height="7" rx="1"/><rect x="13" y="13" width="8" height="7" rx="1"/>'),
+  capture:svg('<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h3v4H7zM14 10h3M14 14h3"/>'),
+  meet:svg('<path d="M4 6h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4z"/><path d="m16 10 4-3v10l-4-3"/><path d="M8 12h4"/>'),
+  zoom:svg('<rect x="3" y="4" width="18" height="16" rx="5"/><path d="M7 9h6a1 1 0 0 1 1 1v5H8a1 1 0 0 1-1-1z"/><path d="m14 11 3-2v6l-3-2"/>'),
+  plus:svg('<path d="M12 5v14M5 12h14"/>'),
   min:svg('<path d="M6 12h12"/>'),max:svg('<path d="m6 15 6-6 6 6"/>'),close:svg('<path d="M6 6l12 12M18 6 6 18"/>')
 };
-const KIND={CHANNEL:"Channel",DEVICE:"Camera",SCREEN:"Screen",AUDIO:"Audio",NDI:"NDI"};
+const KIND={CHANNEL:"Channel",DEVICE:"Camera",CAPTURE:"Capture card",SCREEN:"Screen",MEET:"Google Meet",ZOOM:"Zoom",AUDIO:"Audio",NDI:"NDI"};
+const isLocalVideo=s=>!!s&&["DEVICE","CAPTURE","SCREEN","MEET","ZOOM"].includes(s.kind);
+const CAPTURE_RX=/capture|hdmi|sdi|elgato|cam ?link|game ?capture|hd60|4k ?x|avermedia|live gamer|blackmagic|decklink|ultrastudio|intensity|magewell|ezcap|mirabox|usb video|uvc|video capture|ms2109|macrosilicon|razer ripsaw|epiphan|atem/i;
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
 const api=async(url,options={})=>{const r=await fetch(url,options);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.error||"Request failed");return d};
 const activeChannelId=()=>document.querySelector("#channels .channel.active")?.dataset.id||"";
@@ -33,11 +39,12 @@ function injectStyle(){
   if(document.getElementById("fbiLiveAddonStyle"))return;
   const s=document.createElement("style");s.id="fbiLiveAddonStyle";
   s.textContent=`
-.fbi-ls{--ls-bg:#0d1014;--ls-panel:#12161c;--ls-raise:#171c23;--ls-line:#232a33;--ls-line2:#2f3742;--ls-text:#eef0f4;--ls-muted:#8d95a2;--ls-gold:#e8c85a;--ls-pgm:#e8402f;--ls-pvw:#36d278;
-  position:fixed;left:300px;right:14px;bottom:14px;z-index:5000;display:none;flex-direction:column;max-height:min(62vh,640px);background:var(--ls-bg);border:1px solid var(--ls-line2);border-radius:16px;box-shadow:0 -10px 60px rgba(0,0,0,.55),0 30px 90px rgba(0,0,0,.6);color:var(--ls-text);font:14px/1.4 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;transform-origin:50% 100%}
+.fbi-ls,.fbi-ls-modal,.fbi-addon-mv{--ls-bg:#0d1014;--ls-panel:#12161c;--ls-raise:#171c23;--ls-line:#232a33;--ls-line2:#2f3742;--ls-text:#eef0f4;--ls-muted:#8d95a2;--ls-gold:#e8c85a;--ls-pgm:#e8402f;--ls-pvw:#36d278;}
+.fbi-ls{
+  position:fixed;left:300px;right:14px;bottom:14px;z-index:5000;display:none;flex-direction:column;max-height:min(62vh,640px);background:var(--ls-bg);border:1px solid var(--ls-line2);border-radius:16px;box-shadow:0 -10px 60px rgba(0,0,0,.55),0 30px 90px rgba(0,0,0,.6);color:var(--ls-text);font:14px/1.4 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:visible;transform-origin:50% 100%}
 .fbi-ls.open{display:flex;animation:fbiLsIn .28s cubic-bezier(.2,.8,.2,1)}
 @keyframes fbiLsIn{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
-.fbi-ls-head{display:flex;align-items:center;gap:16px;padding:14px 16px;border-bottom:1px solid var(--ls-line);background:linear-gradient(180deg,#141920,#10141a)}
+.fbi-ls-head{display:flex;align-items:center;gap:16px;padding:14px 16px;border-radius:15px 15px 0 0;border-bottom:1px solid var(--ls-line);background:linear-gradient(180deg,#141920,#10141a)}
 .fbi-ls-title{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
 .fbi-ls-title>div{min-width:0}
 .fbi-ls-pill{flex:none}
@@ -90,7 +97,7 @@ function injectStyle(){
 .fbi-ls-ghost{display:grid;place-items:center;gap:6px;min-height:100%;aspect-ratio:auto;border:2px dashed var(--ls-line2);border-radius:12px;color:var(--ls-muted);font-size:13px;text-align:center;padding:18px;cursor:pointer;background:none;font-family:inherit}
 .fbi-ls-ghost:hover{border-color:var(--ls-gold);color:var(--ls-text)}
 .fbi-ls-ghost b{display:block;font-size:14px;color:var(--ls-text)}
-.fbi-ls-foot{display:grid;grid-template-columns:minmax(200px,1fr) minmax(260px,2.2fr) auto;gap:20px;align-items:center;padding:14px 16px;border-top:1px solid var(--ls-line);background:#0a0d11}
+.fbi-ls-foot{border-radius:0 0 15px 15px;display:grid;grid-template-columns:minmax(200px,1fr) minmax(260px,2.2fr) auto;gap:20px;align-items:center;padding:14px 16px;border-top:1px solid var(--ls-line);background:#0a0d11}
 .fbi-ls-status b{display:block;font-size:14px;font-weight:700}
 .fbi-ls-status span{display:block;margin-top:3px;font-size:12.5px;color:var(--ls-muted);line-height:1.45}
 .fbi-ls-tbar{display:grid;gap:6px}
@@ -100,7 +107,7 @@ function injectStyle(){
 .fbi-ls-range::-moz-range-thumb{width:26px;height:26px;border-radius:8px;background:#dfe3e8;border:3px solid #0a0d11}
 .fbi-ls-range-label{display:flex;justify-content:space-between;font-size:12px;color:var(--ls-muted)}
 .fbi-ls-range-label b{color:var(--ls-text);font-variant-numeric:tabular-nums}
-.fbi-ls.min .fbi-ls-bus,.fbi-ls.min .fbi-ls-add{display:none}
+.fbi-ls.min .fbi-ls-foot{border-radius:0 0 15px 15px}.fbi-ls.min .fbi-ls-bus,.fbi-ls.min .fbi-ls-addwrap{display:none}
 .fbi-ls-pick{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;border:1px solid #29303a;border-radius:10px;margin-bottom:8px;background:#11151b}
 .fbi-ls-pick b{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fbi-ls-pick button{height:34px;padding:0 14px;border:0;border-radius:8px;background:#e8c85a;color:#1a1606;font:700 13px Inter,system-ui,sans-serif;cursor:pointer}
@@ -115,6 +122,26 @@ function injectStyle(){
 .fbi-addon-mv-actions button{height:34px;border:1px solid #2f3742;background:#171c23;color:#eef0f4;border-radius:8px;font:650 13px Inter,system-ui,sans-serif;cursor:pointer}
 .fbi-addon-mv-actions button.primary{background:#e8402f;border-color:#e8402f;color:#fff}
 #fbiLocalOpen.is-open{border-color:#e8c85a;color:#e8c85a}
+.fbi-ls-btn.gold{background:var(--ls-gold);border-color:var(--ls-gold);color:#1a1606}.fbi-ls-btn.gold:hover{background:#f0d36b}
+.fbi-ls-addwrap{position:relative}
+.fbi-ls-menu{position:absolute;right:0;top:calc(100% + 10px);z-index:6000;width:320px;padding:6px;border:1px solid var(--ls-line2);border-radius:14px;background:#12161c;box-shadow:0 24px 70px rgba(0,0,0,.7)}
+.fbi-ls-menu[hidden]{display:none}
+.fbi-ls-menu button{display:flex;align-items:center;gap:12px;width:100%;padding:9px 10px;border:0;border-radius:10px;background:none;color:var(--ls-text);text-align:left;font-family:inherit;cursor:pointer}
+.fbi-ls-menu button:hover,.fbi-ls-menu button:focus-visible{background:var(--ls-raise);outline:none}
+.fbi-ls-mi{display:grid;place-items:center;width:34px;height:34px;flex:none;border-radius:9px;background:#0b0e12;border:1px solid var(--ls-line);color:var(--ls-gold)}
+.fbi-ls-mi svg{width:18px;height:18px}
+.fbi-ls-menu b{display:block;font-size:13.5px;font-weight:650}.fbi-ls-menu small{display:block;font-size:12px;color:var(--ls-muted)}
+.fbi-ls-modal{max-width:560px}
+.fbi-ls-pick-main{display:grid;gap:6px;min-width:0;flex:1}
+.fbi-ls-pick-main label{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#8d95a2}
+.fbi-ls-pick-main select{flex:1;min-width:0;height:32px;border-radius:8px;border:1px solid #2f3742;background:#0b0e12;color:#eef0f4;padding:0 8px;font:13px Inter,system-ui,sans-serif}
+.fbi-ls-chip{justify-self:start;padding:2px 8px;border-radius:999px;background:rgba(232,200,90,.14);color:#e8c85a;font-size:11.5px;font-weight:650}
+.fbi-ls-steps{margin:0 0 16px;padding-left:20px;display:grid;gap:8px;color:#c9ced6;font-size:13.5px;line-height:1.5}
+.fbi-ls-steps b{color:#eef0f4}
+.fbi-ls-modal-acts{display:flex;flex-wrap:wrap;gap:8px}
+.fbi-ls-modal-acts .fbi-ls-btn.take{height:42px;font-size:14px;background:#e8c85a;color:#1a1606;box-shadow:none}
+.fbi-ls-modal-acts .fbi-ls-btn{height:42px;font-size:13.5px}
+.fbi-ls-note{margin:14px 0 0;font-size:12.5px;color:#8d95a2;line-height:1.5}
 @media(max-width:1500px){.fbi-ls-title p{display:none}}@media(max-width:1280px){.fbi-ls-add>span{display:none}.fbi-ls-btn .t{display:none}}
 @media(max-width:1000px){.fbi-ls{left:12px;right:12px;bottom:12px}.fbi-ls-head{flex-wrap:wrap}.fbi-ls-foot{grid-template-columns:1fr}.fbi-ls-btn.take{width:100%}}
 @media(max-width:620px){.fbi-ls-add button .t{display:none}.fbi-ls-grid{grid-template-columns:1fr 1fr}.fbi-ls-src .fbi-ls-acts button[data-act=preview]{display:none}}
@@ -390,45 +417,66 @@ function restoreProgram(){
   if(id)channel(id).then(s=>{A.channelData=s;ensureChannelSource(s);setHls(v,hlsUrl(s))}).catch(()=>{});
 }
 
-async function addCamera(){
-  if(!navigator.mediaDevices?.getUserMedia)throw new Error("Camera capture is not supported in this browser.");
-  let ds=[];
-  try{ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput");}catch{}
-  if(ds.some(d=>!d.label)){
-    try{
-      const probe=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
-      probe.getTracks().forEach(t=>t.stop());
-      ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput");
-    }catch(e){throw new Error("Camera access was blocked. Allow camera access and try again.");}
+async function listMedia(){
+  if(!navigator.mediaDevices?.enumerateDevices)return {video:[],audio:[]};
+  let all=await navigator.mediaDevices.enumerateDevices().catch(()=>[]);
+  if(all.some(d=>(d.kind==="videoinput"||d.kind==="audioinput")&&!d.label)){
+    // Labels are hidden until the browser grants access once.
+    let probe=null;
+    try{probe=await navigator.mediaDevices.getUserMedia({video:true,audio:true})}
+    catch{try{probe=await navigator.mediaDevices.getUserMedia({video:true,audio:false})}catch(e){throw new Error("Camera access was blocked. Allow camera access in the browser and try again.")}}
+    probe.getTracks().forEach(t=>t.stop());
+    all=await navigator.mediaDevices.enumerateDevices().catch(()=>[]);
   }
-  if(!ds.length)throw new Error("No camera or USB capture device was found.");
+  return {video:all.filter(d=>d.kind==="videoinput"),audio:all.filter(d=>d.kind==="audioinput"&&d.deviceId!=="communications")};
+}
+function pairedAudio(v,audio){
+  // Capture cards and webcams expose their sound as an audio input in the same device group.
+  const same=audio.find(a=>a.groupId&&a.groupId===v.groupId&&a.deviceId!=="default");
+  if(same)return same.deviceId;
+  const word=String(v.label||"").toLowerCase().replace(/\(.*?\)/g,"").split(/[^a-z0-9]+/).filter(w=>w.length>2&&!/video|camera|usb|device/.test(w))[0];
+  const byName=word&&audio.find(a=>String(a.label||"").toLowerCase().includes(word)&&a.deviceId!=="default");
+  return byName?byName.deviceId:"";
+}
+async function addCamera(mode){
+  const capture=mode==="capture";
+  if(!navigator.mediaDevices?.getUserMedia)throw new Error("Camera capture needs Chrome or Edge on this computer.");
+  const {video,audio}=await listMedia();
+  if(!video.length)throw new Error(capture?"No capture card was found. Plug it in, then try again.":"No camera was found.");
+  const sorted=capture?[...video].sort((x,y)=>(CAPTURE_RX.test(y.label)?1:0)-(CAPTURE_RX.test(x.label)?1:0)):video;
   const modal=document.createElement("div");modal.className="channel-modal";modal.style.zIndex="9000";
-  modal.innerHTML='<div class="channel-box"><div class="channel-head"><b>Add a camera or capture card</b><button class="channel-close" id="fbiCamClose">×</button></div><div class="channel-body"><p class="channel-help">Choose the capture device to add to Local Studio.</p><div id="fbiCamList"></div></div></div>';
+  modal.innerHTML='<div class="channel-box fbi-ls-modal"><div class="channel-head"><b>'+(capture?"Add a capture card":"Add a camera")+'</b><button class="channel-close" id="fbiCamClose" aria-label="Close">×</button></div><div class="channel-body"><p class="channel-help">'+
+    (capture?"Pick your HDMI or SDI capture card. Its sound is paired automatically; change it if your audio comes in elsewhere.":"Pick a camera. Choose where its sound should come from, or leave it silent and add a microphone separately.")+
+    '</p><div id="fbiCamList"></div></div></div>';
   document.body.appendChild(modal);
   const list=modal.querySelector("#fbiCamList");
-  ds.forEach((d,i)=>{
-    const row=document.createElement("div");
-    row.className="fbi-ls-pick";
-    row.innerHTML='<b>'+esc(d.label||("Video device "+(i+1)))+'</b><button type="button">Add</button>';
-    const btn=row.querySelector("button");
+  const audioOptions=(sel)=>'<option value="">No sound</option>'+audio.map(a=>'<option value="'+esc(a.deviceId)+'"'+(a.deviceId===sel?" selected":"")+'>'+esc(a.label||"Audio input")+'</option>').join("");
+  sorted.forEach((d,i)=>{
+    const looksCapture=CAPTURE_RX.test(d.label||"");
+    const paired=pairedAudio(d,audio);
+    const row=document.createElement("div");row.className="fbi-ls-pick";
+    row.innerHTML='<div class="fbi-ls-pick-main"><b>'+esc(d.label||("Video device "+(i+1)))+'</b>'+(looksCapture?'<span class="fbi-ls-chip">Capture card</span>':'')+
+      '<label>Sound<select>'+audioOptions(capture||paired?paired:"")+'</select></label></div><button type="button">Add</button>';
+    const btn=row.querySelector("button"),sel=row.querySelector("select");
     btn.onclick=async()=>{
       btn.disabled=true;btn.textContent="Opening…";
       try{
+        const v={deviceId:{exact:d.deviceId},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}};
+        const a=sel.value?{deviceId:{exact:sel.value},echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:{ideal:2}}:false;
         let st;
-        try{
-          st=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:d.deviceId},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
-        }catch{
-          st=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:d.deviceId},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},audio:false});
-        }
+        try{st=await navigator.mediaDevices.getUserMedia({video:v,audio:a})}
+        catch(err){if(!a)throw err;st=await navigator.mediaDevices.getUserMedia({video:v,audio:false});toast("The selected sound input could not be opened, so this source is silent.")}
         const vid=document.createElement("video");
         vid.autoplay=true;vid.muted=true;vid.playsInline=true;vid.srcObject=st;await vid.play().catch(()=>{});
-        const src={id:"device-"+crypto.randomUUID(),name:d.label||("Camera / Capture "+(i+1)),kind:"DEVICE",detail:"Camera or capture card",stream:st,video:vid};
+        const kind=capture||looksCapture?"CAPTURE":"DEVICE";
+        const soundName=sel.value?(sel.options[sel.selectedIndex].text):"";
+        const src={id:"device-"+crypto.randomUUID(),name:d.label?d.label.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i,""):((kind==="CAPTURE"?"Capture card ":"Camera ")+(i+1)),kind,detail:soundName?("Sound: "+soundName):"No sound",stream:st,video:vid};
         st.getVideoTracks()[0].onended=()=>removeSource(src.id);
-        A.sources.set(src.id,src);A.selectedSource=src.id;
-        modal.remove();renderLocalGridOnly();selectPreview(src.id);toast(src.name+" added and ready in PREVIEW");
+        A.sources.set(src.id,src);A.selectedSource=src.id;if(A.bridge)ensureAudio(A.bridge.out,src);
+        modal.remove();renderLocalGridOnly();selectPreview(src.id);toast(src.name+" added and ready in preview");
       }catch(e){
         btn.disabled=false;btn.textContent="Add";
-        toast(e?.name==="NotAllowedError"?"Camera access was blocked.":(e?.message||"Could not open the capture device."));
+        toast(e?.name==="NotAllowedError"?"Camera access was blocked.":e?.name==="NotReadableError"?"That device is in use by another app (close OBS, Zoom or Teams preview) and try again.":(e?.message||"Could not open the device."));
       }
     };
     list.appendChild(row);
@@ -437,6 +485,55 @@ async function addCamera(){
   modal.onclick=e=>{if(e.target===modal)modal.remove()};
 }
 
+async function captureDisplay(opts){
+  if(!navigator.mediaDevices?.getDisplayMedia)throw new Error("Screen capture needs Chrome or Edge on this computer.");
+  try{return await navigator.mediaDevices.getDisplayMedia(opts)}
+  catch(e){
+    if(e?.name==="NotAllowedError")throw new Error("Sharing was cancelled.");
+    try{return await navigator.mediaDevices.getDisplayMedia({video:opts.video,audio:false})}catch(err){throw new Error(err?.message||"Could not capture that window.")}
+  }
+}
+function addStreamSource(kind,name,detail,st){
+  const id=kind.toLowerCase()+"-"+crypto.randomUUID(),src={id,name,kind,detail,stream:st,video:document.createElement("video")};
+  src.video.autoplay=true;src.video.muted=true;src.video.playsInline=true;src.video.srcObject=st;src.video.play().catch(()=>{});
+  st.getVideoTracks()[0].onended=()=>removeSource(id);
+  A.sources.set(id,src);A.selectedSource=id;if(A.bridge)ensureAudio(A.bridge.out,src);
+  renderLocalGridOnly();selectPreview(id);
+  return src;
+}
+function countKind(k){return [...A.sources.values()].filter(x=>x.kind===k).length}
+const VIDEO_HQ={frameRate:{ideal:30},width:{ideal:1920},height:{ideal:1080}};
+const TAB_AUDIO={suppressLocalAudioPlayback:false,echoCancellation:false,noiseSuppression:false,autoGainControl:false};
+function meetingModal(app){
+  const meet=app==="MEET",label=meet?"Google Meet":"Zoom";
+  const modal=document.createElement("div");modal.className="channel-modal";modal.style.zIndex="9000";
+  const steps=meet
+    ?'<ol class="fbi-ls-steps"><li>Join the call in another Chrome or Edge tab. Use a separate Google account for the studio so your own camera isn’t in the shot.</li><li>In Meet, pin the speaker you want and hide self view.</li><li>Click <b>Choose the Meet tab</b>, select the Meet tab and turn on <b>Also share tab audio</b>.</li></ol>'
+    :'<ol class="fbi-ls-steps"><li>Join the meeting, set <b>Speaker view</b> or <b>Gallery view</b>, and turn on <b>Hide self view</b>.</li><li>Zoom in a browser tab: pick the tab and turn on <b>Also share tab audio</b>.</li><li>Zoom desktop app: pick the Zoom window for picture. Browsers can’t take sound from a single app, so for sound choose <b>Whole screen with sound</b> and turn on <b>Share system audio</b>.</li></ol>';
+  const buttons=meet
+    ?'<button type="button" class="fbi-ls-btn take" data-mode="tab">Choose the Meet tab</button>'
+    :'<button type="button" class="fbi-ls-btn take" data-mode="tab">Zoom in a browser tab</button><button type="button" class="fbi-ls-btn" data-mode="window">Zoom desktop window</button><button type="button" class="fbi-ls-btn" data-mode="monitor">Whole screen with sound</button>';
+  modal.innerHTML='<div class="channel-box fbi-ls-modal"><div class="channel-head"><b>Add '+label+'</b><button class="channel-close" aria-label="Close">×</button></div><div class="channel-body">'+steps+'<div class="fbi-ls-modal-acts">'+buttons+'</div><p class="fbi-ls-note">For Zoom, NDI output (Zoom Rooms and some Zoom plans) gives the cleanest picture: send it through the NDI Gateway and add it with <b>NDI</b>.</p></div></div>';
+  if(meet)modal.querySelector(".fbi-ls-note").remove();
+  document.body.appendChild(modal);
+  const close=()=>modal.remove();
+  modal.querySelector(".channel-close").onclick=close;modal.onclick=e=>{if(e.target===modal)close()};
+  modal.querySelectorAll("[data-mode]").forEach(b=>b.onclick=async()=>{
+    const mode=b.dataset.mode;
+    const opts=mode==="tab"?{video:{...VIDEO_HQ,displaySurface:"browser"},audio:TAB_AUDIO,preferCurrentTab:false,selfBrowserSurface:"exclude",surfaceSwitching:"include",systemAudio:"exclude"}
+      :mode==="window"?{video:{...VIDEO_HQ,displaySurface:"window"},audio:false,selfBrowserSurface:"exclude"}
+      :{video:{...VIDEO_HQ,displaySurface:"monitor"},audio:TAB_AUDIO,systemAudio:"include",selfBrowserSurface:"exclude"};
+    try{
+      const st=await captureDisplay(opts);
+      close();
+      const hasSound=st.getAudioTracks().length>0;
+      const n=countKind(app)+1;
+      const src=addStreamSource(app,label+(n>1?" "+n:""),(mode==="tab"?"Browser tab":mode==="window"?"Desktop window":"Whole screen")+(hasSound?", with sound":", no sound"),st);
+      if(!hasSound&&mode!=="window")toast("No sound was shared. Remove this source and choose again with “Share audio” turned on.");
+      else toast(src.name+" added and ready in preview");
+    }catch(e){toast(e.message||"Could not capture "+label)}
+  });
+}
 async function addScreen(){
   if(!navigator.mediaDevices?.getDisplayMedia)throw new Error("Screen capture is not supported in this browser.");
   let st;
@@ -446,7 +543,7 @@ async function addScreen(){
     try{st=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:30}},audio:false});}
     catch(err){throw new Error(err?.message||"Could not capture the selected screen or window.");}
   }
-  const id="screen-"+crypto.randomUUID(),src={id,name:"Screen / Window "+([...A.sources.values()].filter(x=>x.kind==="SCREEN").length+1),kind:"SCREEN",detail:"Screen, window or tab",stream:st,video:document.createElement("video")};
+  const id="screen-"+crypto.randomUUID(),src={id,name:"Screen "+(countKind("SCREEN")+1),kind:"SCREEN",detail:"Screen, window or tab",stream:st,video:document.createElement("video")};
   src.video.autoplay=true;src.video.muted=true;src.video.playsInline=true;src.video.srcObject=st;await src.video.play().catch(()=>{});
   st.getVideoTracks()[0].onended=()=>removeSource(id);
   A.sources.set(id,src);A.selectedSource=id;renderLocalGridOnly();selectPreview(id);toast(src.name+" added and ready in PREVIEW");
@@ -489,7 +586,7 @@ function selectPreview(id){
   A.selectedSource=id;
   const v=selectedPreviewVideo();
   if(v&&s.kind==="CHANNEL"){destroyHls(v);v.srcObject=null;v.removeAttribute("src");v.load();setHls(v,inputHlsUrl(A.channelData||{}));}
-  else if(v&&(s.kind==="DEVICE"||s.kind==="SCREEN")){destroyHls(v);v.srcObject=s.stream;v.removeAttribute("src");v.load();v.play().catch(()=>{});}
+  else if(v&&isLocalVideo(s)){destroyHls(v);v.srcObject=s.stream;v.removeAttribute("src");v.load();v.play().catch(()=>{});}
   updateLocalUi();toast(s.name+" selected in PREVIEW");
 }
 
@@ -532,7 +629,7 @@ function renderLocalGridOnly(){
     if(!card){
       card=document.createElement("div");card.dataset.sourceId=s.id;
       const visual=document.createElement("div");visual.className="fbi-ls-vis";visual.title="Click to preview";visual.onclick=()=>selectPreview(s.id);
-      if(s.kind==="CHANNEL"||s.kind==="DEVICE"||s.kind==="SCREEN"){
+      if(s.kind==="CHANNEL"||isLocalVideo(s)){
         const v=s.video||document.createElement("video");
         v.autoplay=true;v.muted=true;v.playsInline=true;v.style.cssText="width:100%;height:100%;display:block;object-fit:cover;background:#000";
         if(s.kind==="CHANNEL")setHls(v,inputHlsUrl(A.channelData||{}));else if(v.srcObject!==s.stream){v.srcObject=s.stream;v.play().catch(()=>{})}
@@ -556,7 +653,7 @@ function renderLocalGridOnly(){
       p.onclick=()=>selectPreview(s.id);acts.append(p,t,rm);body.append(nameBox,acts);card.append(visual,body);s.card=card;
     }else{
       const meta=card.querySelector(".fbi-addon-source-meta");if(meta)meta.textContent=s.detail;
-      if((s.kind==="DEVICE"||s.kind==="SCREEN")&&s.video&&s.video.srcObject!==s.stream){s.video.srcObject=s.stream;s.video.play().catch(()=>{})}
+      if(isLocalVideo(s)&&s.video&&s.video.srcObject!==s.stream){s.video.srcObject=s.stream;s.video.play().catch(()=>{})}
       if(s.kind==="CHANNEL"&&s.video)setHls(s.video,inputHlsUrl(A.channelData||{}));
     }
     grid.appendChild(card);
@@ -564,7 +661,7 @@ function renderLocalGridOnly(){
   for(const card of [...grid.children])if(card.dataset.sourceId&&(!keep.has(card.dataset.sourceId)||A.sources.get(card.dataset.sourceId)?.card!==card))card.remove();
   [...grid.children].filter(c=>c.dataset.sourceId).forEach((c,i)=>{const n=c.querySelector(".fbi-ls-num");if(n)n.textContent=i<9?String(i+1):""});
   let ghost=document.getElementById("fbiLocalGhost");
-  if(!ghost){ghost=document.createElement("button");ghost.type="button";ghost.id="fbiLocalGhost";ghost.className="fbi-ls-ghost";ghost.innerHTML='<span><b>Add a source</b>Camera, capture card, screen, audio or NDI</span>';ghost.onclick=()=>addCamera().catch(e=>toast(e.message||"Could not open camera devices"))}
+  if(!ghost){ghost=document.createElement("button");ghost.type="button";ghost.id="fbiLocalGhost";ghost.className="fbi-ls-ghost";ghost.innerHTML='<span><b>Add a source</b>Camera, capture card, screen, Google Meet, Zoom, audio or NDI</span>';ghost.onclick=e=>{e.stopPropagation();A.openAddMenu&&A.openAddMenu()}}
   grid.appendChild(ghost);
   updateLocalUi();
 }
@@ -573,17 +670,23 @@ function renderLocalGridOnly(){
 async function takeNdi(s){return localTake(s)}
 
 function setProgramNdi(s){const v=programVideo();if(!v)return;destroyHls(v);v.srcObject=null;v.removeAttribute("src");v.load();const img=document.createElement("img");img.style.cssText="width:100%;height:100%;object-fit:cover;display:block;background:#000";img.src="http://127.0.0.1:8765/preview?source_name="+encodeURIComponent(s.ndiName||s.name)+"&t="+Date.now();v.style.display="none";v.parentElement?.appendChild(img)}
+function menuItem(id,icon,title,desc){return '<button type="button" role="menuitem" id="'+id+'"><span class="fbi-ls-mi">'+ICON[icon]+'</span><span><b>'+title+'</b><small>'+desc+'</small></span></button>'}
 function build(){
   injectStyle();
   if(document.getElementById("fbiLocalDrawer"))return;
   const d=document.createElement("section");d.id="fbiLocalDrawer";d.className="fbi-ls";d.setAttribute("aria-label","Local Studio");
   d.innerHTML='<div class="fbi-ls-head">'+
-    '<div class="fbi-ls-title"><div><h2>Local Studio</h2><p>Switch cameras, screens, audio and NDI from this computer</p></div><span class="fbi-ls-pill" id="fbiLocalPill"><i></i><em style="font-style:normal">Channel offline</em></span></div>'+
-    '<div class="fbi-ls-add" role="group" aria-label="Add a source"><span>Add</span>'+
-      '<button type="button" id="fbiAddCam">'+ICON.cam+'<span class="t">Camera</span></button>'+
-      '<button type="button" id="fbiAddScreen">'+ICON.screen+'<span class="t">Screen</span></button>'+
-      '<button type="button" id="fbiAddAudio">'+ICON.audio+'<span class="t">Audio</span></button>'+
-      '<button type="button" id="fbiAddNdi">'+ICON.ndi+'<span class="t">NDI</span></button></div>'+
+    '<div class="fbi-ls-title"><div><h2>Local Studio</h2><p>Switch cameras, capture cards, calls, screens and audio from this computer</p></div><span class="fbi-ls-pill" id="fbiLocalPill"><i></i><em style="font-style:normal">Channel offline</em></span></div>'+
+    '<div class="fbi-ls-addwrap"><button type="button" class="fbi-ls-btn gold" id="fbiAddMenuBtn" aria-haspopup="menu" aria-expanded="false">'+ICON.plus+'Add source</button>'+
+      '<div class="fbi-ls-menu" id="fbiAddMenu" role="menu" hidden>'+
+        menuItem("fbiAddCam","cam","Camera","Webcam or USB camera")+
+        menuItem("fbiAddCapture","capture","Capture card","HDMI or SDI capture, with its sound")+
+        menuItem("fbiAddScreen","screen","Screen or window","Slides, a browser tab or an app")+
+        menuItem("fbiAddMeet","meet","Google Meet","A Meet call, picture and sound")+
+        menuItem("fbiAddZoom","zoom","Zoom","A Zoom meeting, browser or desktop app")+
+        menuItem("fbiAddAudio","audio","Audio input","Microphone, mixer or line in")+
+        menuItem("fbiAddNdi","ndi","NDI","NDI sources on your network")+
+      '</div></div>'+
     '<button type="button" class="fbi-ls-btn" id="fbiMulti">'+ICON.grid+'<span class="t">Multiview</span></button>'+
     '<button type="button" class="fbi-ls-btn danger" id="fbiLocalStop" disabled>Stop local output</button>'+
     '<button type="button" class="fbi-ls-btn icon" id="fbiLocalMin" title="Minimise" aria-label="Minimise Local Studio">'+ICON.min+'</button>'+
@@ -593,7 +696,17 @@ function build(){
     '<div class="fbi-ls-tbar"><input id="fbiLocalTbar" class="fbi-ls-range" type="range" min="0" max="100" value="0" step="1" disabled aria-label="T-bar: drag to program"><div class="fbi-ls-range-label"><span>Preview: <span id="fbiLocalPvwName">nothing selected</span></span><b id="fbiLocalTbarValue">0%</b><span>Program</span></div></div>'+
     '<button type="button" class="fbi-ls-btn take" id="fbiTakeLocal">Take to program</button></div>';
   document.body.appendChild(d);
-  d.querySelector("#fbiAddCam").onclick=()=>addCamera().catch(e=>toast(e.message||"Could not open camera devices"));
+  const menu=d.querySelector("#fbiAddMenu"),menuBtn=d.querySelector("#fbiAddMenuBtn");
+  const setMenu=open=>{menu.hidden=!open;menuBtn.setAttribute("aria-expanded",String(open));if(open)menu.querySelector("button")?.focus()};
+  menuBtn.onclick=e=>{e.stopPropagation();setMenu(menu.hidden)};
+  document.addEventListener("click",e=>{if(!menu.hidden&&!menu.contains(e.target)&&e.target!==menuBtn)setMenu(false)});
+  menu.addEventListener("keydown",e=>{if(e.key==="Escape"){e.stopPropagation();setMenu(false);menuBtn.focus()}});
+  menu.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>setMenu(false)));
+  A.openAddMenu=()=>{if(d.classList.contains("min"))d.querySelector("#fbiLocalMin").click();setMenu(true)};
+  d.querySelector("#fbiAddCam").onclick=()=>addCamera("camera").catch(e=>toast(e.message||"Could not open camera devices"));
+  d.querySelector("#fbiAddCapture").onclick=()=>addCamera("capture").catch(e=>toast(e.message||"Could not open capture devices"));
+  d.querySelector("#fbiAddMeet").onclick=()=>meetingModal("MEET");
+  d.querySelector("#fbiAddZoom").onclick=()=>meetingModal("ZOOM");
   d.querySelector("#fbiAddScreen").onclick=()=>addScreen().catch(e=>toast(e.message||"Could not capture screen"));
   d.querySelector("#fbiAddAudio").onclick=()=>addAudio().catch(e=>toast(e.message||"Could not capture audio"));
   d.querySelector("#fbiAddNdi").onclick=()=>addNdi().catch(e=>toast(e.message||"NDI Gateway unavailable"));
@@ -641,7 +754,7 @@ function renderMultiView(){
     if(!card){
       card=document.createElement("div");card.className="fbi-addon-mv-card-item";card.dataset.sourceId=s.id;
       const vwrap=document.createElement("div");vwrap.className="fbi-addon-mv-visual";
-      if(s.kind==="CHANNEL"||s.kind==="DEVICE"||s.kind==="SCREEN"){
+      if(s.kind==="CHANNEL"||isLocalVideo(s)){
         const v=document.createElement("video");v.autoplay=true;v.muted=true;v.playsInline=true;v.style.cssText="width:100%;height:100%;object-fit:cover;display:block;background:#000";
         if(s.kind==="CHANNEL")setHls(v,inputHlsUrl(A.channelData||{}));else{v.srcObject=s.stream;v.play().catch(()=>{})}
         s.mvVideo=v;vwrap.appendChild(v);
@@ -658,7 +771,7 @@ function renderMultiView(){
     }else{
       const meta=card.querySelector(".fbi-addon-mv-body span");if(meta)meta.textContent=s.kind+" • "+s.detail;
       if(s.kind==="CHANNEL"&&s.mvVideo)setHls(s.mvVideo,inputHlsUrl(A.channelData||{}));
-      if((s.kind==="DEVICE"||s.kind==="SCREEN")&&s.mvVideo&&s.mvVideo.srcObject!==s.stream){s.mvVideo.srcObject=s.stream;s.mvVideo.play().catch(()=>{})}
+      if(isLocalVideo(s)&&s.mvVideo&&s.mvVideo.srcObject!==s.stream){s.mvVideo.srcObject=s.stream;s.mvVideo.play().catch(()=>{})}
     }
     g.appendChild(card);
   }
