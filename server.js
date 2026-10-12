@@ -3623,16 +3623,22 @@ function publicHlsCacheSet(key,body,type){
   }
 }
 const publicHlsSessionByToken=new Map();
+// One MediaMTX session per (viewer token, upstream path). The studio plays the
+// raw input (live/<key>) in Preview and the encoded/program feed in Program at
+// the same time with the same token; keying by token alone made each feed
+// overwrite the other's session, so MediaMTX refused both (401).
+function publicHlsSessionKey(token,upstreamPath){return String(token||"")+"|"+String(upstreamPath||"")}
 function publicHlsSessionGet(token,upstreamPath){
-  const v=publicHlsSessionByToken.get(String(token||""));
+  const k=publicHlsSessionKey(token,upstreamPath);
+  const v=publicHlsSessionByToken.get(k);
   if(!v)return "";
-  if(v.expiresAt<Date.now()){publicHlsSessionByToken.delete(String(token||""));return "";}
+  if(v.expiresAt<Date.now()){publicHlsSessionByToken.delete(k);return "";}
   if(String(v.upstreamPath||"")!==String(upstreamPath||""))return "";
   return v.session;
 }
 function publicHlsSessionSet(token,session,upstreamPath){
   if(!token||!session||!upstreamPath)return;
-  publicHlsSessionByToken.set(String(token),{session:String(session),upstreamPath:String(upstreamPath),expiresAt:Date.now()+25*60*1000});
+  publicHlsSessionByToken.set(publicHlsSessionKey(token,upstreamPath),{session:String(session),upstreamPath:String(upstreamPath),expiresAt:Date.now()+25*60*1000});
 }
 async function fetchPublicHlsBody(url,headers){
   const response=await fetch(url,{redirect:"follow",cache:"no-store",headers:headers||{}});
@@ -3738,6 +3744,9 @@ async function proxyPublicHlsStream(req,res){
           // MediaMTX session between different viewers.
           if(session&&!sp.has("session"))sp.set("session",session);
           sp.delete("cookieCheck");
+          // Keep Preview on the raw input: without this the variant/segment
+          // URLs fell back to the encoded path with the input's session (401).
+          if(forceOriginalInput)sp.set("source","input");
           const suffix=sp.toString(); return url+(suffix?"?"+suffix:"");
         }catch{return value}
       }
