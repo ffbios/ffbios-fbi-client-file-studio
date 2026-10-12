@@ -30,10 +30,11 @@ Treat the platform as a controlled commercial launch. Preserve the original-medi
 
 | Plan | Storage quota | Monthly price |
 |---|---:|---:|
-| Starter | 100 GB | GH₵50 |
-| Creator | 500 GB | GH₵150 |
-| Professional | 1 TB | GH₵300 |
-| Studio | 2 TB | GH₵550 |
+| Starter | 100 GB | GH₵30 |
+| Creator | 500 GB | GH₵110 |
+| Professional | 1 TB | GH₵200 |
+| Studio (3 team members) | 2 TB | GH₵380 |
+| Studio Max (5 team members) | 5 TB | GH₵850 |
 
 The 10 GB Free Trial remains GH₵0 for its trial period. These rates are public plan prices in the release. A user's currently active subscription keeps its recorded price/quota for the remainder of its current period. At its expiry, a new Moolre checkout is required at the current public rate.
 
@@ -47,10 +48,13 @@ Using that rate, full allowance occupancy for a whole 30-day month costs:
 
 | Plan | Full quota | Bucket cost at full quota | Public price | Remainder after bucket storage only |
 |---|---:|---:|---:|---:|
-| Starter | 100 GB | GH₵17.69 | GH₵50 | GH₵32.31 |
-| Creator | 500 GB | GH₵88.43 | GH₵150 | GH₵61.57 |
-| Professional | 1,000 GB | GH₵176.85 | GH₵300 | GH₵123.15 |
-| Studio | 2,000 GB | GH₵353.70 | GH₵550 | GH₵196.30 |
+| Starter | 100 GB | GH₵17.69 | GH₵30 | GH₵12.31 |
+| Creator | 500 GB | GH₵88.43 | GH₵110 | GH₵21.57 |
+| Professional | 1,000 GB | GH₵176.85 | GH₵200 | GH₵23.15 |
+| Studio | 2,000 GB | GH₵353.70 | GH₵380 | GH₵26.30 |
+| Studio Max | 5,000 GB | GH₵884.25 | GH₵850 | −GH₵34.25 |
+
+Prices were lowered on 12 October 2026 to compete with Google One in Ghana (100 GB for GH₵25, 2 TB for GH₵115 at regular rates). They are set for typical occupancy of about half the quota, where bucket cost stays near 45–55% of the price. Studio Max runs at a small loss only if a team fills all 5 TB for a whole month, so watch its usage against the 70/85/95% thresholds below.
 
 These are conservative full-occupancy scenarios, not statements about current customer usage. Actual storage charges follow average actual stored GB-month, not unused entitlements. The remainder is not net profit: it must also cover compute, remaining service egress, payment fees, support, tax and exchange-rate movements.
 

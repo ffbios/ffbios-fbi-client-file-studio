@@ -58,10 +58,11 @@ Current configured prices are seeded in server.js and synchronized to the subscr
 
 | Plan | Storage quota | Monthly price |
 |---|---:|---:|
-| Starter | 100 GB | GH₵50 |
-| Creator | 500 GB | GH₵150 |
-| Professional | 1 TB | GH₵300 |
-| Studio | 2 TB | GH₵550 |
+| Starter | 100 GB | GH₵30 |
+| Creator | 500 GB | GH₵110 |
+| Professional | 1 TB | GH₵200 |
+| Studio (3 team members) | 2 TB | GH₵380 |
+| Studio Max (5 team members) | 5 TB | GH₵850 |
 
 Price transition and storage unit economics are documented in docs/CEO-launch-readiness.md. Existing active subscriptions keep their recorded price and quota until their current period ends; new purchases, upgrades and renewals use the published plan rates. Complimentary grants remain unchanged.
 

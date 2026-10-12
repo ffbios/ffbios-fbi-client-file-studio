@@ -459,8 +459,11 @@ async function userPasswordMatches(password,stored){
 // download and upload to every project the owner has. Uploads count against
 // the owner's storage. Access lapses automatically if the owner's Studio plan
 // is no longer active. $2 must be the requesting user's id.
-const TEAM_PLAN_IDS=["studio"];
+const TEAM_PLAN_IDS=["studio","studio_max"];
 const TEAM_SEAT_LIMIT=Math.max(1,Number(process.env.TEAM_SEAT_LIMIT||3));
+const TEAM_SEAT_LIMIT_MAX=Math.max(1,Number(process.env.TEAM_SEAT_LIMIT_MAX||5));
+function teamSeatLimit(planId){return String(planId)==="studio_max"?TEAM_SEAT_LIMIT_MAX:TEAM_SEAT_LIMIT;}
+function teamPlanName(planId){return String(planId)==="studio_max"?"Studio Max":"Studio";}
 const TEAM_ACCESS_P2="EXISTS(SELECT 1 FROM team_members tm JOIN creator_subscriptions tcs ON tcs.user_id=tm.owner_id WHERE tm.owner_id=p.owner_id AND tm.member_id=$2 AND tcs.plan_id IN ('"+TEAM_PLAN_IDS.join("','")+"') AND tcs.status IN ('active','trialing') AND tcs.current_period_end>now())";
 function teamPlanActive(sub){
   return !!sub&&TEAM_PLAN_IDS.includes(String(sub.plan_id))&&["active","trialing"].includes(String(sub.status))&&new Date(sub.current_period_end).getTime()>Date.now();
@@ -997,10 +1000,11 @@ async function initDb(){
     );
     INSERT INTO subscription_plans(id,name,storage_bytes,monthly_price_ghs,active) VALUES
       ('trial','Free Trial',10000000000,0,true),
-      ('starter','Starter',100000000000,50,true),
-      ('creator','Creator',500000000000,150,true),
-      ('professional','Professional',1000000000000,300,true),
-      ('studio','Studio',2000000000000,550,true)
+      ('starter','Starter',100000000000,30,true),
+      ('creator','Creator',500000000000,110,true),
+      ('professional','Professional',1000000000000,200,true),
+      ('studio','Studio',2000000000000,380,true),
+      ('studio_max','Studio Max',5000000000000,850,true)
     ON CONFLICT (id) DO UPDATE SET
       name=excluded.name,
       storage_bytes=excluded.storage_bytes,
@@ -1161,7 +1165,7 @@ const DEFAULT_CREATIVE_SETTINGS={business_name:"",portal_title:"Private Client G
 
 const CREATOR_TRIAL_BYTES=10*1000*1000*1000;
 const CREATOR_BILLING_CURRENCY=String(process.env.MOOLRE_CURRENCY||"GHS").trim().toUpperCase()||"GHS";
-const CREATOR_PLAN_IDS=["starter","creator","professional","studio"];
+const CREATOR_PLAN_IDS=["starter","creator","professional","studio","studio_max"];
 
 function moolreBaseUrl(){return String(process.env.MOOLRE_API_BASE||"https://api.moolre.com").replace(/\/+$/,"");}
 function moolreConfigured(){return Boolean(String(process.env.MOOLRE_API_USER||"").trim()&&String(process.env.MOOLRE_API_PUBKEY||"").trim()&&String(process.env.MOOLRE_ACCOUNT_NUMBER||"").trim());}
@@ -2360,13 +2364,13 @@ app.get("/api/portal/team",portalUser,async(req,res)=>{
    }
    memberships.push({owner_id:t.owner_id,owner_name:t.owner_name,owner_email:t.owner_email,joined_at:t.joined_at,active,projects});
   }
-  res.json({plan_id:sub?.plan_id||"trial",eligible,seat_limit:TEAM_SEAT_LIMIT,members:members.rows,memberships});
+  res.json({plan_id:sub?.plan_id||"trial",eligible,seat_limit:teamSeatLimit(sub?.plan_id),members:members.rows,memberships});
  }catch(e){console.error(e);res.status(500).json({error:"Could not load your team."})}
 });
 app.post("/api/portal/team/members",portalUser,async(req,res)=>{
  try{
   const sub=await getCreatorSubscription(req.portalUser.id);
-  if(!teamPlanActive(sub))return res.status(402).json({error:"Team workspace is included with the Studio (2 TB) plan. Upgrade in Billing to invite team members.",code:"TEAM_PLAN_REQUIRED"});
+  if(!teamPlanActive(sub))return res.status(402).json({error:"Team workspace is included with the Studio (2 TB) and Studio Max (5 TB) plans. Upgrade in Billing to invite team members.",code:"TEAM_PLAN_REQUIRED"});
   const email=String(req.body.email||"").trim().toLowerCase();
   if(!email)return res.status(400).json({error:"Enter your team member's account email."});
   if(email===String(req.portalUser.email||"").trim().toLowerCase())return res.status(400).json({error:"You are already the owner of this team."});
@@ -2375,7 +2379,8 @@ app.post("/api/portal/team/members",portalUser,async(req,res)=>{
   const exists=await pool.query("SELECT 1 FROM team_members WHERE owner_id=$1 AND member_id=$2",[req.portalUser.id,u.rows[0].id]);
   if(exists.rowCount)return res.status(409).json({error:"That person is already on your team."});
   const count=Number((await pool.query("SELECT count(*)::int n FROM team_members WHERE owner_id=$1",[req.portalUser.id])).rows[0]?.n||0);
-  if(count>=TEAM_SEAT_LIMIT)return res.status(409).json({error:"Your Studio plan includes "+TEAM_SEAT_LIMIT+" team members. Remove someone to add a new member.",code:"TEAM_SEATS_FULL"});
+  const seatLimit=teamSeatLimit(sub.plan_id);
+  if(count>=seatLimit)return res.status(409).json({error:"Your "+teamPlanName(sub.plan_id)+" plan includes "+seatLimit+" team members. Remove someone to add a new member.",code:"TEAM_SEATS_FULL"});
   await pool.query("INSERT INTO team_members(id,owner_id,member_id,invited_by) VALUES($1,$2,$3,$2) ON CONFLICT(owner_id,member_id) DO NOTHING",[uid(),req.portalUser.id,u.rows[0].id]);
   res.json({ok:true,member:{user_id:u.rows[0].id,full_name:u.rows[0].full_name,email:u.rows[0].email}});
  }catch(e){console.error(e);res.status(500).json({error:"Could not add that team member."})}
