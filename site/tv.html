@@ -16,6 +16,7 @@
     --gold:#E8B93A; --gold-hi:#F6D47A; --live:#D62828;
   }
   *{box-sizing:border-box}
+  [hidden]{display:none!important}
   html,body{margin:0;background:var(--bg);color:var(--text);font-family:'Archivo',system-ui,sans-serif}
   a{color:var(--gold)} a:hover{color:var(--gold-hi)}
   button{font-family:inherit}
@@ -50,8 +51,8 @@
   .badge.viewers{background:rgba(0,0,0,.6);color:var(--text);font-weight:600}
   @keyframes pulse{50%{opacity:.35}}
   @media (prefers-reduced-motion:reduce){.badge.live i{animation:none}}
-  .bigplay{position:absolute;inset:0;margin:auto;width:88px;height:88px;border-radius:50%;border:0;background:var(--gold);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 8px 30px rgba(0,0,0,.5);z-index:3}
-  .bigplay:hover{background:var(--gold-hi)}
+  .unmute{position:absolute;right:16px;top:16px;z-index:3;min-height:36px;padding:0 12px;border:0;border-radius:999px;background:rgba(0,0,0,.65);color:var(--text);font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+  .unmute:hover{background:rgba(0,0,0,.85)}
   .offline{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:24px;z-index:2}
   .offline strong{font-family:'Archivo Black',sans-serif;font-weight:400;font-size:clamp(20px,3vw,28px);color:var(--strong)}
   .offline span{color:var(--muted);font-size:15px}
@@ -159,8 +160,9 @@
         <strong>We'll be back on air soon</strong>
         <span id="offlineNext"></span>
       </div>
-      <button class="bigplay" id="bigPlay" type="button" aria-label="Play live stream" hidden>
-        <svg width="34" height="34" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="#161618" stroke="#161618" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      <button class="unmute" id="unmute" type="button" hidden>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/></svg>
+        Tap for sound
       </button>
       <div class="controls" id="controls" hidden>
         <button class="ctl" id="btnPlay" type="button" aria-label="Pause">
@@ -345,7 +347,7 @@ const CONFIG = {
     $("offline").hidden = false;
     $("offBadge").hidden = false;
     $("liveBadge").hidden = true;
-    $("bigPlay").hidden = true;
+    $("unmute").hidden = true;
     $("controls").hidden = true;
   }
   function showLive() {
@@ -383,21 +385,21 @@ const CONFIG = {
         else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
         else onFatal();
       });
-      hls.on(Hls.Events.MANIFEST_PARSED, () => { showLive(); $("bigPlay").hidden = false; });
+      hls.on(Hls.Events.MANIFEST_PARSED, () => { showLive(); $("controls").hidden = false; });
       window.__hls = hls;
     } else {
       onFatal();
       return;
     }
-    video.addEventListener("loadedmetadata", () => { showLive(); $("bigPlay").hidden = false; });
-    video.addEventListener("playing", () => { $("bigPlay").hidden = true; $("controls").hidden = false; $("offline").hidden = true; syncIcons(); });
+    video.addEventListener("loadedmetadata", () => { showLive(); $("controls").hidden = false; });
+    video.addEventListener("playing", () => { showLive(); $("controls").hidden = false; syncIcons(); });
     video.addEventListener("pause", syncIcons);
     video.addEventListener("volumechange", syncIcons);
     video.addEventListener("click", togglePlay);
 
     // Try to autoplay muted; viewers can unmute
     video.muted = true;
-    video.play().catch(() => { $("bigPlay").hidden = false; });
+    video.play().catch(() => { $("controls").hidden = false; syncIcons(); });
   }
   function togglePlay() {
     if (!video) return;
@@ -416,13 +418,14 @@ const CONFIG = {
     $("icoVol").hidden = muted; $("icoMuted").hidden = !muted;
     $("btnMute").setAttribute("aria-label", muted ? "Unmute" : "Mute");
     $("vol").value = muted ? 0 : video.volume;
+    $("unmute").hidden = !muted || video.paused;
   }
 
-  $("bigPlay").addEventListener("click", () => {
+  $("unmute").addEventListener("click", () => {
     if (!video) return;
     video.muted = false;
-    jumpLive();
-    video.play();
+    if (video.volume === 0) video.volume = 1;
+    if (video.paused) { jumpLive(); video.play(); }
   });
   $("btnPlay").addEventListener("click", togglePlay);
   $("btnMute").addEventListener("click", () => {
