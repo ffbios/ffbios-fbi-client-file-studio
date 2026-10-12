@@ -567,15 +567,26 @@ button{cursor:pointer}
       // left Preview/Program stuck on CONNECTING and hid the audio from the
       // meters. Native playback is now only the fallback (Safari/iOS).
       if(window.Hls&&window.Hls.isSupported()){
+        // Share one player slot per <video> with the Local Studio add-on
+        // (video.__fbiHls). Without this, two hls.js players attached to the
+        // same element and kept knocking each other off (RECOVERING /
+        // RECONNECTING forever).
+        try{video.__fbiHls&&video.__fbiHls.destroy()}catch{}
         const hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,maxBufferLength:20,maxMaxBufferLength:45,backBufferLength:30,capLevelToPlayerSize:true,startLevel:-1});
+        video.__fbiHls=hls;video.__fbiHlsUrl=url;
         hlsInstances.push(hls);hls.loadSource(url);hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED,()=>{video.play().catch(()=>{});setVideoStatusStandalone(statusId,'LIVE')});
         hls.on(Hls.Events.ERROR,(event,data)=>{
           if(!data||!data.fatal)return;
+          // If the Local Studio has taken this video over, step aside.
+          if(video.__fbiHls!==hls){try{hls.destroy()}catch{}return}
           if(data.type===Hls.ErrorTypes.NETWORK_ERROR){setVideoStatusStandalone(statusId,'RECONNECTING');try{hls.startLoad(-1);return}catch{}}
           if(data.type===Hls.ErrorTypes.MEDIA_ERROR){setVideoStatusStandalone(statusId,'RECOVERING');try{hls.recoverMediaError();return}catch{}}
           try{hls.destroy()}catch{}const i=hlsInstances.indexOf(hls);if(i>=0)hlsInstances.splice(i,1);
-          setVideoStatusStandalone(statusId,'RECONNECTING');setTimeout(()=>startStandaloneHls(video,url,statusId),1200);
+          video.__fbiHls=null;video.__fbiHlsUrl='';
+          setVideoStatusStandalone(statusId,'RECONNECTING');
+          // Retry only if nothing else (the Local Studio) has claimed the video meanwhile.
+          setTimeout(()=>{if(!video.__fbiHls&&!video.srcObject)startStandaloneHls(video,url,statusId)},1200);
         });
         window.__studioHls=hls;
         return;
@@ -990,6 +1001,6 @@ button{cursor:pointer}
   boot();
 })();
 </script>
-<script src="/live-studio-addon.js?v=10"></script>
+<script src="/live-studio-addon.js?v=11"></script>
 </body>
 </html>
