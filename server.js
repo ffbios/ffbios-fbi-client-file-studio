@@ -974,6 +974,23 @@ async function initDb(){
     CREATE INDEX IF NOT EXISTS idx_stream_comments_stream ON stream_comments(stream_id,created_at DESC);
     ALTER TABLE stream_comments ADD COLUMN IF NOT EXISTS session_id uuid;
     CREATE INDEX IF NOT EXISTS idx_stream_comments_session ON stream_comments(stream_id,session_id,created_at DESC);
+    -- Viewer report: audience size sampled once a minute while a channel is
+    -- live, and which devices watched each broadcast (session).
+    CREATE TABLE IF NOT EXISTS stream_viewer_stats(
+      stream_id uuid NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
+      at timestamptz NOT NULL,
+      session_id uuid,
+      viewers int NOT NULL DEFAULT 0,
+      PRIMARY KEY(stream_id,at)
+    );
+    CREATE INDEX IF NOT EXISTS idx_stream_viewer_stats_session ON stream_viewer_stats(stream_id,session_id,at);
+    CREATE TABLE IF NOT EXISTS stream_broadcast_viewers(
+      stream_id uuid NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
+      session_id uuid NOT NULL,
+      session_key text NOT NULL,
+      first_seen timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY(stream_id,session_id,session_key)
+    );
     CREATE TABLE IF NOT EXISTS ndi_gateways(
       id uuid PRIMARY KEY,
       name text NOT NULL DEFAULT '',
@@ -1955,6 +1972,62 @@ const streamMonitor=setInterval(async()=>{
   }catch(e){console.error("Stream monitor error:",e.message||e);}
 },5000);
 if(streamMonitor.unref)streamMonitor.unref();
+
+// Viewer report sampler: once a minute, for every live channel, record how
+// many people are watching right now and which devices watched this
+// broadcast. Safe if several servers run it (one row per channel per minute).
+async function sampleViewerStats(){
+  try{
+    await pool.query(`INSERT INTO stream_viewer_stats(stream_id,at,session_id,viewers)
+      SELECT s.id,date_trunc('minute',now()),s.session_id,
+        (SELECT count(*) FROM stream_viewers v WHERE v.stream_id=s.id AND v.last_seen>=now()-interval '45 seconds')::int
+      FROM streams s WHERE s.enabled=true AND s.status='live'
+      ON CONFLICT (stream_id,at) DO UPDATE SET viewers=GREATEST(stream_viewer_stats.viewers,EXCLUDED.viewers),session_id=COALESCE(stream_viewer_stats.session_id,EXCLUDED.session_id)`);
+    await pool.query(`INSERT INTO stream_broadcast_viewers(stream_id,session_id,session_key)
+      SELECT s.id,s.session_id,v.session_key FROM streams s JOIN stream_viewers v ON v.stream_id=s.id
+      WHERE s.enabled=true AND s.status='live' AND s.session_id IS NOT NULL AND v.last_seen>=now()-interval '45 seconds'
+      ON CONFLICT DO NOTHING`);
+  }catch(e){console.error("Viewer stats sample failed:",e.message||e);}
+}
+const viewerStatsTimer=setInterval(sampleViewerStats,60*1000);
+if(viewerStatsTimer.unref)viewerStatsTimer.unref();
+
+// Viewer report (studio sign-in required): one row per broadcast with total
+// viewers (devices), peak and average audience, and minutes watched; plus the
+// minute-by-minute audience of one broadcast.
+app.get("/api/live/viewer-report",admin,async(req,res)=>{
+  try{
+    const streams=(await pool.query("SELECT id,name,title,status,session_id FROM streams WHERE enabled=true ORDER BY updated_at DESC")).rows;
+    const streamId=String(req.query.stream||"")||(streams.find(s=>s.status==="live")||streams[0]||{}).id;
+    if(!streamId)return res.json({streams:[],broadcasts:[],series:[]});
+    const stream=streams.find(s=>String(s.id)===streamId);
+    if(!stream)return res.status(404).json({error:"Channel not found"});
+    const b=await pool.query(`SELECT st.session_id,min(st.at) AS started_at,max(st.at) AS last_at,
+        max(st.viewers)::int AS peak,round(avg(st.viewers),1)::float AS average,sum(st.viewers)::int AS viewer_minutes,count(*)::int AS minutes,
+        (SELECT count(*) FROM stream_broadcast_viewers bv WHERE bv.stream_id=st.stream_id AND bv.session_id=st.session_id)::int AS unique_viewers,
+        (SELECT sr.title FROM stream_recordings sr WHERE sr.stream_id=st.stream_id AND sr.session_id=st.session_id AND sr.title IS NOT NULL ORDER BY sr.started_at LIMIT 1) AS title
+      FROM stream_viewer_stats st WHERE st.stream_id=$1
+      GROUP BY st.stream_id,st.session_id ORDER BY min(st.at) DESC LIMIT 40`,[streamId]);
+    const broadcasts=b.rows.map(r=>({
+      session_id:r.session_id,title:r.title||stream.title||stream.name,started_at:r.started_at,last_at:r.last_at,
+      live:stream.status==="live"&&String(stream.session_id||"")===String(r.session_id||""),
+      minutes:r.minutes,peak:r.peak,average:r.average,unique_viewers:r.unique_viewers,viewer_minutes:r.viewer_minutes,
+      avg_watch_minutes:r.unique_viewers>0?Math.round(r.viewer_minutes/r.unique_viewers):null
+    }));
+    const pick=String(req.query.session||"")||(broadcasts[0]&&broadcasts[0].session_id)||"";
+    const series=pick?(await pool.query("SELECT at,viewers FROM stream_viewer_stats WHERE stream_id=$1 AND session_id IS NOT DISTINCT FROM $2::uuid ORDER BY at",[streamId,pick])).rows:[];
+    const totals=(await pool.query("SELECT count(*)::int AS devices,min(started_at) AS since FROM stream_viewers WHERE stream_id=$1",[streamId])).rows[0];
+    res.set("Cache-Control","no-store").json({
+      streams:streams.map(s=>({id:s.id,name:s.name,title:s.title,live:s.status==="live"})),
+      stream_id:streamId,session_id:pick||null,broadcasts,series,
+      all_time_devices:totals.devices,all_time_since:totals.since
+    });
+  }catch(e){console.error("Viewer report failed:",e);res.status(500).json({error:"Could not load the viewer report."});}
+});
+app.get(["/viewers","/viewers/"],(req,res)=>{
+  res.set("Cache-Control","no-cache, must-revalidate");
+  res.type("html").sendFile(path.join(ROOT,"viewers.html"));
+});
 
 // Railway terminates TLS at one trusted proxy hop; use the client IP for throttling.
 app.set("trust proxy",1);

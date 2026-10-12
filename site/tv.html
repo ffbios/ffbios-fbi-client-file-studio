@@ -109,6 +109,24 @@
   .player:fullscreen video,.player:-webkit-full-screen video{object-fit:contain}
   .install{min-height:44px;padding:0 14px;border-radius:8px;border:1px solid var(--gold);background:transparent;color:var(--gold);font-weight:700;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
   .install:hover{background:var(--gold);color:var(--bg)}
+  .chat{display:flex;flex-direction:column}
+  .chat h2{padding:18px 20px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+  .chat h2 .n{font-size:13px;font-weight:600;color:var(--muted)}
+  .chat-list{height:320px;overflow-y:auto;padding:12px 20px;display:flex;flex-direction:column;gap:10px;overscroll-behavior:contain}
+  .chat-msg{font-size:14px;line-height:1.45;color:#E6E1D6;overflow-wrap:anywhere}
+  .chat-msg b{color:var(--gold);font-weight:700;margin-right:6px}
+  .chat-msg time{display:block;font-size:11px;color:#8E887B;margin-top:1px}
+  .chat-empty{color:var(--muted);font-size:14px;margin:auto 0;text-align:center}
+  .chat-form{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px 14px;border-top:1px solid var(--line)}
+  .chat-form input{min-height:44px;border-radius:10px;border:1px solid #3A3833;background:#141416;color:var(--text);font:inherit;font-size:15px;padding:0 12px}
+  .chat-form input:focus{border-color:var(--gold);outline:none}
+  .chat-form #chatName{flex:1 1 100%}
+  .chat-form #chatText{flex:1 1 160px;min-width:0}
+  .chat-form button{min-height:44px;padding:0 16px;border:0;border-radius:10px;background:var(--gold);color:var(--bg);font-weight:700;font-size:15px;cursor:pointer}
+  .chat-form button:hover{background:var(--gold-hi)}
+  .chat-form button:disabled{opacity:.6;cursor:default}
+  .chat-status{padding:0 16px 12px;font-size:13px;color:#E8A0A0;min-height:0}
+  .chat-status:empty{display:none}
   .sched h2{padding:18px 20px 14px;border-bottom:1px solid var(--line)}
   .sched ul{list-style:none;margin:0;padding:0}
   .sched li{display:flex;gap:14px;padding:14px 20px;border-top:1px solid var(--line);border-left:3px solid transparent}
@@ -244,6 +262,18 @@
   </section>
 
   <aside class="col-side" id="schedule">
+    <section class="card chat" aria-labelledby="chatH" id="chatCard" hidden>
+      <h2 id="chatH"><span id="chatTitle">Live chat</span> <span class="n" id="chatCount"></span></h2>
+      <div class="chat-list" id="chatList" aria-live="polite" aria-relevant="additions"></div>
+      <form class="chat-form" id="chatForm" autocomplete="off">
+        <label class="sr" for="chatName">Your name</label>
+        <input id="chatName" maxlength="60" placeholder="Your name">
+        <label class="sr" for="chatText">Message</label>
+        <input id="chatText" maxlength="500" placeholder="Say something…" required>
+        <button type="submit" id="chatSend">Send</button>
+      </form>
+      <div class="chat-status" id="chatStatus" role="status"></div>
+    </section>
     <section class="card sched" aria-labelledby="schedH">
       <h2 id="schedH">On today</h2>
       <ul id="schedList"></ul>
@@ -424,6 +454,8 @@ const CONFIG = {
       if (!r.ok || !d.available || !d.play_url) { if (mode !== "off") goOffline(); else showOffline(); return; }
       teardownVideo();
       mode = "replay";
+      chatRecordingId = (d.recording && d.recording.id) || null;
+      loadComments(true);
       video = document.createElement("video");
       video.playsInline = true;
       video.setAttribute("playsinline", "");
@@ -458,6 +490,7 @@ const CONFIG = {
     const tok = fbighToken();
     if (!tok) return;
     teardownVideo();
+    if (chatRecordingId) { chatRecordingId = null; loadComments(true); }
     renderSchedule();
     setupHls(FBIGH + "/api/public/stream/" + encodeURIComponent(tok) + "/hls/index.m3u8");
   }
@@ -655,6 +688,85 @@ const CONFIG = {
     catch (e) { toast(location.href); }
   });
 
+  // ---------- live chat ----------
+  // Uses the FBI Live studio's own comments, so viewers here and on the
+  // channel's /watch page see the same conversation.
+  let chatRecordingId = null;   // set while a replay is showing: that broadcast's comments
+  let chatKey = "";
+  let chatLoading = false;
+  function fmtChatTime(iso) {
+    try { return new Date(iso).toLocaleTimeString("en-GB", { timeZone: CONFIG.timeZone, hour: "numeric", minute: "2-digit" }); }
+    catch (e) { return ""; }
+  }
+  async function loadComments(force) {
+    const tok = fbighToken();
+    if (!tok || chatLoading || (!force && document.hidden)) return;
+    chatLoading = true;
+    try {
+      const url = FBIGH + "/api/public/stream/" + encodeURIComponent(tok) + "/comments?limit=80" +
+        (chatRecordingId ? "&recording=" + encodeURIComponent(chatRecordingId) : "");
+      const r = await fetch(url, { cache: "no-store" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Comments unavailable");
+      const rows = d.comments || [];
+      $("chatCard").hidden = false;
+      $("chatTitle").textContent = mode === "replay" ? "Comments" : "Live chat";
+      $("chatCount").textContent = rows.length ? "(" + rows.length + ")" : "";
+      const key = (chatRecordingId || "live") + ":" + rows.map((c) => c.id).join(",");
+      if (key === chatKey) return;
+      chatKey = key;
+      const list = $("chatList");
+      const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+      list.textContent = "";
+      if (!rows.length) {
+        const e = document.createElement("div");
+        e.className = "chat-empty";
+        e.textContent = "No comments yet. Start the conversation.";
+        list.appendChild(e);
+      }
+      rows.forEach((c) => {
+        const m = document.createElement("div"); m.className = "chat-msg";
+        const b = document.createElement("b"); b.textContent = c.display_name || "Anonymous";
+        const t = document.createElement("span"); t.textContent = c.comment;
+        const tm = document.createElement("time"); tm.dateTime = c.created_at; tm.textContent = fmtChatTime(c.created_at);
+        m.append(b, t, tm);
+        list.appendChild(m);
+      });
+      if (nearBottom || force) list.scrollTop = list.scrollHeight;
+    } catch (e) {
+      /* keep the last comments on screen */
+    } finally {
+      chatLoading = false;
+    }
+  }
+  try { $("chatName").value = localStorage.getItem("fbiLiveCommentName") || ""; } catch (e) {}
+  $("chatForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const tok = fbighToken();
+    const name = $("chatName").value.trim() || "Anonymous";
+    const comment = $("chatText").value.trim();
+    if (!tok || !comment) return;
+    $("chatSend").disabled = true;
+    $("chatStatus").textContent = "";
+    try {
+      const r = await fetch(FBIGH + "/api/public/stream/" + encodeURIComponent(tok) + "/comments", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: name, comment, recording: chatRecordingId || undefined })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Could not post your comment");
+      try { localStorage.setItem("fbiLiveCommentName", name); } catch (e2) {}
+      $("chatText").value = "";
+      await loadComments(true);
+    } catch (err) {
+      $("chatStatus").textContent = err.message || "Could not post your comment";
+    } finally {
+      $("chatSend").disabled = false;
+      $("chatText").focus();
+    }
+  });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) loadComments(); });
+
   // ---------- app (PWA) ----------
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/tv-sw.js", { scope: "/tv" }).catch(() => {});
@@ -696,6 +808,8 @@ const CONFIG = {
   startStream();
   pollViewers();
   setInterval(pollViewers, 20 * 1000);
+  loadComments(true);
+  setInterval(loadComments, 5 * 1000);
 })();
 </script>
 </body>
