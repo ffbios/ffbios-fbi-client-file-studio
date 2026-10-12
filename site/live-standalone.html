@@ -558,8 +558,25 @@ button{cursor:pointer}
       '<div class="footer">FBI Live Broadcast Studio</div>';
     bindStudio(s,live);
   }
+  // ---- Studio diagnostics (reported to the server log) ----
+  const __diagQ=[];let __diagT=0;
+  function diag(ev,data){
+    try{__diagQ.push(Object.assign({t:new Date().toISOString().slice(11,23),ev:ev},data||{}));if(__diagQ.length>60)__diagQ.splice(0,__diagQ.length-60);
+      if(!__diagT)__diagT=setTimeout(()=>{__diagT=0;const items=__diagQ.splice(0);fetch('/api/live/diag',{method:'POST',credentials:'same-origin',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({items})}).catch(()=>{})},1500);
+    }catch{}
+  }
+  window.__studioDiag=diag;
+  window.addEventListener('error',e=>diag('page-error',{msg:String(e.message||''),src:String(e.filename||'').split('/').pop(),line:e.lineno}));
+  window.addEventListener('unhandledrejection',e=>diag('promise-error',{msg:String(e.reason&&e.reason.message||e.reason||'')}));
+  function __vstate(id){const v=document.getElementById(id);if(!v)return null;let buf=0;try{if(v.buffered.length)buf=+(v.buffered.end(v.buffered.length-1)-v.currentTime).toFixed(1)}catch{}
+    return {rs:v.readyState,t:+v.currentTime.toFixed(1),w:v.videoWidth,paused:v.paused,buf:buf,err:v.error?v.error.code:0,src:v.srcObject?'stream':(v.__fbiHls?'hls:'+String(v.__fbiHlsUrl||'').split('?')[1]:(v.currentSrc?'native':'none'))}}
+  setInterval(()=>{const s=typeof getSelected==='function'?getSelected():null;if(!s||document.hidden)return;
+    diag('state',{ch:s.name,status:s.status,hlsjs:!!(window.Hls&&window.Hls.isSupported&&window.Hls.isSupported()),hlsv:window.Hls&&window.Hls.version,
+      preview:{label:(document.getElementById('previewStatus')||{}).textContent,v:__vstate('previewVideo')},
+      program:{label:(document.getElementById('programStatus')||{}).textContent,v:__vstate('programVideo')}})},15000);
   function setVideoStatusStandalone(id,text){const e=document.getElementById(id);if(e)e.textContent=text||'';}
   function startStandaloneHls(video,url,statusId){
+    diag('player-start',{box:statusId,url:String(url||'').replace(/stream\/[^/]+/,'stream/…'),connected:!!(video&&video.isConnected),hlsjs:!!(window.Hls&&window.Hls.isSupported&&window.Hls.isSupported())});
     if(!video||!url||!video.isConnected)return;
     try{
       // Use hls.js first, exactly like the public watch page. Recent desktop
@@ -578,6 +595,7 @@ button{cursor:pointer}
         hls.on(Hls.Events.MANIFEST_PARSED,()=>{video.play().catch(()=>{});setVideoStatusStandalone(statusId,'LIVE')});
         hls.on(Hls.Events.FRAG_BUFFERED,()=>{if(video.__fbiHls===hls){const e=document.getElementById(statusId);if(e&&e.textContent!=='LIVE')e.textContent='LIVE'}});
         hls.on(Hls.Events.ERROR,(event,data)=>{
+          if(data)diag('hls-error',{box:statusId,fatal:!!data.fatal,type:data.type,details:data.details,code:data.response&&data.response.code,url:String(data.url||(data.frag&&data.frag.url)||'').split('/hls/').pop().slice(0,80)});
           if(!data||!data.fatal)return;
           // If the Local Studio has taken this video over, step aside.
           if(video.__fbiHls!==hls){try{hls.destroy()}catch{}return}
@@ -798,6 +816,7 @@ button{cursor:pointer}
   /* ==== FBI METERS ENGINE (end) ==== */
   function notify(m){if(typeof toast==='function')toast(m)}
   function bindStudioMedia(s,live){
+    diag('bind-media',{ch:s&&s.name,live:!!live,status:s&&s.status,hasViewerUrl:!!(s&&s.viewer_url)});
     const pv=document.getElementById('previewVideo'),pr=document.getElementById('programVideo');
     // Stop players from the previous render so channel switches never leave
     // hidden streams downloading in the background.
@@ -1002,6 +1021,6 @@ button{cursor:pointer}
   boot();
 })();
 </script>
-<script src="/live-studio-addon.js?v=11"></script>
+<script src="/live-studio-addon.js?v=12"></script>
 </body>
 </html>
