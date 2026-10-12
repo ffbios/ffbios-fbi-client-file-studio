@@ -562,12 +562,21 @@ button{cursor:pointer}
   function startStandaloneHls(video,url,statusId){
     if(!video||!url||!video.isConnected)return;
     try{
-      if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=url;video.addEventListener('loadedmetadata',()=>{video.play().catch(()=>{});setVideoStatusStandalone(statusId,'LIVE')},{once:true});video.load();return}
+      // Use hls.js first, exactly like the public watch page. Recent desktop
+      // Chrome reports native HLS support ("maybe"), but taking that native path
+      // left Preview/Program stuck on CONNECTING and hid the audio from the
+      // meters. Native playback is now only the fallback (Safari/iOS).
       if(window.Hls&&window.Hls.isSupported()){
-        const hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,maxBufferLength:20,maxMaxBufferLength:45,backBufferLength:30,capLevelToPlayerSize:true,startLevel:-1,xhrSetup:function(xhr){xhr.withCredentials=true}});
+        const hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,maxBufferLength:20,maxMaxBufferLength:45,backBufferLength:30,capLevelToPlayerSize:true,startLevel:-1});
         hlsInstances.push(hls);hls.loadSource(url);hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED,()=>{video.play().catch(()=>{});setVideoStatusStandalone(statusId,'LIVE')});
-        hls.on(Hls.Events.ERROR,(event,data)=>{if(data&&data.fatal){try{hls.destroy()}catch{}const s=document.getElementById(statusId);if(s)s.textContent='RECONNECTING';setTimeout(()=>startStandaloneHls(video,url,statusId),1200)}});
+        hls.on(Hls.Events.ERROR,(event,data)=>{
+          if(!data||!data.fatal)return;
+          if(data.type===Hls.ErrorTypes.NETWORK_ERROR){setVideoStatusStandalone(statusId,'RECONNECTING');try{hls.startLoad(-1);return}catch{}}
+          if(data.type===Hls.ErrorTypes.MEDIA_ERROR){setVideoStatusStandalone(statusId,'RECOVERING');try{hls.recoverMediaError();return}catch{}}
+          try{hls.destroy()}catch{}const i=hlsInstances.indexOf(hls);if(i>=0)hlsInstances.splice(i,1);
+          setVideoStatusStandalone(statusId,'RECONNECTING');setTimeout(()=>startStandaloneHls(video,url,statusId),1200);
+        });
         window.__studioHls=hls;
         return;
       }
