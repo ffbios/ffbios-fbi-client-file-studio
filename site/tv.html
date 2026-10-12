@@ -268,21 +268,17 @@ const CONFIG = {
 
   // Today's programs, 24-hour times. The page highlights the one on air now.
   // Use "days" to limit a show to certain days (0=Sun … 6=Sat); leave it out for every day.
+  // Example: { start: "06:00", end: "09:00", title: "Morning Show", host: "Presenter name" },
+  // Program lineup coming soon — leave empty until then.
   schedule: [
-    { start: "06:00", end: "09:00", title: "Program name", host: "Presenter name" },
-    { start: "09:00", end: "12:00", title: "Program name", host: "" },
-    { start: "12:00", end: "15:00", title: "Program name", host: "" },
-    { start: "15:00", end: "18:00", title: "Program name", host: "" },
-    { start: "18:00", end: "22:00", title: "Program name", host: "", days: [1,2,3,4,5] }
   ],
-
 
   // Social links — delete any you don't use
   social: [
-    { label: "Facebook",  url: "" },
-    { label: "YouTube",   url: "" },
-    { label: "Instagram", url: "" },
-    { label: "TikTok",    url: "" }
+    { label: "Facebook",  url: "https://www.facebook.com/share/1AzjMRSq8a/" },
+    { label: "YouTube",   url: "https://youtube.com/@filmbyfbi" },
+    { label: "Instagram", url: "https://instagram.com/filmbyfbi" },
+    { label: "TikTok",    url: "https://www.tiktok.com/@filmbyfbi" }
   ],
 
   // Optional: a URL that returns JSON like {"viewers": 123}. Leave "" to hide the viewer count.
@@ -334,7 +330,9 @@ const CONFIG = {
     const ul = $("schedList");
     ul.innerHTML = "";
     if (!list.length) {
-      ul.innerHTML = '<li class="empty">No programs listed for today.</li>';
+      ul.innerHTML = CONFIG.schedule.length
+        ? '<li class="empty">No programs listed for today.</li>'
+        : '<li class="empty">Program lineup coming soon.</li>';
     }
     list.forEach((s) => {
       const li = document.createElement("li");
@@ -358,7 +356,7 @@ const CONFIG = {
     } else {
       const { mins } = stationNow();
       const next = list.find((s) => toMins(s.start) > mins);
-      $("nowKicker").textContent = "FBI TV Live";
+      $("nowKicker").textContent = next ? "Coming up" : "Now playing";
       $("nowTitle").textContent = next ? "Up next: " + next.title : "FBI TV Live";
       $("nowMeta").textContent = next ? "Starts at " + fmt(next.start) : "";
       $("offlineNext").textContent = next ? "Next up: " + next.title + " at " + fmt(next.start) : "";
