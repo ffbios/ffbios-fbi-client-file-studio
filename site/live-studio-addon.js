@@ -16,7 +16,10 @@ const A={
   second:"",          // second picture for pip / side by side
   pipCorner:"br",     // tl | tr | bl | br
   afv:true,           // audio follows video on take
-  mix:new Map()       // id -> {on,gain}
+  mix:new Map(),      // id -> {on,gain}
+  ttype:"mix",        // mix | dip
+  rate:1000,          // auto transition length (ms)
+  tbar:{pos:0,dir:1}  // lever position 0 (top) .. 1 (bottom); dir flips after each completed transition
 };
 const mixFor=id=>{if(!A.mix.has(id))A.mix.set(id,{on:id==="channel",gain:1});return A.mix.get(id)};
 const hasAudio=s=>!!s&&(s.kind==="CHANNEL"||!!s.stream?.getAudioTracks?.().length);
@@ -77,7 +80,7 @@ function injectStyle(){
 .fbi-ls-btn.danger{border-color:rgba(232,64,47,.45);color:#ffb3aa;background:rgba(232,64,47,.08)}.fbi-ls-btn.danger:hover:not(:disabled){background:rgba(232,64,47,.18)}
 .fbi-ls-btn.take{height:52px;padding:0 26px;border:0;border-radius:12px;background:var(--ls-pgm);color:#fff;font-size:15px;font-weight:750;letter-spacing:.02em;box-shadow:0 8px 24px rgba(232,64,47,.3)}
 .fbi-ls-btn.take:hover:not(:disabled){filter:brightness(1.08);background:var(--ls-pgm)}
-.fbi-ls-btn:focus-visible,.fbi-ls-add button:focus-visible,.fbi-ls-src button:focus-visible,.fbi-ls-range:focus-visible{outline:2px solid var(--ls-gold);outline-offset:2px}
+.fbi-ls-btn:focus-visible,.fbi-ls-add button:focus-visible,.fbi-ls-src button:focus-visible,.fbi-tb:focus-visible{outline:2px solid var(--ls-gold);outline-offset:2px}
 .fbi-ls-bus{flex:1;min-height:0;overflow:auto;padding:14px 16px;scrollbar-width:thin;scrollbar-color:#2a303b transparent}
 .fbi-ls-bus-label{display:flex;justify-content:space-between;align-items:baseline;margin:0 2px 10px;font-size:12.5px;color:var(--ls-muted)}
 .fbi-ls-bus-label kbd{font-weight:600;font-size:11px;font-family:inherit;padding:1px 6px;border:1px solid var(--ls-line2);border-bottom-width:2px;border-radius:5px;color:var(--ls-text);background:var(--ls-panel)}
@@ -108,16 +111,9 @@ function injectStyle(){
 .fbi-ls-ghost{display:grid;place-items:center;gap:6px;min-height:100%;aspect-ratio:auto;border:2px dashed var(--ls-line2);border-radius:12px;color:var(--ls-muted);font-size:13px;text-align:center;padding:18px;cursor:pointer;background:none;font-family:inherit}
 .fbi-ls-ghost:hover{border-color:var(--ls-gold);color:var(--ls-text)}
 .fbi-ls-ghost b{display:block;font-size:14px;color:var(--ls-text)}
-.fbi-ls-foot{border-radius:0 0 15px 15px;display:grid;grid-template-columns:minmax(200px,1fr) minmax(260px,2.2fr) auto;gap:20px;align-items:center;padding:14px 16px;border-top:1px solid var(--ls-line);background:#0a0d11}
+.fbi-ls-foot{border-radius:0 0 15px 15px;display:grid;grid-template-columns:minmax(220px,1fr) auto auto;gap:22px;align-items:center;padding:14px 16px;border-top:1px solid var(--ls-line);background:#0a0d11}
 .fbi-ls-status b{display:block;font-size:14px;font-weight:700}
 .fbi-ls-status span{display:block;margin-top:3px;font-size:12.5px;color:var(--ls-muted);line-height:1.45}
-.fbi-ls-tbar{display:grid;gap:6px}
-.fbi-ls-range{-webkit-appearance:none;appearance:none;width:100%;height:12px;border-radius:999px;background:linear-gradient(90deg,var(--ls-pvw) 0%,#2a313b 0%);outline:none;cursor:pointer}
-.fbi-ls-range:disabled{opacity:.45;cursor:not-allowed}
-.fbi-ls-range::-webkit-slider-thumb{-webkit-appearance:none;width:30px;height:30px;border-radius:8px;background:#dfe3e8;border:3px solid #0a0d11;box-shadow:0 2px 10px rgba(0,0,0,.6)}
-.fbi-ls-range::-moz-range-thumb{width:26px;height:26px;border-radius:8px;background:#dfe3e8;border:3px solid #0a0d11}
-.fbi-ls-range-label{display:flex;justify-content:space-between;font-size:12px;color:var(--ls-muted)}
-.fbi-ls-range-label b{color:var(--ls-text);font-variant-numeric:tabular-nums}
 .fbi-ls.min .fbi-ls-foot{border-radius:0 0 15px 15px}.fbi-ls.min .fbi-ls-bus,.fbi-ls.min .fbi-ls-addwrap{display:none}
 .fbi-ls-pick{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;border:1px solid #29303a;border-radius:10px;margin-bottom:8px;background:#11151b}
 .fbi-ls-pick b{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -189,8 +185,45 @@ function injectStyle(){
 .fbi-ls.min .fbi-ls-layout{display:none}
 @media(max-width:1100px){.fbi-ls-bus{grid-template-columns:1fr}.fbi-ls-mixer{position:static}}
 @media(max-width:720px){.fbi-ls-seg button{padding:0 9px}.fbi-ls-seg button svg{display:none}.fbi-ls-layout-note{display:none}}
+.fbi-ls-nextup{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;font-size:12.5px;color:var(--ls-muted)}
+.fbi-ls-nextup span{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.fbi-ls-nextup b{color:var(--ls-text);font-weight:650;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fbi-ls-nextup i{width:8px;height:8px;border-radius:2px}.fbi-ls-nextup i.pvw{background:var(--ls-pvw)}.fbi-ls-nextup i.pgm{background:var(--ls-pgm)}
+.fbi-ls-trans{display:grid;gap:8px;padding:10px 12px;border:1px solid var(--ls-line);border-radius:12px;background:#0e1217}
+.fbi-ls-trans-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;color:var(--ls-muted)}
+.fbi-ls-seg.sm button{height:28px;padding:0 10px;font-size:12px}
+.fbi-ls-trans-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:2px}
+.fbi-ls-cut,.fbi-ls-auto{height:52px;border-radius:9px;font-family:inherit;font-weight:800;font-size:15px;letter-spacing:.1em;cursor:pointer;border:1px solid;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 2px 0 rgba(0,0,0,.5)}
+.fbi-ls-cut{background:linear-gradient(180deg,#f3f4f6,#c9ced6);border-color:#e6e9ee;color:#15181d}
+.fbi-ls-auto{background:linear-gradient(180deg,#f0574a,#c9301f);border-color:#ff7a6d;color:#fff}
+.fbi-ls-cut:active,.fbi-ls-auto:active{transform:translateY(1px);box-shadow:inset 0 2px 6px rgba(0,0,0,.35)}
+.fbi-ls-cut:disabled,.fbi-ls-auto:disabled{opacity:.35;cursor:not-allowed}
+.fbi-ls-cut.hit,.fbi-ls-auto.hit{animation:fbiHit .35s ease-out}
+@keyframes fbiHit{0%{filter:brightness(1.6)}100%{filter:none}}
+.fbi-ls-cut:focus-visible,.fbi-ls-auto:focus-visible{outline:2px solid var(--ls-gold);outline-offset:2px}
+.fbi-tb{--pos:0;--frac:0;position:relative;display:grid;grid-template-columns:22px 46px 12px;grid-template-rows:1fr auto;column-gap:6px;row-gap:6px;height:168px;padding:8px 10px 6px;border:1px solid var(--ls-line2);border-radius:12px;background:linear-gradient(180deg,#151a21,#0b0e12);touch-action:none;user-select:none;outline:none}
+.fbi-tb.disabled{opacity:.45;pointer-events:none}
+.fbi-tb.busy{cursor:progress}
+.fbi-tb-scale{display:grid;grid-template-rows:repeat(11,1fr);font-size:10px;color:#6f7884;text-align:right;line-height:1}
+.fbi-tb-scale span{position:relative;display:flex;align-items:center;justify-content:flex-end;padding-right:6px}
+.fbi-tb-scale span::after{content:"";position:absolute;right:0;width:4px;height:1px;background:#3b444f}
+.fbi-tb-scale span:nth-child(5n+1)::after{width:6px;background:#6f7884}
+.fbi-tb-track{position:relative;cursor:grab}
+.fbi-tb.grab .fbi-tb-track{cursor:grabbing}
+.fbi-tb-slot{position:absolute;left:50%;top:4px;bottom:4px;width:8px;margin-left:-4px;border-radius:4px;background:#05070a;box-shadow:inset 0 1px 3px rgba(0,0,0,.9),0 1px 0 rgba(255,255,255,.04)}
+.fbi-tb-handle{position:absolute;left:0;right:0;top:calc(var(--pos) * (100% - 26px));height:26px;transition:top .04s linear}
+.fbi-tb.grab .fbi-tb-handle{transition:none}
+.fbi-tb-grip{position:absolute;left:0;right:0;top:0;height:20px;border-radius:5px;background:linear-gradient(180deg,#f6f7f9 0%,#cfd4db 55%,#a9b0ba 100%);box-shadow:0 3px 8px rgba(0,0,0,.6),inset 0 -2px 0 rgba(0,0,0,.18)}
+.fbi-tb-grip::after{content:"";position:absolute;left:8px;right:8px;top:9px;height:2px;border-radius:1px;background:#e8402f}
+.fbi-tb-stem{position:absolute;left:50%;top:18px;width:6px;height:10px;margin-left:-3px;background:#8c939c;border-radius:0 0 2px 2px}
+.fbi-tb-led{display:grid;grid-template-rows:repeat(12,1fr);gap:3px;padding:4px 0}
+.fbi-tb-led i{border-radius:2px;background:#1e252e}
+.fbi-tb-led i.on{background:var(--ls-pgm);box-shadow:0 0 6px rgba(232,64,47,.7)}
+.fbi-tb-pct{grid-column:1/-1;text-align:center;font-size:12px;font-weight:700;color:var(--ls-text);font-variant-numeric:tabular-nums}
+@media(max-width:1000px){.fbi-ls-foot{grid-template-columns:1fr auto}.fbi-ls-status{grid-column:1/-1}}
+@media (prefers-reduced-motion:reduce){.fbi-tb-handle{transition:none}.fbi-ls-cut.hit,.fbi-ls-auto.hit{animation:none}}
 @media(max-width:1500px){.fbi-ls-title p{display:none}}@media(max-width:1280px){.fbi-ls-add>span{display:none}.fbi-ls-btn .t{display:none}}
-@media(max-width:1000px){.fbi-ls{left:12px;right:12px;bottom:12px}.fbi-ls-head{flex-wrap:wrap}.fbi-ls-foot{grid-template-columns:1fr}.fbi-ls-btn.take{width:100%}}
+@media(max-width:1000px){.fbi-ls{left:12px;right:12px;bottom:12px}.fbi-ls-head{flex-wrap:wrap}}
 @media(max-width:620px){.fbi-ls-add button .t{display:none}.fbi-ls-grid{grid-template-columns:1fr 1fr}.fbi-ls-src .fbi-ls-acts button[data-act=preview]{display:none}}
 @media (prefers-reduced-motion:reduce){.fbi-ls.open,.fbi-ls-pill.onair i{animation:none}}
 `;
@@ -252,11 +285,16 @@ function drawSource(ctx,src,x=0,y=0,w=1920,h=1080){
 function drawMain(ctx,out,x,y,w,h){
   const tr=out.transition;
   if(tr){
-    const p=Math.max(0,Math.min(1,(performance.now()-tr.started)/tr.duration));
+    const p=tr.manual?Math.max(0,Math.min(1,tr.p)):Math.max(0,Math.min(1,(performance.now()-tr.started)/tr.duration));
     const from=A.sources.get(tr.fromId),to=A.sources.get(tr.toId);
-    if(isVisual(from)){ctx.save();ctx.globalAlpha=1-p;drawSource(ctx,from,x,y,w,h);ctx.restore()}
-    if(isVisual(to)){ctx.save();ctx.globalAlpha=p;drawSource(ctx,to,x,y,w,h);ctx.restore()}
-    if(p>=1)out.transition=null;
+    if(tr.type==="dip"){
+      if(p<.5){if(isVisual(from)){ctx.save();ctx.globalAlpha=1-p*2;drawSource(ctx,from,x,y,w,h);ctx.restore()}}
+      else if(isVisual(to)){ctx.save();ctx.globalAlpha=p*2-1;drawSource(ctx,to,x,y,w,h);ctx.restore()}
+    }else{
+      if(isVisual(from)){ctx.save();ctx.globalAlpha=1-p;drawSource(ctx,from,x,y,w,h);ctx.restore()}
+      if(isVisual(to)){ctx.save();ctx.globalAlpha=p;drawSource(ctx,to,x,y,w,h);ctx.restore()}
+    }
+    if(!tr.manual&&p>=1)out.transition=null;
   }else{
     const src=A.sources.get(A.localProgram)||A.sources.get("channel");
     if(isVisual(src))drawSource(ctx,src,x,y,w,h);
@@ -430,14 +468,26 @@ async function gatewayStart(){
   }
 }
 
-async function localTake(src){
-  const id=activeChannelId();if(!id){toast("Select a live channel first.");return}
+async function readyToTake(src){
+  const id=activeChannelId();if(!id){toast("Select a live channel first.");return false}
   await refreshChannelSource();
-  if(A.channelData?.status!=="live"){
-    updateLocalUi();
-    toast("Take needs the channel to be live from OBS or vMix first.");
-    return;
+  if(A.channelData?.status!=="live"){updateLocalUi();toast("Take needs the channel to be live from OBS or vMix first.");return false}
+  return true;
+}
+function commitProgram(src,previous){
+  A.localProgram=src.id;
+  if(A.second===src.id)A.second=previous;               // swap pictures when taking the inset
+  if(A.afv&&previous!==src.id&&hasAudio(src)){
+    mixFor(src.id).on=true;
+    if(previous!==A.second&&hasAudio(A.sources.get(previous)))mixFor(previous).on=false;
   }
+  if(A.bridge){applyMix(A.bridge.out);setProgramMonitor(A.bridge.out)}
+  renderLocalGridOnly();renderMixer();
+}
+// mode: "auto" (timed transition, animates the T-bar) or "cut"
+async function localTake(src,mode){
+  mode=mode||"auto";
+  if(!(await readyToTake(src)))return;
   src=A.sources.get(src.id)||src;
   A.selectedSource=src.id;
   // Channel straight to air with nothing else in the mix: hand back to the plain channel.
@@ -448,21 +498,84 @@ async function localTake(src){
     await bridge.out.audio.resume().catch(()=>{});
     A.sources.forEach(s=>ensureAudio(bridge.out,s));
     if(src.kind==="AUDIO"){
-      mixFor(src.id).on=true;
-    }else{
-      if(previous!==src.id)bridge.out.transition={fromId:previous,toId:src.id,started:performance.now(),duration:450};
-      A.localProgram=src.id;
-      if(A.second===src.id)A.second=previous;            // swap pictures when taking the inset
-      if(A.afv&&previous!==src.id&&hasAudio(src)){
-        mixFor(src.id).on=true;
-        if(previous!==A.second&&hasAudio(A.sources.get(previous)))mixFor(previous).on=false;
-      }
+      mixFor(src.id).on=true;applyMix(bridge.out);renderMixer();
+      toast(src.name+" is now in the audio mix");return;
     }
-    applyMix(bridge.out);
-    setProgramMonitor(bridge.out);
-    renderLocalGridOnly();renderMixer();
-    toast(src.kind==="AUDIO"?src.name+" is now in the audio mix":src.name+" is on program");
+    if(previous===src.id){toast(src.name+" is already on program");return}
+    if(mode==="cut"){bridge.out.transition=null;commitProgram(src,previous);flash("cut");toast(src.name+" is on program");return}
+    bridge.out.transition={fromId:previous,toId:src.id,started:performance.now(),duration:A.rate,type:A.ttype};
+    commitProgram(src,previous);
+    animateTbar(A.rate);
+    toast(src.name+" is on program");
   }catch(e){toast(e.message||"Could not put that source on air.")}
+}
+// ---- T-bar
+function tbarFraction(){return A.tbar.dir===1?A.tbar.pos:1-A.tbar.pos}
+function paintTbar(){
+  const el=document.getElementById("fbiTbar");if(!el)return;
+  const pos=A.tbar.pos,frac=tbarFraction();
+  el.style.setProperty("--pos",pos);el.style.setProperty("--frac",frac);
+  el.setAttribute("aria-valuenow",String(Math.round(frac*100)));
+  el.querySelectorAll(".fbi-tb-led i").forEach((led,i,all)=>{
+    // LEDs fill from the end the lever started at
+    const idx=A.tbar.dir===1?i:all.length-1-i;led.classList.toggle("on",(idx+.5)/all.length<=frac+1e-6&&frac>0)});
+  const pct=document.getElementById("fbiTbarPct");if(pct)pct.textContent=Math.round(frac*100)+"%";
+}
+function animateTbar(ms){
+  const startPos=A.tbar.pos,target=A.tbar.dir===1?1:0,t0=performance.now();
+  if(A.tbarAnim)cancelAnimationFrame(A.tbarAnim);
+  const step=now=>{
+    const k=Math.min(1,(now-t0)/Math.max(1,ms)),e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+    A.tbar.pos=startPos+(target-startPos)*e;paintTbar();
+    if(k<1)A.tbarAnim=requestAnimationFrame(step);else{A.tbar.dir*=-1;A.tbarAnim=0;paintTbar()}
+  };
+  A.tbarAnim=requestAnimationFrame(step);
+}
+function flash(kind){const b=document.getElementById(kind==="cut"?"fbiCut":"fbiTakeLocal");if(!b)return;b.classList.remove("hit");void b.offsetWidth;b.classList.add("hit")}
+function bindTbar(el){
+  let drag=null;
+  const fracFromEvent=ev=>{const r=el.querySelector(".fbi-tb-track").getBoundingClientRect();return Math.max(0,Math.min(1,(ev.clientY-r.top)/r.height))};
+  const begin=async()=>{
+    const to=A.sources.get(A.selectedSource),from=A.localProgram||"channel";
+    if(!to||!isVisual(to)){toast("Pick a source for preview first.");return null}
+    if(A.bridge&&to.id===from){toast(to.name+" is already on program");return null}
+    if(!(await readyToTake(to)))return null;
+    if(!A.bridge){el.classList.add("busy");try{await gatewayStart()}catch(e){el.classList.remove("busy");toast(e.message||"Could not start the live mix.");return null}el.classList.remove("busy");A.sources.forEach(s=>ensureAudio(A.bridge.out,s));applyMix(A.bridge.out);setProgramMonitor(A.bridge.out);renderLocalGridOnly()}
+    if(to.id===(A.localProgram||"channel"))return null;
+    return {from:A.localProgram||"channel",to:to.id};
+  };
+  const move=f=>{
+    A.tbar.pos=f;paintTbar();
+    const frac=tbarFraction();
+    if(drag&&A.bridge)A.bridge.out.transition={fromId:drag.from,toId:drag.to,manual:true,p:frac,type:A.ttype};
+    if(drag&&frac>=.995)finish();
+  };
+  const finish=()=>{
+    if(!drag)return;const d=drag;drag=null;
+    A.tbar.pos=A.tbar.dir===1?1:0;A.tbar.dir*=-1;paintTbar();
+    if(A.bridge)A.bridge.out.transition=null;
+    const src=A.sources.get(d.to);if(src){commitProgram(src,d.from);toast(src.name+" is on program")}
+  };
+  el.addEventListener("pointerdown",async ev=>{
+    if(ev.button!==0&&ev.pointerType==="mouse")return;
+    ev.preventDefault();el.setPointerCapture?.(ev.pointerId);el.focus();
+    if(!drag){const d=await begin();if(!d)return;drag=d}
+    el.classList.add("grab");move(fracFromEvent(ev));
+  });
+  el.addEventListener("pointermove",ev=>{if(drag&&el.classList.contains("grab"))move(fracFromEvent(ev))});
+  const release=()=>{el.classList.remove("grab");
+    // Pulled back to where it started: cancel. Left part-way: hold the mix there, like a hardware T-bar.
+    if(drag&&tbarFraction()<=.005){drag=null;if(A.bridge)A.bridge.out.transition=null;A.tbar.pos=A.tbar.dir===1?0:1;paintTbar()}};
+  el.addEventListener("pointerup",release);el.addEventListener("pointercancel",release);
+  el.addEventListener("keydown",async ev=>{
+    const k=ev.key;if(!["ArrowUp","ArrowDown","PageUp","PageDown","Home","End"].includes(k))return;
+    ev.preventDefault();ev.stopPropagation();
+    if(!drag){const d=await begin();if(!d)return;drag=d}
+    const step=k.startsWith("Page")?.25:.05;
+    let f=A.tbar.pos;
+    if(k==="ArrowDown"||k==="PageDown")f+=step;else if(k==="ArrowUp"||k==="PageUp")f-=step;else if(k==="End")f=1;else f=0;
+    move(Math.max(0,Math.min(1,f)));if(drag&&tbarFraction()<=.001){drag=null;if(A.bridge)A.bridge.out.transition=null}
+  });
 }
 function secondSourceFor(mainId){return A.layout!=="full"&&A.second&&A.second!==mainId&&isVisual(A.sources.get(A.second))}
 function otherMixAudioOn(){return [...A.sources.values()].some(s=>s.id!=="channel"&&hasAudio(s)&&mixFor(s.id).on)}
@@ -698,7 +811,9 @@ function updateLocalUi(){
     }
   }
   const stop=document.getElementById("fbiLocalStop");if(stop)stop.disabled=!A.bridge;
-  const range=document.getElementById("fbiLocalTbar");if(range)range.disabled=!selected;
+  const tb=document.getElementById("fbiTbar");if(tb)tb.classList.toggle("disabled",!channelLive||!selected);
+  const pg=document.getElementById("fbiLocalPgmName");if(pg){const m=A.bridge?A.sources.get(A.localProgram||"channel"):(channelLive?A.sources.get("channel"):null);pg.textContent=m?m.name:"off air"}
+  const cut=document.getElementById("fbiCut");if(cut)cut.disabled=!channelLive||!selected;
   const st=document.getElementById("fbiLocalState");if(st)st.textContent=A.bridge?"Local mix is on air":(channelLive?"Channel is live":"Channel offline");
   const pill=document.getElementById("fbiLocalPill");if(pill){pill.className="fbi-ls-pill "+(A.bridge?"onair":(channelLive?"ready":""));pill.querySelector("em").textContent=A.bridge?"On air":(channelLive?"Ready to take":"Channel offline")}
   const nm=document.getElementById("fbiLocalPvwName");if(nm)nm.textContent=selected?selected.name:"nothing selected";
@@ -841,12 +956,22 @@ function build(){
     '<button type="button" class="fbi-ls-btn danger" id="fbiLocalStop" disabled>Stop local output</button>'+
     '<button type="button" class="fbi-ls-btn icon" id="fbiLocalMin" title="Minimise" aria-label="Minimise Local Studio">'+ICON.min+'</button>'+
     '<button type="button" class="fbi-ls-btn icon" id="fbiLocalClose" title="Close" aria-label="Close Local Studio">'+ICON.close+'</button></div>'+
-  '<div class="fbi-ls-bus"><div class="fbi-ls-srccol"><div class="fbi-ls-bus-label"><span>Sources</span><span>Press <kbd>1</kbd>–<kbd>9</kbd> to preview, <kbd>Enter</kbd> to take</span></div><div id="fbiLocalGrid" class="fbi-ls-grid"></div></div>'+
+  '<div class="fbi-ls-bus"><div class="fbi-ls-srccol"><div class="fbi-ls-bus-label"><span>Sources</span><span><kbd>1</kbd>–<kbd>9</kbd> preview <kbd>Space</kbd> cut <kbd>Enter</kbd> auto</span></div><div id="fbiLocalGrid" class="fbi-ls-grid"></div></div>'+
     '<aside class="fbi-ls-mixer" aria-label="Audio mix"><div class="fbi-ls-bus-label"><span>Audio mix</span><label class="fbi-ls-afv"><input type="checkbox" id="fbiAfv" checked> Audio follows video</label></div><div id="fbiMixer"></div></aside></div>'+
   '<div class="fbi-ls-layout" id="fbiLayoutBar"></div>'+
-  '<div class="fbi-ls-foot"><div class="fbi-ls-status"><b id="fbiLocalState">Channel offline</b><span id="fbiLocalText">Pick a source for preview, then take it to program.</span></div>'+
-    '<div class="fbi-ls-tbar"><input id="fbiLocalTbar" class="fbi-ls-range" type="range" min="0" max="100" value="0" step="1" disabled aria-label="T-bar: drag to program"><div class="fbi-ls-range-label"><span>Preview: <span id="fbiLocalPvwName">nothing selected</span></span><b id="fbiLocalTbarValue">0%</b><span>Program</span></div></div>'+
-    '<button type="button" class="fbi-ls-btn take" id="fbiTakeLocal">Take to program</button></div>';
+  '<div class="fbi-ls-foot">'+
+    '<div class="fbi-ls-status"><b id="fbiLocalState">Channel offline</b><span id="fbiLocalText">Pick a source for preview, then take it to program.</span>'+
+      '<div class="fbi-ls-nextup"><span><i class="pvw"></i>Preview <b id="fbiLocalPvwName">nothing selected</b></span><span><i class="pgm"></i>Program <b id="fbiLocalPgmName">channel</b></span></div></div>'+
+    '<div class="fbi-ls-trans" role="group" aria-label="Transition">'+
+      '<div class="fbi-ls-trans-row"><span>Transition</span><div class="fbi-ls-seg sm" id="fbiTType"><button type="button" data-tt="mix" class="on">Mix</button><button type="button" data-tt="dip">Dip to black</button></div></div>'+
+      '<div class="fbi-ls-trans-row"><span>Rate</span><div class="fbi-ls-seg sm" id="fbiTRate"><button type="button" data-rate="500">0.5s</button><button type="button" data-rate="1000" class="on">1s</button><button type="button" data-rate="2000">2s</button></div></div>'+
+      '<div class="fbi-ls-trans-btns"><button type="button" class="fbi-ls-cut" id="fbiCut" title="Cut (Space)">CUT</button><button type="button" class="fbi-ls-auto" id="fbiTakeLocal" title="Auto transition (Enter)">AUTO</button></div></div>'+
+    '<div class="fbi-tb" id="fbiTbar" tabindex="0" role="slider" aria-label="T-bar" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">'+
+      '<div class="fbi-tb-scale" aria-hidden="true">'+[0,1,2,3,4,5,6,7,8,9,10].map(n=>'<span>'+(n%5===0?n:"")+'</span>').join("")+'</div>'+
+      '<div class="fbi-tb-track"><div class="fbi-tb-slot"></div><div class="fbi-tb-handle"><div class="fbi-tb-grip"></div><div class="fbi-tb-stem"></div></div></div>'+
+      '<div class="fbi-tb-led" aria-hidden="true">'+Array.from({length:12},()=>"<i></i>").join("")+'</div>'+
+      '<b class="fbi-tb-pct" id="fbiTbarPct">0%</b></div>'+
+  '</div>';
   document.body.appendChild(d);
   const menu=d.querySelector("#fbiAddMenu"),menuBtn=d.querySelector("#fbiAddMenuBtn");
   const setMenu=open=>{menu.hidden=!open;menuBtn.setAttribute("aria-expanded",String(open));if(open)menu.querySelector("button")?.focus()};
@@ -869,8 +994,11 @@ function build(){
   document.addEventListener("keydown",onKeys);
   d.querySelector("#fbiAfv").onchange=e=>{A.afv=e.target.checked};
   renderLayoutBar();renderMixer();startMeters();
-  d.querySelector("#fbiTakeLocal").onclick=()=>{const s=A.sources.get(A.selectedSource);if(s)localTake(s);else toast("Select a local source for Preview first.")};
-  const range=d.querySelector("#fbiLocalTbar");const paint=n=>{range.style.background="linear-gradient(90deg,#e8402f "+n+"%,#2a313b "+n+"%)";d.querySelector("#fbiLocalTbarValue").textContent=n+"%"};range.oninput=()=>{const n=Number(range.value);paint(n);if(n>=100){const s=A.sources.get(A.selectedSource);if(s)localTake(s);setTimeout(()=>{range.value=0;paint(0)},350)}};
+  d.querySelector("#fbiTakeLocal").onclick=()=>{const s=A.sources.get(A.selectedSource);if(s){flash("auto");localTake(s,"auto")}else toast("Pick a source for preview first.")};
+  d.querySelector("#fbiCut").onclick=()=>{const s=A.sources.get(A.selectedSource);if(s)localTake(s,"cut");else toast("Pick a source for preview first.")};
+  d.querySelectorAll("[data-tt]").forEach(b=>b.onclick=()=>{A.ttype=b.dataset.tt;d.querySelectorAll("[data-tt]").forEach(x=>x.classList.toggle("on",x===b))});
+  d.querySelectorAll("[data-rate]").forEach(b=>b.onclick=()=>{A.rate=Number(b.dataset.rate);d.querySelectorAll("[data-rate]").forEach(x=>x.classList.toggle("on",x===b))});
+  bindTbar(d.querySelector("#fbiTbar"));paintTbar();
 }
 function padMain(){const d=document.getElementById("fbiLocalDrawer"),m=document.querySelector(".main");if(!m)return;m.style.paddingBottom=d&&d.classList.contains("open")?(d.offsetHeight+30)+"px":""}
 function closeLocal(){const d=document.getElementById("fbiLocalDrawer");if(d)d.classList.remove("open");document.getElementById("fbiLocalOpen")?.classList.remove("is-open");padMain()}
@@ -879,7 +1007,7 @@ function onKeys(e){
   const t=e.target;if(t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)&&t.type!=="range"))return;
   if(e.key==="Escape"){const open=[...document.querySelectorAll(".channel-modal")].some(m=>m.offsetParent!==null&&!m.classList.contains("hidden"));if(!open)closeLocal();return}
   if(/^[1-9]$/.test(e.key)&&!e.ctrlKey&&!e.metaKey&&!e.altKey){const cards=[...document.querySelectorAll("#fbiLocalGrid [data-source-id]")];const c=cards[Number(e.key)-1];if(c){e.preventDefault();selectPreview(c.dataset.sourceId)}return}
-  if(e.key==="Enter"&&!(t&&t.tagName==="BUTTON")){const s=A.sources.get(A.selectedSource);const b=document.getElementById("fbiTakeLocal");if(s&&b&&!b.disabled){e.preventDefault();localTake(s)}}
+  if((e.key==="Enter"||e.key===" ")&&!(t&&(t.tagName==="BUTTON"||t.getAttribute&&t.getAttribute("role")==="slider"))){const s=A.sources.get(A.selectedSource);const b=document.getElementById("fbiTakeLocal");if(s&&b&&!b.disabled){e.preventDefault();if(e.key===" "){flash("cut");localTake(s,"cut")}else{flash("auto");localTake(s,"auto")}}}
 }
 function refresh(){refreshChannelSource().catch(()=>{}).then(()=>{renderLocalGridOnly();padMain()})}
 function openLocal(){build();const id=activeChannelId();if(!id){toast("Select a live channel first.");return}A.selectedChannel=id;const d=document.getElementById("fbiLocalDrawer");d.classList.add("open");document.getElementById("fbiLocalOpen")?.classList.add("is-open");refresh()}
