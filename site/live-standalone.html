@@ -167,7 +167,7 @@ button{cursor:pointer}
 
 /* ---------- sign-in: program monitor on standby ---------- */
 .lg{--slate:#14181d;--glass:#0a0d10;--bezel:#262c34;--bezel2:#323943;--paper:#eee8db;--quiet:#8c939c;--signal:#e8c85a;--tally:#e8402f;--go:#36d278;
-  min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:28px 18px;background:radial-gradient(120% 80% at 50% 0%,#1b2027 0%,var(--slate) 60%);font-family:"Instrument Sans",Inter,system-ui,sans-serif;color:var(--paper)}
+  min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:28px 18px;background:var(--slate);font-family:"Instrument Sans",Inter,system-ui,sans-serif;color:var(--paper)}
 .lg-wrap{width:min(920px,100%)}
 .lg-monitor{position:relative;border-radius:18px;padding:12px;background:linear-gradient(180deg,var(--bezel2),var(--bezel));box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 30px 80px -30px rgba(0,0,0,.8)}
 .lg-screen{position:relative;border-radius:9px;background:var(--glass);aspect-ratio:16/9;overflow:hidden;display:grid;grid-template-rows:auto 1fr auto}
@@ -237,6 +237,20 @@ button{cursor:pointer}
 .lg.is-on .lg-lamp{animation:lgTally .5s ease-out}
 @keyframes lgTally{0%{transform:scale(1.9)}100%{transform:none}}
 @media (prefers-reduced-motion:reduce){.lg *,.lg *::before{animation:none!important}}
+/* sign-in background: a dim broadcast studio */
+.lg{position:relative;isolation:isolate;overflow:hidden}
+.lg-wrap{position:relative;z-index:1}
+.lg-bg{position:absolute;inset:0;z-index:0;pointer-events:none;animation:lgFade 1.2s .2s ease-out both}
+.lg-bg svg{position:absolute;inset:0;width:100%;height:100%}
+.lg-bg::after{content:"";position:absolute;inset:0;background:radial-gradient(70% 60% at 55% 50%,rgba(20,24,29,.5),rgba(20,24,29,.82) 100%),linear-gradient(180deg,rgba(20,24,29,.15),rgba(20,24,29,.45))}
+.lg-wall rect.on{animation:lgMon 7s ease-in-out infinite}
+@keyframes lgMon{0%,100%{opacity:.9}45%{opacity:.55}55%{opacity:1}}
+.lg-cone{transform-box:fill-box;transform-origin:50% 0;animation:lgSway 14s ease-in-out infinite alternate}
+@keyframes lgSway{from{transform:rotate(-4deg)}to{transform:rotate(4deg)}}
+.lg-desk circle.blink{animation:lgBlink 2.6s steps(1,end) infinite}
+@keyframes lgBlink{50%{opacity:.25}}
+.lg-brand img{height:28px;width:auto;flex:none;max-width:none}
+@media (prefers-reduced-motion:reduce){.lg-bg,.lg-bg *{animation:none!important}}
 /* ---------- login ---------- */
 .login-page{min-height:100vh;display:grid;place-items:center;padding:24px;position:relative;overflow:hidden;background:radial-gradient(650px 420px at 50% 40%,rgba(232,200,90,.10),transparent 68%),var(--bg)}
 .login-glow{position:absolute;width:680px;height:680px;border-radius:50%;background:radial-gradient(circle,rgba(232,200,90,.08),transparent 66%);pointer-events:none}
@@ -332,9 +346,46 @@ button{cursor:pointer}
   async function api(url,options){const r=await fetch(url,Object.assign({credentials:'same-origin'},options||{}));let d={};try{d=await r.json()}catch{}if(r.status===401&&!String(url).startsWith('/api/auth/')){stopPolling();login('login','Your session has ended. Please sign in again.');throw new Error('Sign in required')}if(!r.ok)throw new Error(d.error||'Request failed');return d}
   function stopPolling(){if(refreshTimer){clearInterval(refreshTimer);refreshTimer=null}if(typeof viewerCountTimer!=='undefined'&&viewerCountTimer){clearInterval(viewerCountTimer);viewerCountTimer=0}}
   let lgRaf=0;
+  function studioBg(){
+    // Deterministic pseudo-random so the scene is the same on every load.
+    let seed=7;const rnd=()=>(seed=(seed*9301+49297)%233280)/233280;
+    const tints=['#3a5a8c','#8c6a2e','#2e6b5a','#6b3a4a','#4a4f8c','#7a7f88'];
+    let wall='';const cols=9,rows=3,w=128,h=72,gx=14,gy=14,x0=(1600-(cols*w+(cols-1)*gx))/2,y0=150;
+    for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+      const x=x0+c*(w+gx),y=y0+r*(h+gy),t=tints[Math.floor(rnd()*tints.length)],on=rnd()>.55;
+      wall+='<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#lgScr)" stroke="#2b3139" stroke-width="3"/>'+
+        '<rect class="'+(on?'on':'')+'" style="animation-delay:-'+(rnd()*7).toFixed(1)+'s" x="'+(x+4)+'" y="'+(y+4)+'" width="'+(w-8)+'" height="'+(h-8)+'" fill="'+t+'" opacity=".9"/>'+
+        '<rect x="'+(x+4)+'" y="'+(y+h-18)+'" width="'+(w-8)+'" height="14" fill="#0b0e12" opacity=".75"/>'+
+        (r===1&&(c===3||c===5)?'<rect x="'+(x-3)+'" y="'+(y-3)+'" width="'+(w+6)+'" height="'+(h+6)+'" rx="4" fill="none" stroke="'+(c===3?'#e8402f':'#36d278')+'" stroke-width="4"/>':'');
+    }
+    let rig='',cones='';
+    [180,470,800,1130,1420].forEach((x,i)=>{
+      rig+='<rect x="'+(x-22)+'" y="58" width="44" height="34" rx="6" fill="#2a3038"/><rect x="'+(x-6)+'" y="40" width="12" height="20" fill="#1e2329"/><ellipse cx="'+x+'" cy="94" rx="16" ry="5" fill="#fff4d6" opacity=".85"/>';
+      cones+='<path class="lg-cone" style="animation-delay:-'+(i*3.1)+'s" d="M'+(x-14)+' 94 L'+(x+14)+' 94 L'+(x+170)+' 900 L'+(x-170)+' 900 Z" fill="url(#lgBeam)"/>';
+    });
+    let desk='';
+    for(let r=0;r<3;r++)for(let c=0;c<46;c++){
+      const v=rnd(),col=v>.93?'#e8402f':v>.86?'#36d278':v>.78?'#e8c85a':'#3a414b';
+      desk+='<circle class="'+(v>.97?'blink':'')+'" cx="'+(140+c*29)+'" cy="'+(808+r*22)+'" r="5" fill="'+col+'"/>';
+    }
+    return '<div class="lg-bg" aria-hidden="true"><svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice"><defs>'+
+      '<linearGradient id="lgRoom" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1d232b"/><stop offset=".55" stop-color="#151a20"/><stop offset="1" stop-color="#0d1014"/></linearGradient>'+
+      '<linearGradient id="lgScr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#11151a"/><stop offset="1" stop-color="#0a0d10"/></linearGradient>'+
+      '<linearGradient id="lgBeam" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff1cc" stop-opacity=".28"/><stop offset=".6" stop-color="#ffe7a8" stop-opacity=".05"/><stop offset="1" stop-color="#ffe7a8" stop-opacity="0"/></linearGradient>'+
+      '<linearGradient id="lgDesk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#262c34"/><stop offset="1" stop-color="#101318"/></linearGradient>'+
+      '<filter id="lgSoft"><feGaussianBlur stdDeviation="2.2"/></filter><filter id="lgSofter"><feGaussianBlur stdDeviation="6"/></filter></defs>'+
+      '<rect width="1600" height="900" fill="url(#lgRoom)"/>'+
+      '<g opacity=".72" filter="url(#lgSoft)"><rect x="'+(x0-30)+'" y="'+(y0-30)+'" width="'+(1600-2*(x0-30))+'" height="'+(rows*(h+gy)+46)+'" rx="10" fill="#0e1115"/><g class="lg-wall">'+wall+'</g></g>'+
+      '<g style="mix-blend-mode:screen">'+cones+'</g>'+
+      '<rect x="0" y="40" width="1600" height="10" fill="#22282f"/><rect x="0" y="50" width="1600" height="3" fill="#2e353e"/>'+rig+
+      '<g filter="url(#lgSofter)" opacity=".5"><ellipse cx="800" cy="760" rx="760" ry="60" fill="#e8c85a" opacity=".06"/></g>'+
+      '<path d="M0 790 Q800 760 1600 790 L1600 900 L0 900 Z" fill="url(#lgDesk)"/>'+
+      '<g class="lg-desk" opacity=".95" filter="url(#lgSoft)">'+desk+'</g>'+
+      '</svg></div>';
+  }
   function loginScreen(extra){
     if(lgRaf)cancelAnimationFrame(lgRaf);
-    root.innerHTML='<div class="lg" id="lg"><div class="lg-wrap"><h2 class="lg-name" aria-label="FBI Live Broadcast Studio">'+(()=>{let n=0;return ['FBI Live','Broadcast','Studio'].map(l=>'<span class="lg-line" aria-hidden="true">'+l.split('').map(c=>c===' '?' ':'<span style="--i:'+(n++)+'">'+c+'</span>').join('')+'</span>').join('')})()+'</h2><div class="lg-side"><div class="lg-monitor"><div class="lg-screen">'+
+    root.innerHTML='<div class="lg" id="lg">'+studioBg()+'<div class="lg-wrap"><h2 class="lg-name" aria-label="FBI Live Broadcast Studio">'+(()=>{let n=0;return ['FBI Live','Broadcast','Studio'].map(l=>'<span class="lg-line" aria-hidden="true">'+l.split('').map(c=>c===' '?' ':'<span style="--i:'+(n++)+'">'+c+'</span>').join('')+'</span>').join('')})()+'</h2><div class="lg-side"><div class="lg-monitor"><div class="lg-screen">'+
       '<div class="lg-top"><span class="lg-tally"><span class="lg-lamp" aria-hidden="true"></span><span id="lgState">Standby</span></span><span class="lg-brand"><img src="/official-logo.png" alt="FBI"></span></div>'+
       '<div class="lg-center"><div class="lg-tc" id="lgTc" aria-hidden="true">00:00:00<span class="ff">:00</span></div><div class="lg-tc-note">Accra time, 25 fps</div></div>'+
       '<form class="lg-strap" id="lgForm" novalidate><div class="lg-form"><h1>Sign in to go live</h1>'+
