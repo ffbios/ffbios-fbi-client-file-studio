@@ -6243,6 +6243,12 @@ function cleanShow(s){
     if(days.length&&days.length<7)out.days=days;
   }
   if(TV_POSTER_RE.test(String(s.poster||"")))out.poster=String(s.poster);
+  // promos around each episode: "@self" (this show's promos), "@next" (the
+  // promos of whatever show airs next) or another show's title
+  for(const k of ["before","after"]){
+    const v=String(s[k]||"").trim().slice(0,120);
+    if(v)out[k]=v;
+  }
   return out;
 }
 app.get("/api/live/tv-lineup",admin,async(req,res)=>{
@@ -6312,7 +6318,7 @@ app.post("/api/live/media",admin,async(req,res)=>{
   try{
     if(!s3Ready())return res.status(503).json({error:"Storage is not ready."});
     const b=req.body||{};
-    const series=String(b.series||"").trim().slice(0,120);
+    const series=String(b.series||"").trim().slice(0,130);   // room for "Promo: " + a 120-char show title
     const filename=String(b.filename||"").trim().slice(0,240)||"episode.mp4";
     const size=Number(b.size||0);
     if(!series)return res.status(400).json({error:"Choose which show this belongs to."});
@@ -6363,7 +6369,7 @@ app.post("/api/live/media/:id/complete",admin,async(req,res)=>{
 app.patch("/api/live/media/:id",admin,async(req,res)=>{
   try{
     const b=req.body||{};
-    const series=b.series!==undefined?String(b.series||"").trim().slice(0,120):null;
+    const series=b.series!==undefined?String(b.series||"").trim().slice(0,130):null;
     if(series!==null&&!series)return res.status(400).json({error:"Show is required."});
     const episode=b.episode===undefined?undefined:(Number.isInteger(Number(b.episode))&&Number(b.episode)>0?Number(b.episode):null);
     const title=b.title===undefined?null:String(b.title||"").trim().slice(0,160);
@@ -6416,18 +6422,73 @@ function currentSlot(ch,tz,now){
   }
   return null;
 }
-async function airingPlan(slot){
+// Promos for a show are uploaded in the Episode library under "Promo: <title>".
+const PROMO_PREFIX="Promo: ";
+// The first show that starts after `from` (looks up to a day ahead).
+function nextShowTitle(ch,tz,from,currentKey){
+  for(let k=0;k<=1440;k++){
+    const s=currentSlot(ch,tz,new Date(from.getTime()+k*60000));
+    if(s&&s.key!==currentKey)return s.show.title;
+  }
+  return null;
+}
+function promoSource(v,slot,ch,tz){
+  if(!v)return null;
+  if(v==="@self")return slot.show.title;
+  if(v==="@next")return nextShowTitle(ch,tz,slot.stop,slot.key);
+  return v;
+}
+async function promoClips(title){
+  if(!title)return [];
+  const r=await pool.query("SELECT id,duration_seconds FROM tv_media WHERE series=$1 AND status='ready' AND duration_seconds>0 ORDER BY episode NULLS LAST,created_at",[PROMO_PREFIX+title]);
+  return r.rows;
+}
+// Each airing is fixed when it starts: before-promo → episode → after-promo,
+// repeated until the slot is full. Episodes continue where the last airing
+// stopped; promos rotate through every clip uploaded for that show.
+async function airingPlan(slot,ch,tz){
   const ex=await pool.query("SELECT media_ids FROM tv_playout_airings WHERE airing_key=$1",[slot.key]);
   if(ex.rowCount)return ex.rows[0].media_ids;
   const eps=(await pool.query("SELECT id,duration_seconds FROM tv_media WHERE series=$1 AND status='ready' ORDER BY episode NULLS LAST,created_at",[slot.show.title])).rows;
   if(!eps.length)return [];
   const pr=await pool.query("SELECT next_index FROM tv_playout_progress WHERE series=$1",[slot.show.title]);
   let idx=pr.rowCount?pr.rows[0].next_index%eps.length:0;
-  const need=(slot.stop-slot.start)/1000,ids=[];let total=0;
-  while(total<need&&ids.length<50){const e=eps[idx%eps.length];ids.push(e.id);total+=Number(e.duration_seconds||0)||1800;idx++;}
+  // promo rotation, keyed by the promo series so "@next" and "@self" share it
+  const rot=new Map();let lastRot=null;
+  const promo=async(v)=>{
+    lastRot=null;
+    const t=promoSource(v,slot,ch,tz);if(!t)return null;
+    const key=PROMO_PREFIX+t;
+    if(!rot.has(key)){
+      const clips=await promoClips(t);
+      const p=clips.length?await pool.query("SELECT next_index FROM tv_playout_progress WHERE series=$1",[key]):null;
+      rot.set(key,{clips,i:p&&p.rowCount?p.rows[0].next_index:0});
+    }
+    const r=rot.get(key);if(!r.clips.length)return null;
+    lastRot=r;
+    return r.clips[r.i++%r.clips.length];
+  };
+  // Only whole episodes are planned, so an episode is never cut off at the
+  // end of the slot (the leftover minutes play filler). The one exception is
+  // a slot shorter than its next episode: that still plays, as before.
+  const need=(slot.stop-slot.start)/1000,ids=[];let total=0,aired=0;
+  const len=m=>Number(m&&m.duration_seconds||0);
+  while(total<need&&ids.length<50){
+    const e=eps[idx%eps.length],el=len(e)||1800;
+    const b=await promo(slot.show.before);
+    if(aired&&total+len(b)+el>need){if(b&&lastRot)lastRot.i--;break;}
+    if(b){ids.push(b.id);total+=len(b);}
+    ids.push(e.id);total+=el;idx++;aired++;
+    const a=await promo(slot.show.after);
+    if(a&&total+len(a)<=need){ids.push(a.id);total+=len(a);}
+    else if(a&&lastRot)lastRot.i--;   // didn't fit: this clip leads next time
+  }
   const ins=await pool.query("INSERT INTO tv_playout_airings(airing_key,series,media_ids) VALUES($1,$2,$3) ON CONFLICT (airing_key) DO NOTHING RETURNING media_ids",[slot.key,slot.show.title,ids]);
   if(!ins.rowCount)return (await pool.query("SELECT media_ids FROM tv_playout_airings WHERE airing_key=$1",[slot.key])).rows[0].media_ids;
-  await pool.query("INSERT INTO tv_playout_progress(series,next_index,updated_at) VALUES($1,$2,now()) ON CONFLICT (series) DO UPDATE SET next_index=EXCLUDED.next_index,updated_at=now()",[slot.show.title,idx%eps.length]);
+  const progress=[[slot.show.title,idx%eps.length]];
+  for(const [key,r] of rot)if(r.clips.length)progress.push([key,r.i%r.clips.length]);
+  for(const [series,n] of progress)
+    await pool.query("INSERT INTO tv_playout_progress(series,next_index,updated_at) VALUES($1,$2,now()) ON CONFLICT (series) DO UPDATE SET next_index=EXCLUDED.next_index,updated_at=now()",[series,n]);
   return ids;
 }
 async function mediaUrl(m){return getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:m.storage_key}),{expiresIn:6*3600});}
@@ -6445,7 +6506,7 @@ app.get("/api/internal/playout/plan",async(req,res)=>{
     if(!s3Ready())return res.json({...base,item:null,reason:"storage not ready"});
     const now=new Date(),slot=currentSlot(ch,tz,now);
     if(slot){
-      const ids=await airingPlan(slot);
+      const ids=await airingPlan(slot,ch,tz);
       if(ids.length){
         const rows=(await pool.query("SELECT * FROM tv_media WHERE id=ANY($1::uuid[]) AND status='ready'",[ids])).rows;
         const byId=new Map(rows.map(r=>[String(r.id),r]));
@@ -6455,7 +6516,8 @@ app.get("/api/internal/playout/plan",async(req,res)=>{
           const d=Number(m.duration_seconds||0);
           if(t<d-1){
             const endsAt=new Date(Math.min(slot.stop.getTime(),now.getTime()+(d-t)*1000));
-            return res.json({...base,item:{id:m.id,kind:"show",title:slot.show.title,episode:m.episode,url:await mediaUrl(m),offset:Math.max(0,Math.floor(t)),endsAt:endsAt.toISOString()}});
+            const isPromo=String(m.series).startsWith(PROMO_PREFIX);
+            return res.json({...base,item:{id:m.id,kind:isPromo?"promo":"show",title:isPromo?(m.title||m.series):slot.show.title,episode:isPromo?null:m.episode,url:await mediaUrl(m),offset:Math.max(0,Math.floor(t)),endsAt:endsAt.toISOString()}});
           }
           t-=d;
         }
@@ -6470,7 +6532,7 @@ app.get("/api/internal/playout/plan",async(req,res)=>{
       const d=Number(m.duration_seconds||0);
       if(t<d-1){
         let endsAt=new Date(now.getTime()+(d-t)*1000);
-        const nextSlotStart=(()=>{for(let k=1;k<=Math.ceil(d-t);k+=30){const s2=currentSlot(ch,tz,new Date(now.getTime()+k*1000));if(s2)return s2.start;}return null;})();
+        const nextSlotStart=(()=>{for(let k=1;k<=Math.ceil(d-t);k+=30){const s2=currentSlot(ch,tz,new Date(now.getTime()+k*1000));if(s2&&s2.start>now)return s2.start;}return null;})();
         if(nextSlotStart&&nextSlotStart<endsAt)endsAt=nextSlotStart;
         return res.json({...base,item:{id:m.id,kind:"filler",title:m.title||"FBI TV",url:await mediaUrl(m),offset:Math.max(0,Math.floor(t)),endsAt:endsAt.toISOString()}});
       }

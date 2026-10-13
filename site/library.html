@@ -91,7 +91,7 @@
   <div id="app" hidden style="display:flex;flex-direction:column;gap:18px">
     <div>
       <h1>Episode library</h1>
-      <p class="sub">Upload episodes for each show in your schedule. When the studio isn't live, FBI TV plays them automatically at their scheduled times, in episode order, continuing from where the last airing stopped. Upload promos or your logo ident to <b>Filler</b> to play between shows.</p>
+      <p class="sub">Upload episodes for each show in your schedule. When the studio isn't live, FBI TV plays them automatically at their scheduled times, in episode order, continuing from where the last airing stopped. Upload promos or your logo ident to <b>Filler</b> to play between shows. To play a promo before or after every episode, upload it under <b>“Show name — promos”</b>, then pick it for that show on the Schedule page.</p>
     </div>
 
     <section class="card onair" aria-live="polite"><span class="dot" id="paDot"></span><span id="paText">Checking 24/7 playout…</span></section>
@@ -118,6 +118,8 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const FILLER = "Filler";
+  const PROMO = "Promo: ";           // promos for a show live under "Promo: <title>"
+  const isNoEp = (s) => s === FILLER || String(s).startsWith(PROMO);
   let media = [];
   let lineupTitles = [];
   let busy = 0;
@@ -158,6 +160,9 @@
     lineupTitles.concat(FILLER).forEach((t) => {
       const o = document.createElement("option"); o.value = t; o.textContent = t === FILLER ? "Filler (promos & idents between shows)" : t; sel.appendChild(o);
     });
+    const og = document.createElement("optgroup"); og.label = "Promos (played before / after episodes)";
+    lineupTitles.forEach((t) => { const o = document.createElement("option"); o.value = PROMO + t; o.textContent = t + " — promos"; og.appendChild(o); });
+    if (lineupTitles.length) sel.appendChild(og);
     if (cur) sel.value = cur;
     suggestEp();
   }
@@ -172,18 +177,23 @@
     const box = $("shows"); box.textContent = "";
     const groups = new Map();
     lineupTitles.concat(FILLER).forEach((t) => groups.set(t, []));
+    // promo sections only appear once something is uploaded to them
+    media.forEach((m) => { if (String(m.series).startsWith(PROMO) && !groups.has(m.series)) groups.set(m.series, []); });
     media.forEach((m) => { if (!groups.has(m.series)) groups.set(m.series, []); groups.get(m.series).push(m); });
     for (const [series, list] of groups) {
       const sec = document.createElement("section"); sec.className = "card show";
-      const h = document.createElement("h3"); h.textContent = series;
+      const h = document.createElement("h3"); h.textContent = series.startsWith(PROMO) ? series.slice(PROMO.length) + " — promos" : series;
       const ready = list.filter((m) => m.status === "ready");
       const tot = ready.reduce((a, m) => a + (m.duration_seconds || 0), 0);
       const sp = document.createElement("span");
       sp.textContent = ready.length + " ready · " + fmtDur(tot) + " total" + (list.length ? " · " + fmtSize(list.reduce((a, m) => a + m.size_bytes, 0)) : "");
       h.appendChild(sp); sec.appendChild(h);
-      if (!lineupTitles.includes(series) && series !== FILLER) {
+      const promoOf = series.startsWith(PROMO) ? series.slice(PROMO.length) : null;
+      if (promoOf !== null ? !lineupTitles.includes(promoOf) : (!lineupTitles.includes(series) && series !== FILLER)) {
         const w = document.createElement("div"); w.className = "warn";
-        w.textContent = "This show isn't in the schedule (was it renamed?), so these episodes won't play until a show with exactly this name is scheduled.";
+        w.textContent = promoOf !== null
+          ? "This show isn't in the schedule (was it renamed?), so these promos won't play until a show with exactly this name is scheduled."
+          : "This show isn't in the schedule (was it renamed?), so these episodes won't play until a show with exactly this name is scheduled.";
         sec.appendChild(w);
       }
       if (!list.length) {
@@ -267,7 +277,7 @@
     if (!files.length) return;
     const series = $("series").value;
     let ep = Number($("startEp").value) || null;
-    const jobs = files.map((f) => ({ f, ep: series === FILLER ? null : ep ? ep++ : null, ui: queueRow(f) }));
+    const jobs = files.map((f) => ({ f, ep: isNoEp(series) ? null : ep ? ep++ : null, ui: queueRow(f) }));
     if (ep) $("startEp").value = ep;
     busy++;
     for (const j of jobs) {
