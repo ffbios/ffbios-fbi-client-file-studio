@@ -153,6 +153,27 @@
   footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;padding-top:20px;padding-bottom:20px;font-size:14px;color:#9C9688}
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--strong);color:var(--bg);font-weight:600;padding:10px 16px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s}
   .toast.show{opacity:1}
+  /* ---------- TV mode (Android TV, Fire TV, smart TVs, ?tv=1) ---------- */
+  body.tvmode header,body.tvmode footer,body.tvmode .now,body.tvmode #about,body.tvmode .col-side,body.tvmode .controls{display:none!important}
+  body.tvmode main.wrap{max-width:none;padding:0;margin:0}
+  body.tvmode .player{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;border-radius:0;box-shadow:none;z-index:10;cursor:none}
+  body.tvmode .player video{object-fit:contain}
+  body.tvmode .badges{left:4vw;top:4vh;transform:scale(1.4);transform-origin:left top}
+  body.tvmode .unmute{right:4vw;top:4vh;transform:scale(1.4);transform-origin:right top}
+  .tvov{position:absolute;left:0;right:0;bottom:0;z-index:4;padding:6vh 4vw 5vh;background:linear-gradient(transparent,rgba(0,0,0,.88) 40%);display:flex;align-items:flex-end;justify-content:space-between;gap:4vw;transition:opacity .35s;pointer-events:none}
+  .tvov.off{opacity:0}
+  .tvov .l{display:flex;flex-direction:column;gap:1.2vh;min-width:0}
+  .tvov .brandrow{display:flex;align-items:center;gap:.8vw}
+  .tvov .fbi{font-family:'Archivo Black',sans-serif;font-size:4.2vh;line-height:1;color:var(--gold)}
+  .tvov .pill{font-family:'Archivo Black',sans-serif;font-size:1.8vh;line-height:1;color:var(--bg);background:var(--gold);padding:.7vh 1vh;border-radius:999px}
+  .tvov .kick{font-size:2vh;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold)}
+  .tvov .ttl{font-family:'Archivo Black',sans-serif;font-size:5.4vh;line-height:1.1;color:var(--strong);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tvov .meta{font-size:2.4vh;color:var(--soft)}
+  .tvov .r{display:flex;flex-direction:column;align-items:flex-end;gap:1vh;text-align:right;flex:none}
+  .tvov .clock{font-family:'Archivo Black',sans-serif;font-size:4.4vh;color:var(--strong)}
+  .tvov .next{font-size:2.2vh;color:var(--soft);max-width:34vw}
+  .tvov .next b{color:var(--gold);font-weight:700}
+  .tvov .hint{font-size:1.8vh;color:var(--faint,#8E887B)}
   .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 </style>
 </head>
@@ -225,6 +246,24 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/></svg>
         Tap for sound
       </button>
+      <div class="tvov off" id="tvov" aria-hidden="true" hidden>
+        <div class="l">
+          <div class="brandrow">
+            <svg width="44" height="44" aria-hidden="true" style="width:5vh;height:5vh"><use href="#aperture"/></svg>
+            <span class="fbi">FBI</span>
+            <svg width="26" height="34" aria-hidden="true" style="width:2.8vh;height:3.6vh"><use href="#waves"/></svg>
+            <span class="pill">TV</span>
+          </div>
+          <div class="kick" id="tvKick">Now playing</div>
+          <div class="ttl" id="tvTitle">FBI TV Live</div>
+          <div class="meta" id="tvMeta"></div>
+        </div>
+        <div class="r">
+          <div class="clock" id="tvClock"></div>
+          <div class="next" id="tvNext"></div>
+          <div class="hint" id="tvHint">Press OK for sound</div>
+        </div>
+      </div>
       <div class="controls" id="controls" hidden>
         <button class="ctl" id="btnPlay" type="button" aria-label="Pause">
           <svg id="icoPause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M9 5v14M15 5v14"/></svg>
@@ -825,6 +864,76 @@ const CONFIG = {
       try { await navigator.clipboard.writeText(v); toast("Copied"); } catch (e) { toast(v); }
     });
   });
+
+  // ---------- TV mode (remote control) ----------
+  // Turns on for TV browsers / TV apps, or with ?tv=1. Full-screen picture,
+  // an info banner that appears on any button press, OK = sound on/off.
+  const TV_UA = /\b(Android TV|GoogleTV|AFT[A-Z0-9]*|BRAVIA|SMART-TV|SmartTV|Tizen|Web0S|webOS|NetCast|HbbTV|CrKey|Roku|Viera|AQUOSBrowser)\b/i;
+  const qs = new URLSearchParams(location.search);
+  const tvMode = qs.get("tv") === "1" || (qs.get("tv") !== "0" && TV_UA.test(navigator.userAgent));
+  if (tvMode) {
+    document.body.classList.add("tvmode");
+    $("tvov").hidden = false;
+    $("unmute").textContent = "Press OK for sound";
+    let hideTimer = null;
+    const fmtClock = () => {
+      try { return new Date().toLocaleTimeString("en-GB", { timeZone: CONFIG.timeZone, hour: "numeric", minute: "2-digit" }); }
+      catch (e) { return ""; }
+    };
+    function fillOverlay() {
+      $("tvKick").textContent = $("nowKicker").textContent || "Now playing";
+      $("tvTitle").textContent = $("nowTitle").textContent || "FBI TV Live";
+      $("tvMeta").textContent = $("nowMeta").textContent || "";
+      $("tvClock").textContent = fmtClock();
+      // next show from today's list
+      const list = Array.from(document.querySelectorAll("#schedList li")).filter((li) => !li.classList.contains("empty"));
+      const nowIdx = list.findIndex((li) => li.classList.contains("is-now"));
+      const nxt = list[nowIdx >= 0 ? nowIdx + 1 : 0];
+      $("tvNext").textContent = "";
+      if (nxt) {
+        const p = nxt.querySelector(".p"), h = nxt.querySelector(".h");
+        if (p) {
+          const b = document.createElement("b"); b.textContent = "Next: ";
+          $("tvNext").append(b, document.createTextNode(p.textContent + (h ? "  ·  " + h.textContent.split("·").pop().trim() : "")));
+        }
+      }
+      const muted = !video || video.muted || video.volume === 0;
+      $("tvHint").textContent = muted ? "Press OK for sound" : "Press OK to mute";
+    }
+    function showOverlay(ms) {
+      fillOverlay();
+      $("tvov").classList.remove("off");
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => $("tvov").classList.add("off"), ms || 6000);
+    }
+    window.addEventListener("keydown", (e) => {
+      const k = e.key, c = e.keyCode;
+      const isOk = k === "Enter" || k === " " || c === 13 || c === 23 || c === 66;
+      const isBack = k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack" || c === 4 || c === 10009 || c === 461;
+      if (isOk) {
+        e.preventDefault();
+        if (video) {
+          if (video.paused) { jumpLive(); video.play().catch(() => {}); }
+          video.muted = !video.muted;
+          if (!video.muted && video.volume === 0) video.volume = 1;
+        }
+        showOverlay();
+      } else if (isBack) {
+        if (!$("tvov").classList.contains("off")) { e.preventDefault(); $("tvov").classList.add("off"); }
+      } else if (/^Arrow/.test(k) || [19, 20, 21, 22, 37, 38, 39, 40].includes(c) || /^(MediaPlayPause|MediaPlay|Info|ContextMenu)$/.test(k)) {
+        e.preventDefault();
+        showOverlay(8000);
+      }
+    });
+    // banner on start, and again whenever the programme changes
+    let lastTitle = "";
+    setInterval(() => {
+      const t = $("nowTitle").textContent;
+      if (t && t !== lastTitle) { lastTitle = t; showOverlay(8000); }
+      $("tvClock").textContent = fmtClock();
+    }, 2000);
+    setTimeout(() => showOverlay(8000), 1500);
+  }
 
   // ---------- go ----------
   // The lineup comes from /tv-schedule.json (shared with the IPTV guide);
