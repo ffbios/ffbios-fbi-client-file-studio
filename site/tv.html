@@ -137,6 +137,13 @@
   .sched .p{font-size:15px;font-weight:600;color:#E6E1D6}
   .sched .h{font-size:13px;color:var(--muted);margin-top:2px}
   .sched .empty{padding:16px 20px;color:var(--muted);font-size:14px}
+  .iptv{padding:18px 20px;display:flex;flex-direction:column;gap:10px}
+  .iptv p{margin:0;font-size:14px;line-height:1.5;color:var(--soft)}
+  .iptv .row{display:flex;align-items:center;gap:8px;background:#141416;border:1px solid #33322E;border-radius:10px;padding:6px 6px 6px 12px}
+  .iptv .row span{flex:1;min-width:0;font-size:13px;color:var(--muted)}
+  .iptv .row code{display:block;font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .iptv .row button{min-height:40px;padding:0 12px;border:0;border-radius:8px;background:var(--chip);color:var(--text);font-weight:600;font-size:13px;cursor:pointer}
+  .iptv .row button:hover{background:#303035}
   .social{padding:18px 20px}
   .social div{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
   .social a{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border-radius:10px;background:var(--chip);color:var(--text);text-decoration:none;font-size:14px;font-weight:600}
@@ -277,6 +284,12 @@
     <section class="card sched" aria-labelledby="schedH">
       <h2 id="schedH">On today</h2>
       <ul id="schedList"></ul>
+    </section>
+    <section class="card iptv" aria-labelledby="iptvH">
+      <h2 id="iptvH">Watch on your TV</h2>
+      <p>Add FBI TV to any IPTV app (TiviMate, IPTV Smarters, VLC, Kodi) with these links.</p>
+      <div class="row"><span>Playlist (M3U)<code>https://live.fbigh.com/fbitv.m3u</code></span><button type="button" data-copy="https://live.fbigh.com/fbitv.m3u">Copy</button></div>
+      <div class="row"><span>TV guide (EPG)<code>https://live.fbigh.com/epg.xml</code></span><button type="button" data-copy="https://live.fbigh.com/epg.xml">Copy</button></div>
     </section>
     <section class="card social" aria-labelledby="socH" id="socialCard">
       <h2 id="socH">Follow FBI TV</h2>
@@ -804,8 +817,29 @@ const CONFIG = {
   });
   $("year").textContent = new Date().getFullYear();
 
+  // ---------- IPTV links ----------
+  document.querySelectorAll("[data-copy]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const v = btn.getAttribute("data-copy");
+      try { await navigator.clipboard.writeText(v); toast("Copied"); } catch (e) { toast(v); }
+    });
+  });
+
   // ---------- go ----------
+  // The lineup comes from /tv-schedule.json (shared with the IPTV guide);
+  // the schedule in CONFIG above is only a fallback.
   renderSchedule();
+  fetch("/tv-schedule.json", { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      const ch = d && (d.channels || [])[0];
+      if (ch && Array.isArray(ch.schedule)) {
+        CONFIG.schedule = ch.schedule;
+        if (d.timeZone) CONFIG.timeZone = d.timeZone;
+        renderSchedule();
+      }
+    })
+    .catch(() => {});
   setInterval(renderSchedule, 60 * 1000);
   startStream();
   pollViewers();

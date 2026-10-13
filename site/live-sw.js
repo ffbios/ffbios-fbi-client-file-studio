@@ -21,6 +21,7 @@ self.addEventListener("fetch",event=>{
   if(url.pathname.startsWith("/api/"))return;
   if(url.pathname.startsWith("/watch/")||url.pathname.startsWith("/share/"))return;
   if(url.pathname==="/tv"||url.pathname.startsWith("/tv/")||url.pathname.startsWith("/tv-"))return;
+  if(/\.(m3u8?|xml)$/i.test(url.pathname))return;   // IPTV playlist and guide: always fresh
   event.respondWith((async()=>{
     if(req.mode==="navigate"){
       // Network first. Each page is cached under its own address, so an

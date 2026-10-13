@@ -6057,6 +6057,104 @@ app.get(["/tv","/tv/"],(req,res)=>{
   res.set("Cache-Control","no-cache, must-revalidate");
   res.type("html").sendFile(path.join(ROOT,"tv.html"));
 });
+
+// ---- IPTV: channel playlist (M3U) and TV guide (XMLTV EPG) ----------------
+// Both are built from site/tv-schedule.json, the same file the /tv watch page
+// reads, so the website, IPTV apps and the guide always show the same lineup.
+const IPTV_BASE="https://live.fbigh.com";
+function readTvSchedule(){
+  return JSON.parse(fs.readFileSync(path.join(ROOT,"tv-schedule.json"),"utf8"));
+}
+function xmlEsc(s){return String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;")}
+// Offset (minutes) of a time zone from UTC at a given instant.
+function tzOffsetMinutes(tz,date){
+  const p=Object.fromEntries(new Intl.DateTimeFormat("en-US",{timeZone:tz,hourCycle:"h23",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"}).formatToParts(date).map(x=>[x.type,x.value]));
+  const asUtc=Date.UTC(+p.year,+p.month-1,+p.day,+p.hour%24,+p.minute,+p.second);
+  return Math.round((asUtc-date.getTime())/60000);
+}
+// Local wall-clock (y,m,d,"HH:MM") in tz -> UTC Date.
+function zonedTime(tz,y,m,d,hhmm){
+  const [h,mi]=String(hhmm).split(":").map(Number);
+  const guess=new Date(Date.UTC(y,m-1,d,h,mi));
+  return new Date(guess.getTime()-tzOffsetMinutes(tz,guess)*60000);
+}
+function xmltvTime(date,tz){
+  const off=tzOffsetMinutes(tz,date);
+  const local=new Date(date.getTime()+off*60000);
+  const z=n=>String(n).padStart(2,"0");
+  const sign=off<0?"-":"+",a=Math.abs(off);
+  return local.getUTCFullYear()+z(local.getUTCMonth()+1)+z(local.getUTCDate())+z(local.getUTCHours())+z(local.getUTCMinutes())+"00 "+sign+z(Math.floor(a/60))+z(a%60);
+}
+// Programmes for one channel from (today-1) to (today+days), gaps filled.
+function channelProgrammes(ch,tz,days){
+  const now=new Date();
+  const todayLocal=new Date(now.getTime()+tzOffsetMinutes(tz,now)*60000);
+  const out=[];
+  for(let k=-1;k<=days;k++){
+    const d=new Date(Date.UTC(todayLocal.getUTCFullYear(),todayLocal.getUTCMonth(),todayLocal.getUTCDate()+k));
+    const y=d.getUTCFullYear(),m=d.getUTCMonth()+1,day=d.getUTCDate(),dow=d.getUTCDay();
+    for(const s of ch.schedule||[]){
+      if(Array.isArray(s.days)&&!s.days.includes(dow))continue;
+      const start=zonedTime(tz,y,m,day,s.start);
+      let stop=zonedTime(tz,y,m,day,s.end);
+      if(stop<=start)stop=new Date(stop.getTime()+86400000);   // runs past midnight
+      out.push({start,stop,title:s.title,desc:s.description||(s.host?"Presented by "+s.host:""),category:s.category||""});
+    }
+  }
+  out.sort((a,b)=>a.start-b.start);
+  // fill gaps so guides never show an empty channel
+  const first=zonedTime(tz,todayLocal.getUTCFullYear(),todayLocal.getUTCMonth()+1,todayLocal.getUTCDate()-1,"00:00");
+  const last=zonedTime(tz,todayLocal.getUTCFullYear(),todayLocal.getUTCMonth()+1,todayLocal.getUTCDate()+days+1,"00:00");
+  const filled=[];let cur=first;
+  for(const p of out){
+    if(p.stop<=cur)continue;
+    if(p.start>cur)filled.push({start:cur,stop:p.start,title:ch.fillerTitle||ch.name,desc:ch.fillerDescription||"",category:""});
+    const start=p.start<cur?cur:p.start;
+    filled.push({...p,start});cur=p.stop;
+  }
+  if(cur<last)filled.push({start:cur,stop:last,title:ch.fillerTitle||ch.name,desc:ch.fillerDescription||"",category:""});
+  return filled;
+}
+app.get(["/tv-schedule.json"],(req,res)=>{
+  res.set("Cache-Control","no-cache").type("application/json").sendFile(path.join(ROOT,"tv-schedule.json"));
+});
+app.get(["/fbitv.m3u","/fbitv.m3u8","/playlist.m3u","/iptv.m3u"],(req,res)=>{
+  try{
+    const cfg=readTvSchedule();
+    const lines=['#EXTM3U url-tvg="'+IPTV_BASE+'/epg.xml" x-tvg-url="'+IPTV_BASE+'/epg.xml"'];
+    for(const ch of cfg.channels||[]){
+      const url=IPTV_BASE+"/api/public/stream/"+encodeURIComponent(ch.streamToken)+"/hls/index.m3u8";
+      const attrs=[["tvg-id",ch.id],["tvg-name",ch.name],["tvg-chno",ch.number],["tvg-logo",ch.logo],["tvg-country",ch.country],["tvg-language",ch.language],["group-title",ch.group||ch.name]]
+        .filter(([,v])=>v!==undefined&&v!==null&&v!=="").map(([k,v])=>k+'="'+String(v).replace(/"/g,"'")+'"').join(" ");
+      lines.push("#EXTINF:-1 "+attrs+","+ch.name,url);
+    }
+    res.set("Cache-Control","no-cache").type("audio/x-mpegurl; charset=utf-8")
+      .set("Content-Disposition",'inline; filename="fbitv.m3u"').send(lines.join("\n")+"\n");
+  }catch(e){console.error("IPTV playlist failed:",e);res.status(500).send("#EXTM3U\n");}
+});
+app.get(["/epg.xml","/guide.xml","/xmltv.xml"],(req,res)=>{
+  try{
+    const cfg=readTvSchedule(),tz=cfg.timeZone||"Africa/Accra";
+    const x=['<?xml version="1.0" encoding="UTF-8"?>','<!DOCTYPE tv SYSTEM "xmltv.dtd">','<tv generator-info-name="FBI TV" generator-info-url="'+IPTV_BASE+'/tv">'];
+    for(const ch of cfg.channels||[]){
+      x.push('  <channel id="'+xmlEsc(ch.id)+'">','    <display-name lang="en">'+xmlEsc(ch.name)+'</display-name>');
+      if(ch.number)x.push('    <display-name>'+xmlEsc(ch.number)+'</display-name>');
+      if(ch.logo)x.push('    <icon src="'+xmlEsc(ch.logo)+'"/>');
+      x.push('    <url>'+IPTV_BASE+'/tv</url>','  </channel>');
+    }
+    for(const ch of cfg.channels||[]){
+      for(const p of channelProgrammes(ch,tz,7)){
+        x.push('  <programme start="'+xmltvTime(p.start,tz)+'" stop="'+xmltvTime(p.stop,tz)+'" channel="'+xmlEsc(ch.id)+'">');
+        x.push('    <title lang="en">'+xmlEsc(p.title)+'</title>');
+        if(p.desc)x.push('    <desc lang="en">'+xmlEsc(p.desc)+'</desc>');
+        if(p.category)x.push('    <category lang="en">'+xmlEsc(p.category)+'</category>');
+        x.push('  </programme>');
+      }
+    }
+    x.push('</tv>');
+    res.set("Cache-Control","public, max-age=900").type("application/xml; charset=utf-8").send(x.join("\n")+"\n");
+  }catch(e){console.error("IPTV EPG failed:",e);res.status(500).type("application/xml").send('<?xml version="1.0"?><tv/>');}
+});
 // FBI TV watch app (PWA): manifest, service worker and icons
 app.get("/tv-manifest.webmanifest",(req,res)=>{
   res.type("application/manifest+json").set("Cache-Control","no-cache").sendFile(path.join(ROOT,"tv-manifest.webmanifest"));
