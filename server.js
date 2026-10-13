@@ -976,6 +976,13 @@ async function initDb(){
     CREATE INDEX IF NOT EXISTS idx_stream_comments_session ON stream_comments(stream_id,session_id,created_at DESC);
     -- Viewer report: audience size sampled once a minute while a channel is
     -- live, and which devices watched each broadcast (session).
+    -- FBI TV lineup (channels + schedule) edited in the studio's Schedule page.
+    CREATE TABLE IF NOT EXISTS tv_lineup(
+      id text PRIMARY KEY,
+      doc jsonb NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      updated_by text
+    );
     CREATE TABLE IF NOT EXISTS stream_viewer_stats(
       stream_id uuid NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
       at timestamptz NOT NULL,
@@ -3746,6 +3753,28 @@ function setPublicHlsCors(req,res){
   res.set("Access-Control-Expose-Headers","Content-Length,Content-Range");
 }
 
+// IPTV apps (TiviMate, VLC, Smart TVs) only fetch the video: they never send
+// the watch page's heartbeat, so count them from their playlist requests.
+// Browsers are skipped (they send Sec-Fetch headers and their own heartbeat),
+// and so is anyone already counted by a heartbeat from the same IP and app.
+const hlsAppViewerSeen=new Map();
+function countHlsAppViewer(streamId,req){
+  try{
+    if(req.headers["sec-fetch-site"]||req.headers["sec-fetch-mode"])return;
+    const ip=clientIp(req),ua=String(req.headers["user-agent"]||"").slice(0,1000);
+    const key="hls:"+crypto.createHash("sha1").update(ip+"|"+ua).digest("hex").slice(0,20);
+    const mk=streamId+"|"+key,now=Date.now();
+    if(now-(hlsAppViewerSeen.get(mk)||0)<15000)return;
+    hlsAppViewerSeen.set(mk,now);
+    if(hlsAppViewerSeen.size>5000)for(const [k,t] of hlsAppViewerSeen)if(now-t>120000)hlsAppViewerSeen.delete(k);
+    (async()=>{
+      const dup=await pool.query("SELECT 1 FROM stream_viewers WHERE stream_id=$1 AND ip_address=$2 AND user_agent=$3 AND session_key NOT LIKE 'hls:%' AND last_seen>now()-interval '60 seconds' LIMIT 1",[streamId,ip,ua]);
+      if(dup.rowCount)return;
+      const up=await pool.query("UPDATE stream_viewers SET last_seen=now(),ended_at=NULL WHERE stream_id=$1 AND session_key=$2",[streamId,key]);
+      if(!up.rowCount)await pool.query("INSERT INTO stream_viewers(id,stream_id,session_key,user_agent,ip_address) VALUES($1,$2,$3,$4,$5)",[uid(),streamId,key,ua,ip]);
+    })().catch(e=>console.error("IPTV viewer count failed:",e.message||e));
+  }catch{}
+}
 async function proxyPublicHlsStream(req,res){
   setPublicHlsCors(req,res);
   try{
@@ -3781,6 +3810,7 @@ async function proxyPublicHlsStream(req,res){
     }
 
     const isPlaylist=/\.m3u8$/i.test(sub);
+    if(isPlaylist)countHlsAppViewer(row.id,req);
     if(!isPlaylist){
       const cacheKey=publicHlsCacheKey(token,upstreamPath,sub,upstream.search);
       const cached=publicHlsCacheGet(cacheKey);
@@ -6065,6 +6095,78 @@ const IPTV_BASE="https://live.fbigh.com";
 function readTvSchedule(){
   return JSON.parse(fs.readFileSync(path.join(ROOT,"tv-schedule.json"),"utf8"));
 }
+// The live lineup is stored in the database (edited in the studio); the file
+// is only the starting point until the first save.
+let tvLineupCache={at:0,doc:null};
+async function getTvLineup(fresh){
+  if(!fresh&&tvLineupCache.doc&&Date.now()-tvLineupCache.at<15000)return tvLineupCache.doc;
+  let doc=null;
+  try{const r=await pool.query("SELECT doc FROM tv_lineup WHERE id='main'");if(r.rowCount)doc=r.rows[0].doc;}
+  catch(e){console.error("TV lineup load failed:",e.message||e);}
+  if(!doc)doc=readTvSchedule();
+  tvLineupCache={at:Date.now(),doc};
+  return doc;
+}
+const TV_POSTER_RE=/^[0-9a-f-]{36}\.jpg$/;
+function cleanShow(s){
+  const hhmm=v=>/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v||""))?String(v):null;
+  const start=hhmm(s&&s.start),end=hhmm(s&&s.end),title=String((s&&s.title)||"").trim().slice(0,120);
+  if(!start||!end||!title)return null;
+  const out={start,end,title,host:String(s.host||"").trim().slice(0,80),category:String(s.category||"").trim().slice(0,40)};
+  const desc=String(s.description||"").trim().slice(0,400);if(desc)out.description=desc;
+  if(Array.isArray(s.days)){
+    const days=[...new Set(s.days.map(Number).filter(d=>Number.isInteger(d)&&d>=0&&d<=6))].sort();
+    if(days.length&&days.length<7)out.days=days;
+  }
+  if(TV_POSTER_RE.test(String(s.poster||"")))out.poster=String(s.poster);
+  return out;
+}
+app.get("/api/live/tv-lineup",admin,async(req,res)=>{
+  try{res.set("Cache-Control","no-store").json({doc:await getTvLineup(true)});}
+  catch(e){res.status(500).json({error:"Could not load the lineup."});}
+});
+app.put("/api/live/tv-lineup",admin,async(req,res)=>{
+  try{
+    const incoming=Array.isArray(req.body&&req.body.schedule)?req.body.schedule:null;
+    if(!incoming)return res.status(400).json({error:"Schedule missing."});
+    if(incoming.length>60)return res.status(400).json({error:"Too many shows (max 60)."});
+    const schedule=[];
+    for(const [i,s] of incoming.entries()){
+      const c=cleanShow(s);
+      if(!c)return res.status(400).json({error:"Show "+(i+1)+" needs a title, a start time and an end time."});
+      schedule.push(c);
+    }
+    schedule.sort((a,b)=>a.start.localeCompare(b.start));
+    const doc=JSON.parse(JSON.stringify(await getTvLineup(true)));
+    if(!Array.isArray(doc.channels)||!doc.channels[0])return res.status(500).json({error:"No channel configured."});
+    doc.channels[0].schedule=schedule;
+    await pool.query("INSERT INTO tv_lineup(id,doc,updated_at,updated_by) VALUES('main',$1,now(),$2) ON CONFLICT (id) DO UPDATE SET doc=EXCLUDED.doc,updated_at=now(),updated_by=EXCLUDED.updated_by",[doc,"studio"]);
+    tvLineupCache={at:Date.now(),doc};
+    res.json({ok:true,doc});
+  }catch(e){console.error("TV lineup save failed:",e);res.status(500).json({error:"Could not save the lineup."});}
+});
+app.post("/api/live/tv-lineup/poster",admin,express.raw({type:["image/*","application/octet-stream"],limit:"15mb"}),async(req,res)=>{
+  try{
+    if(!s3Ready())return res.status(503).json({error:"Storage is not ready."});
+    if(!req.body||!req.body.length)return res.status(400).json({error:"No image received."});
+    const jpg=await sharp(req.body).rotate().resize({width:1280,height:720,fit:"cover",position:"attention"}).jpeg({quality:84,mozjpeg:true}).toBuffer();
+    const name=crypto.randomUUID()+".jpg";
+    await s3.send(new PutObjectCommand({Bucket:bucket(),Key:"tv-posters/"+name,Body:jpg,ContentType:"image/jpeg",CacheControl:"public, max-age=31536000, immutable"}));
+    res.status(201).json({poster:name,url:"/tv-poster/"+name});
+  }catch(e){console.error("TV poster upload failed:",e.message||e);res.status(400).json({error:"That image could not be used. Try a JPG or PNG."});}
+});
+app.get("/tv-poster/:name",async(req,res)=>{
+  try{
+    const name=String(req.params.name||"");
+    if(!TV_POSTER_RE.test(name)||!s3Ready())return res.sendStatus(404);
+    const o=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:"tv-posters/"+name}));
+    res.set("Cache-Control","public, max-age=31536000, immutable").type("image/jpeg");
+    o.Body.pipe(res);
+  }catch(e){res.sendStatus(404);}
+});
+app.get(["/schedule","/schedule/"],(req,res)=>{
+  res.set("Cache-Control","no-cache, must-revalidate").type("html").sendFile(path.join(ROOT,"schedule.html"));
+});
 function xmlEsc(s){return String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;")}
 // Offset (minutes) of a time zone from UTC at a given instant.
 function tzOffsetMinutes(tz,date){
@@ -6098,7 +6200,7 @@ function channelProgrammes(ch,tz,days){
       const start=zonedTime(tz,y,m,day,s.start);
       let stop=zonedTime(tz,y,m,day,s.end);
       if(stop<=start)stop=new Date(stop.getTime()+86400000);   // runs past midnight
-      out.push({start,stop,title:s.title,desc:s.description||(s.host?"Presented by "+s.host:""),category:s.category||""});
+      out.push({start,stop,title:s.title,desc:s.description||(s.host?"Presented by "+s.host:""),category:s.category||"",poster:s.poster||""});
     }
   }
   out.sort((a,b)=>a.start-b.start);
@@ -6115,12 +6217,13 @@ function channelProgrammes(ch,tz,days){
   if(cur<last)filled.push({start:cur,stop:last,title:ch.fillerTitle||ch.name,desc:ch.fillerDescription||"",category:""});
   return filled;
 }
-app.get(["/tv-schedule.json"],(req,res)=>{
-  res.set("Cache-Control","no-cache").type("application/json").sendFile(path.join(ROOT,"tv-schedule.json"));
+app.get(["/tv-schedule.json"],async(req,res)=>{
+  try{res.set("Cache-Control","no-cache").json(await getTvLineup());}
+  catch(e){res.set("Cache-Control","no-cache").type("application/json").sendFile(path.join(ROOT,"tv-schedule.json"));}
 });
-app.get(["/fbitv.m3u","/fbitv.m3u8","/playlist.m3u","/iptv.m3u"],(req,res)=>{
+app.get(["/fbitv.m3u","/fbitv.m3u8","/playlist.m3u","/iptv.m3u"],async(req,res)=>{
   try{
-    const cfg=readTvSchedule();
+    const cfg=await getTvLineup();
     const lines=['#EXTM3U url-tvg="'+IPTV_BASE+'/epg.xml" x-tvg-url="'+IPTV_BASE+'/epg.xml"'];
     // "hlsBase" in tv-schedule.json (or HLS_CDN_BASE) switches the video to a CDN.
     const hlsBase=String(process.env.HLS_CDN_BASE||(/^https:\/\//.test(cfg.hlsBase||"")?cfg.hlsBase:"")||IPTV_BASE).replace(/\/+$/,"");
@@ -6134,9 +6237,9 @@ app.get(["/fbitv.m3u","/fbitv.m3u8","/playlist.m3u","/iptv.m3u"],(req,res)=>{
       .set("Content-Disposition",'inline; filename="fbitv.m3u"').send(lines.join("\n")+"\n");
   }catch(e){console.error("IPTV playlist failed:",e);res.status(500).send("#EXTM3U\n");}
 });
-app.get(["/epg.xml","/guide.xml","/xmltv.xml"],(req,res)=>{
+app.get(["/epg.xml","/guide.xml","/xmltv.xml"],async(req,res)=>{
   try{
-    const cfg=readTvSchedule(),tz=cfg.timeZone||"Africa/Accra";
+    const cfg=await getTvLineup(),tz=cfg.timeZone||"Africa/Accra";
     const x=['<?xml version="1.0" encoding="UTF-8"?>','<!DOCTYPE tv SYSTEM "xmltv.dtd">','<tv generator-info-name="FBI TV" generator-info-url="'+IPTV_BASE+'/tv">'];
     for(const ch of cfg.channels||[]){
       x.push('  <channel id="'+xmlEsc(ch.id)+'">','    <display-name lang="en">'+xmlEsc(ch.name)+'</display-name>');
@@ -6150,11 +6253,12 @@ app.get(["/epg.xml","/guide.xml","/xmltv.xml"],(req,res)=>{
         x.push('    <title lang="en">'+xmlEsc(p.title)+'</title>');
         if(p.desc)x.push('    <desc lang="en">'+xmlEsc(p.desc)+'</desc>');
         if(p.category)x.push('    <category lang="en">'+xmlEsc(p.category)+'</category>');
+        if(p.poster)x.push('    <icon src="'+IPTV_BASE+'/tv-poster/'+xmlEsc(p.poster)+'"/>');
         x.push('  </programme>');
       }
     }
     x.push('</tv>');
-    res.set("Cache-Control","public, max-age=900").type("application/xml; charset=utf-8").send(x.join("\n")+"\n");
+    res.set("Cache-Control","public, max-age=300").type("application/xml; charset=utf-8").send(x.join("\n")+"\n");
   }catch(e){console.error("IPTV EPG failed:",e);res.status(500).type("application/xml").send('<?xml version="1.0"?><tv/>');}
 });
 // FBI TV watch app (PWA): manifest, service worker and icons

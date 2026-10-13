@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>FBI TV — Schedule</title>
+<meta name="theme-color" content="#111113">
+<link rel="icon" type="image/png" sizes="192x192" href="/tv-icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700&display=swap">
+<style>
+  :root{--bg:#161618;--bar:#111113;--card:#1D1D20;--line:#2A2A2D;--chip:#26262A;--text:#F2EFE8;--strong:#F7F4EC;--muted:#B3AC9E;--soft:#C9C3B6;--faint:#8E887B;--gold:#E8B93A;--gold-hi:#F6D47A;--red:#E8A0A0}
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:'Archivo',system-ui,sans-serif}
+  a{color:var(--gold)}
+  :focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+  .wrap{max-width:980px;margin:0 auto;padding:0 24px}
+  @media (max-width:600px){.wrap{padding:0 16px}}
+  header{background:var(--bar);border-bottom:1px solid var(--line)}
+  header .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding-top:14px;padding-bottom:14px}
+  .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--strong)}
+  .brand img{width:36px;height:36px;border-radius:9px}
+  .brand b{font-family:'Archivo Black',sans-serif;font-weight:400;font-size:20px}
+  .brand span{color:var(--muted);font-weight:600;font-size:15px}
+  .links{display:flex;flex-wrap:wrap;gap:8px}
+  .lnk{min-height:44px;display:inline-flex;align-items:center;padding:0 14px;border-radius:10px;border:1px solid #3A3833;color:var(--text);text-decoration:none;font-weight:600;font-size:14px}
+  main.wrap{padding-top:24px;padding-bottom:120px;display:flex;flex-direction:column;gap:16px}
+  h1{margin:0;font-family:'Archivo Black',sans-serif;font-weight:400;font-size:clamp(22px,3vw,28px);color:var(--strong)}
+  .sub{color:var(--muted);font-size:14px;margin-top:4px;line-height:1.5}
+  .show{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;grid-template-columns:150px minmax(0,1fr);gap:16px}
+  @media (max-width:640px){.show{grid-template-columns:1fr}}
+  .poster{display:flex;flex-direction:column;gap:8px}
+  .poster .img{width:150px;aspect-ratio:16/9;border-radius:8px;background:#141416 center/cover no-repeat;border:1px dashed #3A3833;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:12px;text-align:center}
+  .poster .img.has{border-style:solid}
+  .fields{display:flex;flex-direction:column;gap:12px;min-width:0}
+  .row{display:flex;flex-wrap:wrap;gap:12px}
+  .f{display:flex;flex-direction:column;gap:6px;min-width:0}
+  .f.grow{flex:1 1 240px}
+  .f label,.f .lab{font-size:13px;font-weight:600;color:var(--muted)}
+  input[type=text],input[type=time]{min-height:44px;border-radius:10px;border:1px solid #3A3833;background:#141416;color:var(--text);font:inherit;font-size:15px;padding:0 12px;width:100%}
+  input[type=time]{width:140px;color-scheme:dark}
+  input:focus{border-color:var(--gold);outline:none}
+  .days{display:flex;flex-wrap:wrap;gap:6px}
+  .day{min-height:36px;min-width:46px;padding:0 10px;border-radius:999px;border:1px solid #3A3833;background:transparent;color:var(--soft);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+  .day[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:#161618}
+  .btn{min-height:44px;padding:0 16px;border-radius:10px;border:1px solid #3A3833;background:#1F1F22;color:var(--text);font:inherit;font-weight:600;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .btn:hover{border-color:var(--gold)}
+  .btn.small{min-height:36px;padding:0 10px;font-size:13px}
+  .btn.danger{color:var(--red)}
+  .btn.gold{background:var(--gold);border-color:var(--gold);color:#161618}
+  .btn.gold:hover{background:var(--gold-hi)}
+  .btn:disabled{opacity:.6;cursor:default}
+  .act{display:flex;justify-content:flex-end;gap:8px}
+  .empty{background:var(--card);border:1px dashed #3A3833;border-radius:14px;padding:28px;text-align:center;color:var(--muted)}
+  .savebar{position:fixed;left:0;right:0;bottom:0;background:rgba(17,17,19,.96);border-top:1px solid var(--line)}
+  .savebar .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding-top:12px;padding-bottom:12px}
+  .status{font-size:14px;color:var(--muted)}
+  .status.err{color:var(--red)}
+  .status.ok{color:#8FD19E}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px;display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="brand" href="/live"><img src="/tv-icon-192.png" alt=""><b>FBI TV</b><span>Schedule</span></a>
+    <nav class="links" aria-label="Studio">
+      <a class="lnk" href="/live">← Studio</a>
+      <a class="lnk" href="/viewers">Viewer report</a>
+      <a class="lnk" href="/tv" target="_blank" rel="noopener">Open watch page</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card" id="signin" hidden>
+    <h1>Sign in to edit the schedule</h1>
+    <p class="sub">The schedule is only for the FBI Live studio team. Sign in to the studio, then come back to this page.</p>
+    <a class="btn gold" href="/live">Open the studio sign-in</a>
+  </section>
+
+  <div id="editor" hidden>
+    <div>
+      <h1>Program lineup</h1>
+      <p class="sub">Times are Ghana time. Saving updates the watch page, the IPTV playlist and the TV guide straight away. A show that ends at or after midnight (for example 23:00 – 00:00) is fine.</p>
+    </div>
+    <div id="shows" style="display:flex;flex-direction:column;gap:12px;margin-top:16px"></div>
+    <div style="margin-top:12px"><button class="btn" id="addBtn" type="button">＋ Add a show</button></div>
+  </div>
+</main>
+
+<div class="savebar" id="savebar" hidden>
+  <div class="wrap">
+    <span class="status" id="status" role="status" aria-live="polite">Loading…</span>
+    <button class="btn gold" id="saveBtn" type="button">Save schedule</button>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept="image/*" hidden>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  let shows = [];
+  let dirty = false;
+  let uploadFor = null;
+
+  function setStatus(text, kind) {
+    const s = $("status");
+    s.textContent = text;
+    s.className = "status" + (kind ? " " + kind : "");
+  }
+  function markDirty() {
+    dirty = true;
+    setStatus("Unsaved changes");
+  }
+
+  function field(labelText, input, cls) {
+    const wrap = document.createElement("div");
+    wrap.className = "f" + (cls ? " " + cls : "");
+    const id = "f" + Math.random().toString(36).slice(2, 9);
+    input.id = id;
+    const l = document.createElement("label");
+    l.htmlFor = id; l.textContent = labelText;
+    wrap.append(l, input);
+    return wrap;
+  }
+  function textInput(value, placeholder, max, onInput) {
+    const i = document.createElement("input");
+    i.type = "text"; i.value = value || ""; i.placeholder = placeholder || ""; i.maxLength = max;
+    i.addEventListener("input", () => { onInput(i.value); markDirty(); });
+    return i;
+  }
+  function timeInput(value, onInput) {
+    const i = document.createElement("input");
+    i.type = "time"; i.value = value || ""; i.required = true;
+    i.addEventListener("input", () => { onInput(i.value); markDirty(); });
+    return i;
+  }
+
+  function render() {
+    const box = $("shows");
+    box.textContent = "";
+    if (!shows.length) {
+      const e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "No shows yet. Add your first one below.";
+      box.appendChild(e);
+    }
+    shows.forEach((s, idx) => {
+      const card = document.createElement("section");
+      card.className = "show";
+      card.setAttribute("aria-label", "Show " + (idx + 1) + (s.title ? ": " + s.title : ""));
+
+      // poster
+      const pc = document.createElement("div"); pc.className = "poster";
+      const img = document.createElement("div");
+      img.className = "img" + (s.poster ? " has" : "");
+      if (s.poster) img.style.backgroundImage = "url('/tv-poster/" + s.poster + "')";
+      else img.textContent = "No poster";
+      const up = document.createElement("button");
+      up.type = "button"; up.className = "btn small"; up.textContent = s.poster ? "Replace poster" : "Upload poster";
+      up.addEventListener("click", () => { uploadFor = idx; $("fileInput").value = ""; $("fileInput").click(); });
+      pc.append(img, up);
+      if (s.poster) {
+        const rm = document.createElement("button");
+        rm.type = "button"; rm.className = "btn small"; rm.textContent = "Remove poster";
+        rm.addEventListener("click", () => { delete s.poster; markDirty(); render(); });
+        pc.appendChild(rm);
+      }
+
+      // fields
+      const fc = document.createElement("div"); fc.className = "fields";
+      const r1 = document.createElement("div"); r1.className = "row";
+      r1.append(
+        field("Show title", textInput(s.title, "e.g. The Blacklist — Season 1", 120, (v) => (s.title = v)), "grow"),
+        field("Starts", timeInput(s.start, (v) => (s.start = v))),
+        field("Ends", timeInput(s.end, (v) => (s.end = v)))
+      );
+      const r2 = document.createElement("div"); r2.className = "row";
+      r2.append(
+        field("Presenter (optional)", textInput(s.host, "", 80, (v) => (s.host = v)), "grow"),
+        field("Category (optional)", textInput(s.category, "Series, Movie, Talk show…", 40, (v) => (s.category = v)), "grow")
+      );
+      // days
+      const dw = document.createElement("div"); dw.className = "f";
+      const dl = document.createElement("div"); dl.className = "lab"; dl.textContent = "Days";
+      const dd = document.createElement("div"); dd.className = "days"; dd.setAttribute("role", "group"); dd.setAttribute("aria-label", "Days this show airs");
+      const every = !Array.isArray(s.days) || !s.days.length;
+      const all = document.createElement("button");
+      all.type = "button"; all.className = "day"; all.textContent = "Every day"; all.setAttribute("aria-pressed", String(every));
+      all.addEventListener("click", () => { delete s.days; markDirty(); render(); });
+      dd.appendChild(all);
+      DAYS.forEach((name, d) => {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "day"; b.textContent = name;
+        const on = !every && s.days.includes(d);
+        b.setAttribute("aria-pressed", String(on));
+        b.addEventListener("click", () => {
+          let set = every ? [] : s.days.slice();
+          set = on ? set.filter((x) => x !== d) : set.concat(d);
+          if (!set.length || set.length === 7) delete s.days; else s.days = set.sort();
+          markDirty(); render();
+        });
+        dd.appendChild(b);
+      });
+      dw.append(dl, dd);
+      // actions
+      const act = document.createElement("div"); act.className = "act";
+      const del = document.createElement("button");
+      del.type = "button"; del.className = "btn small danger"; del.textContent = "Delete show";
+      del.addEventListener("click", () => {
+        if (!s.title || window.confirm("Delete “" + s.title + "” from the schedule?")) { shows.splice(idx, 1); markDirty(); render(); }
+      });
+      act.appendChild(del);
+      fc.append(r1, r2, dw, act);
+      card.append(pc, fc);
+      box.appendChild(card);
+    });
+  }
+
+  async function load() {
+    let r;
+    try { r = await fetch("/api/live/tv-lineup", { cache: "no-store", credentials: "same-origin" }); }
+    catch (e) { $("savebar").hidden = false; setStatus("Could not reach the server.", "err"); return; }
+    if (r.status === 401) { $("signin").hidden = false; return; }
+    const d = await r.json();
+    if (!r.ok) { $("savebar").hidden = false; setStatus(d.error || "Could not load the schedule.", "err"); return; }
+    const ch = (d.doc && d.doc.channels || [])[0] || {};
+    shows = JSON.parse(JSON.stringify(ch.schedule || []));
+    $("editor").hidden = false; $("savebar").hidden = false;
+    setStatus("All changes saved", "ok");
+    render();
+  }
+
+  $("addBtn").addEventListener("click", () => {
+    shows.push({ title: "", start: "", end: "", host: "", category: "" });
+    markDirty(); render();
+    const inputs = $("shows").querySelectorAll("section.show:last-child input[type=text]");
+    if (inputs[0]) inputs[0].focus();
+  });
+
+  $("fileInput").addEventListener("change", async () => {
+    const f = $("fileInput").files[0];
+    if (!f || uploadFor == null) return;
+    const idx = uploadFor; uploadFor = null;
+    setStatus("Uploading poster…");
+    try {
+      const r = await fetch("/api/live/tv-lineup/poster", { method: "POST", credentials: "same-origin", headers: { "Content-Type": f.type || "application/octet-stream" }, body: f });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Upload failed");
+      shows[idx].poster = d.poster;
+      markDirty(); render();
+      setStatus("Poster added — remember to save", "");
+    } catch (e) { setStatus(e.message || "Upload failed", "err"); }
+  });
+
+  $("saveBtn").addEventListener("click", async () => {
+    for (const [i, s] of shows.entries()) {
+      if (!String(s.title || "").trim() || !s.start || !s.end) { setStatus("Show " + (i + 1) + " needs a title, a start time and an end time.", "err"); return; }
+    }
+    $("saveBtn").disabled = true;
+    setStatus("Saving…");
+    try {
+      const r = await fetch("/api/live/tv-lineup", { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ schedule: shows }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 401) { setStatus("Your studio sign-in has expired. Sign in again, then save.", "err"); return; }
+      if (!r.ok) throw new Error(d.error || "Could not save");
+      shows = JSON.parse(JSON.stringify(((d.doc.channels || [])[0] || {}).schedule || []));
+      dirty = false; render();
+      setStatus("Saved — the watch page, playlist and TV guide are updated", "ok");
+    } catch (e) { setStatus(e.message || "Could not save", "err"); }
+    finally { $("saveBtn").disabled = false; }
+  });
+
+  window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+  load();
+})();
+</script>
+</body>
+</html>

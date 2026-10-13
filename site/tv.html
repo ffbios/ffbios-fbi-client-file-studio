@@ -134,6 +134,7 @@
   .sched li.is-now{background:#26241E;border-left-color:var(--gold)}
   .sched .t{width:62px;flex:none;font-size:14px;font-weight:600;color:var(--muted)}
   .sched li.is-now .t{color:var(--gold);font-weight:700}
+  .sched .thumb{width:72px;height:41px;flex:none;object-fit:cover;border-radius:6px;background:#141416}
   .sched .p{font-size:15px;font-weight:600;color:#E6E1D6}
   .sched .h{font-size:13px;color:var(--muted);margin-top:2px}
   .sched .empty{padding:16px 20px;color:var(--muted);font-size:14px}
@@ -406,7 +407,11 @@ const CONFIG = {
       const sub = [s.host, fmt(s.start) + " – " + fmt(s.end)].filter(Boolean).join(" · ");
       const h = document.createElement("div"); h.className = "h"; h.textContent = sub;
       info.appendChild(h);
-      li.append(t, info);
+      if (s.poster && /^[0-9a-f-]{36}\.jpg$/.test(s.poster)) {
+        const im = document.createElement("img");
+        im.src = "/tv-poster/" + s.poster; im.alt = ""; im.loading = "lazy"; im.className = "thumb";
+        li.append(t, im, info);
+      } else li.append(t, info);
       ul.appendChild(li);
     });
     // Now playing block (left alone while a replay is showing)
