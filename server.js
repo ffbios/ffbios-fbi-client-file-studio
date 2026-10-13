@@ -3775,6 +3775,90 @@ function countHlsAppViewer(streamId,req){
     })().catch(e=>console.error("IPTV viewer count failed:",e.message||e));
   }catch{}
 }
+// ---- Adaptive quality (ABR) ------------------------------------------------
+// The ingest publishes encoded/<key> (720p), encoded480/<key> and
+// encoded360/<key> with aligned keyframes. 480p is listed first so players
+// start at a quality that loads quickly on mobile data, then adapt.
+const ABR_MASTER=["#EXTM3U","#EXT-X-VERSION:3","#EXT-X-INDEPENDENT-SEGMENTS",
+  '#EXT-X-STREAM-INF:BANDWIDTH=1600000,AVERAGE-BANDWIDTH=1300000,RESOLUTION=854x480,FRAME-RATE=30.000,CODECS="avc1.4d401f,mp4a.40.2"',"r/480/index.m3u8",
+  '#EXT-X-STREAM-INF:BANDWIDTH=3900000,AVERAGE-BANDWIDTH=3200000,RESOLUTION=1280x720,FRAME-RATE=30.000,CODECS="avc1.4d401f,mp4a.40.2"',"r/720/index.m3u8",
+  '#EXT-X-STREAM-INF:BANDWIDTH=900000,AVERAGE-BANDWIDTH=720000,RESOLUTION=640x360,FRAME-RATE=30.000,CODECS="avc1.4d401f,mp4a.40.2"',"r/360/index.m3u8"].join("\n")+"\n";
+const abrAvailCache=new Map(), abrVariantName=new Map();
+async function abrAvailable(row,base){
+  const key=String(row.stream_key||"");if(!key)return false;
+  const c=abrAvailCache.get(key);if(c&&Date.now()-c.at<10000)return c.ok;
+  let ok=false;
+  try{
+    const chk=async p=>{const r=await fetch(base+"/"+p+"/"+key+"/index.m3u8",{headers:{cookie:"cookieCheck=1"},signal:AbortSignal.timeout(3000)});return r.ok&&/#EXTM3U/.test(await r.text());};
+    ok=(await chk("encoded480"))&&(await chk("encoded360"));
+  }catch{ok=false;}
+  abrAvailCache.set(key,{at:Date.now(),ok});
+  return ok;
+}
+function hlsSetCookies(response){
+  return typeof response.headers.getSetCookie==="function"?response.headers.getSetCookie():String(response.headers.get("set-cookie")||"").split(/,(?=\s*\w+=)/);
+}
+async function abrOpenSession(base,upstreamPath,token){
+  const out=await fetchPublicHlsBody(new URL(base+"/"+upstreamPath+"/index.m3u8"),{cookie:"cookieCheck=1"});
+  if(!out.response.ok)return null;
+  const text=out.body.toString("utf8");
+  let sess="";
+  for(const c of hlsSetCookies(out.response)){const m=String(c).match(/(?:^|;\s*)hlsSession=([^;]+)/i);if(m){sess=m[1];break;}}
+  if(!sess){const m=text.match(/[?&]session=([A-Za-z0-9-]+)/);if(m)sess=m[1];}
+  const line=text.split(/\r?\n/).find(l=>l.trim()&&!l.startsWith("#"));
+  if(!line)return null;
+  // already a media playlist (no variants)?
+  const variant=/#EXTINF/.test(text)?"index.m3u8":line.trim().split("?")[0].replace(/^.*\//,"");
+  if(sess)publicHlsSessionSet(token,sess,upstreamPath);
+  abrVariantName.set(upstreamPath,variant);
+  return {session:sess,variant};
+}
+function abrUri(raw,prefix,sess){
+  const v=String(raw).trim();const qi=v.indexOf("?");
+  const name=(qi>=0?v.slice(0,qi):v).replace(/^.*\//,"");
+  const sp=new URLSearchParams(qi>=0?v.slice(qi+1):"");
+  if(sess&&!sp.has("session"))sp.set("session",sess);
+  sp.delete("cookieCheck");
+  const q=sp.toString();return prefix+name+(q?"?"+q:"");
+}
+async function proxyAbrRendition(req,res,token,row,q,rest,base){
+  const upstreamPath=(q==="720"?"encoded/":"encoded"+q+"/")+String(row.stream_key||"");
+  if(/\.m3u8$/i.test(rest)){
+    countHlsAppViewer(row.id,req);
+    for(let attempt=0;attempt<2;attempt++){
+      let sess=publicHlsSessionGet(token,upstreamPath),variant=abrVariantName.get(upstreamPath);
+      if(!sess||!variant){const o=await abrOpenSession(base,upstreamPath,token);if(!o)break;sess=o.session;variant=o.variant;}
+      const u=new URL(base+"/"+upstreamPath+"/"+variant);if(sess)u.searchParams.set("session",sess);
+      const out=await fetchPublicHlsBody(u,{});
+      if(!out.response.ok){publicHlsSessionDelete(token,upstreamPath);abrVariantName.delete(upstreamPath);continue;}
+      const prefix="/api/public/stream/"+encodeURIComponent(token)+"/hls/r/"+q+"/";
+      const text=out.body.toString("utf8").split(/\r?\n/).map(l=>{
+        if(!l.trim())return l;
+        if(l.startsWith("#"))return l.replace(/URI="([^"]+)"/g,(m,v)=>'URI="'+abrUri(v,prefix,sess)+'"');
+        return abrUri(l,prefix,sess);
+      }).join("\n");
+      return res.status(200).set("Cache-Control","no-store, no-cache, must-revalidate").type("application/vnd.apple.mpegurl").send(text);
+    }
+    abrAvailCache.delete(String(row.stream_key||""));
+    return res.status(404).end();
+  }
+  const u=new URL(base+"/"+upstreamPath+"/"+rest);
+  for(const [k,v] of Object.entries(req.query||{}))u.searchParams.append(k,String(v));
+  const cacheKey=publicHlsCacheKey(token,upstreamPath,rest,u.search);
+  const hdr="public, max-age=2, s-maxage=6, stale-while-revalidate=4";
+  const cached=publicHlsCacheGet(cacheKey);
+  if(cached)return res.status(200).set("Cache-Control",hdr).set("CDN-Cache-Control","public, max-age=6, stale-while-revalidate=4").set("X-FBI-HLS-Cache","HIT").type(cached.contentType).send(cached.body);
+  let pending=publicHlsSegmentPending.get(cacheKey);
+  if(!pending){
+    pending=(async()=>{const out=await fetchPublicHlsBody(u,{});if(out.response.ok)publicHlsCacheSet(cacheKey,out.body,out.type);return {status:out.response.status,type:out.type,body:out.body};})();
+    publicHlsSegmentPending.set(cacheKey,pending);
+  }
+  try{
+    const out=await pending;
+    if(out.status!==200)return res.status(out.status).type(out.type).send(out.body);
+    return res.status(200).set("Cache-Control",hdr).set("CDN-Cache-Control","public, max-age=6, stale-while-revalidate=4").type(out.type).send(out.body);
+  }finally{if(publicHlsSegmentPending.get(cacheKey)===pending)publicHlsSegmentPending.delete(cacheKey);}
+}
 async function proxyPublicHlsStream(req,res){
   setPublicHlsCors(req,res);
   try{
@@ -3787,6 +3871,15 @@ async function proxyPublicHlsStream(req,res){
     if(/^index\.m3u8\/index\.m3u8$/i.test(sub))sub="index.m3u8";
     else if(/^index\.m3u8\//i.test(sub))sub=sub.slice("index.m3u8/".length);
     const forceOriginalInput=String(req.query?.source||"").toLowerCase()==="input";
+    // Adaptive quality: r/<720|480|360>/... are the three renditions; the
+    // main index.m3u8 becomes a master playlist listing them (falls back to
+    // the single 720p stream if the renditions aren't running).
+    const abrMatch=/^r\/(720|480|360)\/(.+)$/i.exec(sub);
+    if(abrMatch&&!forceOriginalInput)return await proxyAbrRendition(req,res,token,row,abrMatch[1],abrMatch[2],internalBase);
+    if(sub==="index.m3u8"&&!forceOriginalInput&&process.env.HLS_ABR!=="0"&&!programRouteActive(row.id)&&await abrAvailable(row,internalBase)){
+      countHlsAppViewer(row.id,req);
+      return res.status(200).set("Cache-Control","no-store, no-cache, must-revalidate").type("application/vnd.apple.mpegurl").send(ABR_MASTER);
+    }
     const upstreamPath=forceOriginalInput
       ?"live/"+String(row.stream_key||"")
       :(programRouteActive(row.id)?"program/"+String(row.stream_key||""):"encoded/"+String(row.stream_key||""));
