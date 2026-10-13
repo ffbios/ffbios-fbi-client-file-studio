@@ -577,7 +577,13 @@ const CONFIG = {
       video.src = url;                                    // Safari / iPhone
       video.addEventListener("error", onFatal);
     } else if (window.Hls && Hls.isSupported()) {
-      const hls = new Hls({ lowLatencyMode: true, liveSyncDurationCount: 3 });
+      // Smart TVs and big screens start at 720p and climb to 1080p; phones
+      // start low so the picture appears quickly on mobile data.
+      const bigScreen = document.body.classList.contains("tvmode") || new URLSearchParams(location.search).get("tv") === "1" ||
+        /\b(Android TV|GoogleTV|AFT[A-Z0-9]*|BRAVIA|SMART-TV|SmartTV|Tizen|Web0S|webOS|NetCast|HbbTV|CrKey|Roku|Viera)\b/i.test(navigator.userAgent) ||
+        Math.max(screen.width, screen.height) * (window.devicePixelRatio || 1) >= 1600 && !/Mobi|Android(?!.*TV)/i.test(navigator.userAgent);
+      const hls = new Hls({ lowLatencyMode: true, liveSyncDurationCount: 3,
+        abrEwmaDefaultEstimate: bigScreen ? 5000000 : 500000 });
       hls.loadSource(url);
       hls.attachMedia(video);
       hls.on(Hls.Events.ERROR, (e, d) => {
@@ -586,7 +592,10 @@ const CONFIG = {
         else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
         else onFatal();
       });
-      hls.on(Hls.Events.MANIFEST_PARSED, () => { showLive(); $("controls").hidden = false; });
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (bigScreen) { const i = hls.levels.findIndex(l => l.height === 720); if (i >= 0) hls.startLevel = i; }
+        showLive(); $("controls").hidden = false;
+      });
       window.__hls = hls;
     } else {
       onFatal();

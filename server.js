@@ -3804,12 +3804,14 @@ function countHlsAppViewer(streamId,req){
   }catch{}
 }
 // ---- Adaptive quality (ABR) ------------------------------------------------
-// The ingest publishes encoded/<key> (720p), encoded480/<key> and
-// encoded360/<key> with aligned keyframes. 480p is listed first so players
-// start at a quality that loads quickly on mobile data, then adapt.
+// The ingest publishes encoded/<key> (the full-quality feed, up to 1080p for
+// smart TVs), plus encoded720/<key>, encoded480/<key> and encoded360/<key>
+// with aligned keyframes. 480p is listed first so phones start at a quality
+// that loads quickly on mobile data, then adapt; TVs climb to 1080p.
 const ABR_MASTER=["#EXTM3U","#EXT-X-VERSION:3","#EXT-X-INDEPENDENT-SEGMENTS",
   '#EXT-X-STREAM-INF:BANDWIDTH=1600000,AVERAGE-BANDWIDTH=1300000,RESOLUTION=854x480,FRAME-RATE=30.000,CODECS="avc1.4d401f,mp4a.40.2"',"r/480/index.m3u8",
   '#EXT-X-STREAM-INF:BANDWIDTH=3900000,AVERAGE-BANDWIDTH=3200000,RESOLUTION=1280x720,FRAME-RATE=30.000,CODECS="avc1.4d401f,mp4a.40.2"',"r/720/index.m3u8",
+  '#EXT-X-STREAM-INF:BANDWIDTH=7200000,AVERAGE-BANDWIDTH=6200000,RESOLUTION=1920x1080,FRAME-RATE=30.000,CODECS="avc1.4d4029,mp4a.40.2"',"r/1080/index.m3u8",
   '#EXT-X-STREAM-INF:BANDWIDTH=900000,AVERAGE-BANDWIDTH=720000,RESOLUTION=640x360,FRAME-RATE=30.000,CODECS="avc1.4d401f,mp4a.40.2"',"r/360/index.m3u8"].join("\n")+"\n";
 const abrAvailCache=new Map(), abrVariantName=new Map();
 async function abrAvailable(row,base){
@@ -3818,7 +3820,7 @@ async function abrAvailable(row,base){
   let ok=false;
   try{
     const chk=async p=>{const r=await fetch(base+"/"+p+"/"+key+"/index.m3u8",{headers:{cookie:"cookieCheck=1"},signal:AbortSignal.timeout(3000)});return r.ok&&/#EXTM3U/.test(await r.text());};
-    ok=(await chk("encoded480"))&&(await chk("encoded360"));
+    ok=(await chk("encoded720"))&&(await chk("encoded480"))&&(await chk("encoded360"));
   }catch{ok=false;}
   abrAvailCache.set(key,{at:Date.now(),ok});
   return ok;
@@ -3850,7 +3852,7 @@ function abrUri(raw,prefix,sess){
   const q=sp.toString();return prefix+name+(q?"?"+q:"");
 }
 async function proxyAbrRendition(req,res,token,row,q,rest,base){
-  const upstreamPath=(q==="720"?"encoded/":"encoded"+q+"/")+String(row.stream_key||"");
+  const upstreamPath=(q==="1080"?"encoded/":"encoded"+q+"/")+String(row.stream_key||"");
   if(/\.m3u8$/i.test(rest)){
     countHlsAppViewer(row.id,req);
     for(let attempt=0;attempt<2;attempt++){
@@ -3899,10 +3901,10 @@ async function proxyPublicHlsStream(req,res){
     if(/^index\.m3u8\/index\.m3u8$/i.test(sub))sub="index.m3u8";
     else if(/^index\.m3u8\//i.test(sub))sub=sub.slice("index.m3u8/".length);
     const forceOriginalInput=String(req.query?.source||"").toLowerCase()==="input";
-    // Adaptive quality: r/<720|480|360>/... are the three renditions; the
+    // Adaptive quality: r/<1080|720|480|360>/... are the four renditions; the
     // main index.m3u8 becomes a master playlist listing them (falls back to
-    // the single 720p stream if the renditions aren't running).
-    const abrMatch=/^r\/(720|480|360)\/(.+)$/i.exec(sub);
+    // the single full-quality stream if the renditions aren't running).
+    const abrMatch=/^r\/(1080|720|480|360)\/(.+)$/i.exec(sub);
     if(abrMatch&&!forceOriginalInput)return await proxyAbrRendition(req,res,token,row,abrMatch[1],abrMatch[2],internalBase);
     if(sub==="index.m3u8"&&!forceOriginalInput&&process.env.HLS_ABR!=="0"&&!programRouteActive(row.id)&&await abrAvailable(row,internalBase)){
       countHlsAppViewer(row.id,req);

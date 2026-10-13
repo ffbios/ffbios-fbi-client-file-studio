@@ -95,9 +95,9 @@ async function startFeeder(item) {
   const args = ["-hide_banner", "-loglevel", "warning", "-re", "-ss", String(item.offset || 0), "-i", item.url];
   if (!audio) args.push("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo");
   args.push("-t", secs.toFixed(1), "-map", "0:v:0", "-map", audio ? "0:a:0" : "1:a:0",
-    "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p",
+    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p",
     "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-profile:v", "main", "-level", "4.1",
-    "-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-b:v", "3M", "-maxrate", "3500k", "-bufsize", "6M",
+    "-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-b:v", "6M", "-maxrate", "6500k", "-bufsize", "12M",
     "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
     "-output_ts_offset", tsOffset, "-f", "mpegts", "pipe:1");
   const f = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
