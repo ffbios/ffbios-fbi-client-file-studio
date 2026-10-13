@@ -36,22 +36,30 @@ paths:
       -i rtmp://127.0.0.1:1935/$MTX_PATH
       -map 0:v:0
       -map 0:a:0?
-      -c:v libx264 -preset ultrafast -tune zerolatency
+      -vf "scale=-2:'min(1080,ih)'"
+      -c:v libx264 -preset superfast -tune zerolatency
       -pix_fmt yuv420p -profile:v main -level 4.1
       -r 30 -g 60 -keyint_min 60 -sc_threshold 0
-      -b:v 3M -maxrate 3500k -bufsize 6M
+      -b:v 6M -maxrate 6500k -bufsize 12M
       -c:a aac -b:a 128k -ar 48000 -ac 2
       -f flv rtmp://127.0.0.1:1935/encoded/$G1
     runOnReadyRestart: yes
 
-  # Adaptive quality: from the normalized 720p feed make 480p and 360p copies
+  # Adaptive quality: from the normalized feed (up to 1080p, for smart TVs)
+  # make 720p, 480p and 360p copies
   # with keyframes on the same 2-second grid, so players can switch between
   # them. Runs as its own process: if it fails, the 720p feed is unaffected.
   ~^encoded/(.+)$:
     runOnReady: >
       ffmpeg -hide_banner -loglevel warning
       -i rtmp://127.0.0.1:1935/$MTX_PATH
-      -filter_complex "[0:v]split=2[a][b];[a]scale=-2:480[v480];[b]scale=-2:360[v360]"
+      -filter_complex "[0:v]split=3[h][a][b];[h]scale=-2:'min(720,ih)'[v720];[a]scale=-2:480[v480];[b]scale=-2:360[v360]"
+      -map "[v720]" -map 0:a:0?
+      -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p -profile:v main
+      -r 30 -g 60 -keyint_min 60 -sc_threshold 0 -force_key_frames "expr:gte(t,n_forced*2)"
+      -b:v 3M -maxrate 3500k -bufsize 6M
+      -c:a aac -b:a 128k -ar 48000 -ac 2
+      -f flv rtmp://127.0.0.1:1935/encoded720/$G1
       -map "[v480]" -map 0:a:0?
       -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p -profile:v main
       -r 30 -g 60 -keyint_min 60 -sc_threshold 0 -force_key_frames "expr:gte(t,n_forced*2)"

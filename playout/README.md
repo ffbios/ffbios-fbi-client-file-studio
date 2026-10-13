@@ -12,4 +12,6 @@ Railway service settings:
   - `WEB_BASE` — `https://live.fbigh.com`
   - `INGEST_RTMP` — `rtmp://fbi-live-ingest:1935`
 
+Episodes are played at 1080p (6 Mbps); the ingest makes the 720p, 480p and 360p copies.
+
 Health: `GET /` returns `{ ok, onAir, playing }`.
