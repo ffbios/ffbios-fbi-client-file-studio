@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>FBI TV — Episode library</title>
+<meta name="theme-color" content="#111113">
+<link rel="icon" type="image/png" sizes="192x192" href="/tv-icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700&display=swap">
+<style>
+  :root{--bg:#161618;--bar:#111113;--card:#1D1D20;--line:#2A2A2D;--chip:#26262A;--text:#F2EFE8;--strong:#F7F4EC;--muted:#B3AC9E;--soft:#C9C3B6;--faint:#8E887B;--gold:#E8B93A;--gold-hi:#F6D47A;--red:#E8A0A0;--ok:#8FD19E}
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:'Archivo',system-ui,sans-serif}
+  a{color:var(--gold)}
+  :focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+  @media (max-width:600px){.wrap{padding:0 16px}}
+  header{background:var(--bar);border-bottom:1px solid var(--line)}
+  header .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding-top:14px;padding-bottom:14px}
+  .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--strong)}
+  .brand img{width:36px;height:36px;border-radius:9px}
+  .brand b{font-family:'Archivo Black',sans-serif;font-weight:400;font-size:20px}
+  .brand span{color:var(--muted);font-weight:600;font-size:15px}
+  .links{display:flex;flex-wrap:wrap;gap:8px}
+  .lnk{min-height:44px;display:inline-flex;align-items:center;padding:0 14px;border-radius:10px;border:1px solid #3A3833;color:var(--text);text-decoration:none;font-weight:600;font-size:14px}
+  main.wrap{padding-top:24px;padding-bottom:60px;display:flex;flex-direction:column;gap:18px}
+  h1{margin:0;font-family:'Archivo Black',sans-serif;font-weight:400;font-size:clamp(22px,3vw,28px);color:var(--strong)}
+  h2{margin:0;font-size:17px;font-weight:700;color:var(--strong)}
+  .sub{color:var(--muted);font-size:14px;margin-top:4px;line-height:1.5}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .onair{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--soft)}
+  .dot{width:10px;height:10px;border-radius:50%;background:#555;flex:none}
+  .dot.on{background:#E23B3B}
+  .up{display:flex;flex-direction:column;gap:14px}
+  .row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+  .f{display:flex;flex-direction:column;gap:6px}
+  .f label{font-size:13px;font-weight:600;color:var(--muted)}
+  select,input[type=number],input[type=text]{min-height:44px;border-radius:10px;border:1px solid #3A3833;background:#141416;color:var(--text);font:inherit;font-size:15px;padding:0 12px}
+  select{min-width:260px}
+  input[type=number]{width:110px}
+  .drop{border:2px dashed #3A3833;border-radius:14px;padding:28px;text-align:center;color:var(--muted);font-size:15px;cursor:pointer}
+  .drop.over{border-color:var(--gold);color:var(--text)}
+  .btn{min-height:44px;padding:0 16px;border-radius:10px;border:1px solid #3A3833;background:#1F1F22;color:var(--text);font:inherit;font-weight:600;font-size:14px;cursor:pointer}
+  .btn:hover{border-color:var(--gold)}
+  .btn.small{min-height:34px;padding:0 10px;font-size:13px}
+  .btn.danger{color:var(--red)}
+  .queue{display:flex;flex-direction:column;gap:8px}
+  .q{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;background:#141416;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px}
+  .q .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .q .s{color:var(--muted);text-align:right;white-space:nowrap}
+  .q .s.err{color:var(--red)}.q .s.ok{color:var(--ok)}
+  .bar{grid-column:1/-1;height:6px;border-radius:3px;background:#26262A;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:var(--gold);transition:width .3s}
+  .show{display:flex;flex-direction:column;gap:10px}
+  .show h3{margin:0;font-size:16px;color:var(--strong);display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .show h3 span{font-size:13px;font-weight:500;color:var(--muted)}
+  .tablebox{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:9px 10px;border-top:1px solid var(--line);white-space:nowrap}
+  th{color:var(--muted);font-weight:600;font-size:13px;border-top:0}
+  td.n{text-align:right;font-variant-numeric:tabular-nums}
+  td input[type=number]{width:72px;min-height:34px}
+  .st{font-weight:600}.st.ready{color:var(--ok)}.st.failed{color:var(--red)}.st.processing,.st.uploading{color:var(--gold)}
+  .warn{color:var(--gold);font-size:13px}
+  .signin{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="brand" href="/live"><img src="/tv-icon-192.png" alt=""><b>FBI TV</b><span>Episode library</span></a>
+    <nav class="links" aria-label="Studio">
+      <a class="lnk" href="/live">← Studio</a>
+      <a class="lnk" href="/schedule">Schedule</a>
+      <a class="lnk" href="/viewers">Viewer report</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card signin" id="signin" hidden>
+    <h1>Sign in to manage episodes</h1>
+    <p class="sub">The episode library is only for the FBI Live studio team. Sign in to the studio, then come back.</p>
+    <a class="btn" href="/live">Open the studio sign-in</a>
+  </section>
+
+  <div id="app" hidden style="display:flex;flex-direction:column;gap:18px">
+    <div>
+      <h1>Episode library</h1>
+      <p class="sub">Upload episodes for each show in your schedule. When the studio isn't live, FBI TV plays them automatically at their scheduled times, in episode order, continuing from where the last airing stopped. Upload promos or your logo ident to <b>Filler</b> to play between shows.</p>
+    </div>
+
+    <section class="card onair" aria-live="polite"><span class="dot" id="paDot"></span><span id="paText">Checking 24/7 playout…</span></section>
+
+    <section class="card up" aria-labelledby="upH">
+      <h2 id="upH">Upload episodes</h2>
+      <div class="row">
+        <div class="f"><label for="series">Show</label><select id="series"></select></div>
+        <div class="f"><label for="startEp">First episode number</label><input type="number" id="startEp" min="1" value="1"></div>
+      </div>
+      <div class="drop" id="drop" role="button" tabindex="0" aria-describedby="dropHint">
+        <b>Choose video files</b> or drag them here
+        <div id="dropHint" class="sub">Pick several at once — they're numbered in name order (e.g. S01E01, S01E02…). Keep this page open until they finish.</div>
+      </div>
+      <input type="file" id="files" accept="video/*,.mkv,.mp4,.mov,.ts,.m4v" multiple hidden>
+      <div class="queue" id="queue"></div>
+    </section>
+
+    <section id="shows" style="display:flex;flex-direction:column;gap:14px"></section>
+  </div>
+</main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const FILLER = "Filler";
+  let media = [];
+  let lineupTitles = [];
+  let busy = 0;
+
+  const fmtSize = (b) => b >= 1e9 ? (b / 1e9).toFixed(2) + " GB" : (b / 1e6).toFixed(0) + " MB";
+  const fmtDur = (s) => { if (s == null) return "—"; s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); };
+  const api = async (url, opt) => {
+    const r = await fetch(url, Object.assign({ credentials: "same-origin", cache: "no-store" }, opt || {}));
+    if (r.status === 401) { const e = new Error("signin"); e.signin = true; throw e; }
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "Request failed");
+    return d;
+  };
+  const jpost = (url, body, method) => api(url, { method: method || "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+
+  async function loadAll() {
+    try {
+      const [lin, lib] = await Promise.all([api("/api/live/tv-lineup"), api("/api/live/media")]);
+      lineupTitles = [...new Set((((lin.doc || {}).channels || [])[0] || {}).schedule.map((s) => s.title))];
+      media = lib.media || [];
+      $("app").hidden = false;
+      renderSeries(); renderShows();
+    } catch (e) { if (e.signin) $("signin").hidden = false; }
+  }
+  async function loadPlayout() {
+    try {
+      const d = await api("/api/live/playout/status");
+      $("paDot").className = "dot" + (d.onAir ? " on" : "");
+      $("paText").textContent = !d.configured ? "24/7 playout isn't switched on yet. Episodes you upload now will play once it is."
+        : d.onAir ? "On air now (automatic): " + (d.title || "FBI TV")
+        : "Playout is ready. It goes on air whenever the studio isn't live and something is scheduled or filler is uploaded.";
+    } catch (e) {}
+  }
+
+  function renderSeries() {
+    const sel = $("series"), cur = sel.value;
+    sel.textContent = "";
+    lineupTitles.concat(FILLER).forEach((t) => {
+      const o = document.createElement("option"); o.value = t; o.textContent = t === FILLER ? "Filler (promos & idents between shows)" : t; sel.appendChild(o);
+    });
+    if (cur) sel.value = cur;
+    suggestEp();
+  }
+  function suggestEp() {
+    const s = $("series").value;
+    const eps = media.filter((m) => m.series === s && m.episode).map((m) => m.episode);
+    $("startEp").value = eps.length ? Math.max(...eps) + 1 : 1;
+  }
+  $("series").addEventListener("change", suggestEp);
+
+  function renderShows() {
+    const box = $("shows"); box.textContent = "";
+    const groups = new Map();
+    lineupTitles.concat(FILLER).forEach((t) => groups.set(t, []));
+    media.forEach((m) => { if (!groups.has(m.series)) groups.set(m.series, []); groups.get(m.series).push(m); });
+    for (const [series, list] of groups) {
+      const sec = document.createElement("section"); sec.className = "card show";
+      const h = document.createElement("h3"); h.textContent = series;
+      const ready = list.filter((m) => m.status === "ready");
+      const tot = ready.reduce((a, m) => a + (m.duration_seconds || 0), 0);
+      const sp = document.createElement("span");
+      sp.textContent = ready.length + " ready · " + fmtDur(tot) + " total" + (list.length ? " · " + fmtSize(list.reduce((a, m) => a + m.size_bytes, 0)) : "");
+      h.appendChild(sp); sec.appendChild(h);
+      if (!lineupTitles.includes(series) && series !== FILLER) {
+        const w = document.createElement("div"); w.className = "warn";
+        w.textContent = "This show isn't in the schedule (was it renamed?), so these episodes won't play until a show with exactly this name is scheduled.";
+        sec.appendChild(w);
+      }
+      if (!list.length) {
+        const e = document.createElement("div"); e.className = "sub";
+        e.textContent = series === FILLER ? "No filler yet. Upload your promos or logo ident here to fill gaps between shows." : "No episodes yet.";
+        sec.appendChild(e); box.appendChild(sec); continue;
+      }
+      const tb = document.createElement("div"); tb.className = "tablebox";
+      const t = document.createElement("table");
+      t.innerHTML = "<thead><tr><th>Ep</th><th>File</th><th class='n'>Length</th><th class='n'>Size</th><th>Status</th><th></th></tr></thead>";
+      const body = document.createElement("tbody");
+      list.forEach((m) => {
+        const tr = document.createElement("tr");
+        const tdE = document.createElement("td");
+        const ep = document.createElement("input"); ep.type = "number"; ep.min = "1"; ep.value = m.episode || ""; ep.setAttribute("aria-label", "Episode number for " + m.filename);
+        ep.addEventListener("change", async () => { try { await jpost("/api/live/media/" + m.id, { episode: ep.value ? Number(ep.value) : null }, "PATCH"); m.episode = Number(ep.value) || null; } catch (e) { alert(e.message); } });
+        tdE.appendChild(ep);
+        const tdF = document.createElement("td"); tdF.textContent = m.filename; tdF.title = m.filename;
+        const tdD = document.createElement("td"); tdD.className = "n"; tdD.textContent = fmtDur(m.duration_seconds);
+        const tdS = document.createElement("td"); tdS.className = "n"; tdS.textContent = fmtSize(m.size_bytes);
+        const tdT = document.createElement("td"); const st = document.createElement("span"); st.className = "st " + m.status;
+        st.textContent = { ready: "Ready", processing: "Checking…", uploading: "Uploading / unfinished", failed: "Failed" }[m.status] || m.status;
+        if (m.error) st.title = m.error; tdT.appendChild(st);
+        const tdX = document.createElement("td");
+        const del = document.createElement("button"); del.type = "button"; del.className = "btn small danger"; del.textContent = "Delete";
+        del.setAttribute("aria-label", "Delete " + m.filename);
+        del.addEventListener("click", async () => {
+          if (!confirm("Delete “" + m.filename + "” from the library? This removes the file from storage.")) return;
+          try { await api("/api/live/media/" + m.id, { method: "DELETE" }); media = media.filter((x) => x.id !== m.id); renderShows(); } catch (e) { alert(e.message); }
+        });
+        tdX.appendChild(del);
+        tr.append(tdE, tdF, tdD, tdS, tdT, tdX); body.appendChild(tr);
+      });
+      t.appendChild(body); tb.appendChild(t); sec.appendChild(tb); box.appendChild(sec);
+    }
+  }
+
+  // ---------- uploads ----------
+  function queueRow(file) {
+    const q = document.createElement("div"); q.className = "q";
+    const n = document.createElement("div"); n.className = "n"; n.textContent = file.name;
+    const s = document.createElement("div"); s.className = "s"; s.textContent = "Waiting";
+    const bar = document.createElement("div"); bar.className = "bar"; const i = document.createElement("i"); bar.appendChild(i);
+    q.append(n, s, bar); $("queue").appendChild(q);
+    return { set: (txt, cls) => { s.textContent = txt; s.className = "s" + (cls ? " " + cls : ""); }, pct: (p) => { i.style.width = Math.round(p * 100) + "%"; } };
+  }
+  async function uploadOne(file, series, episode, ui) {
+    const c = await jpost("/api/live/media", { series, episode, filename: file.name, size: file.size, contentType: file.type || "video/mp4" });
+    const partSize = c.partSize, total = c.parts, etags = new Array(total);
+    let done = 0, next = 1;
+    const urls = {};
+    async function urlFor(n) {
+      if (!urls[n]) { const want = []; for (let k = n; k < n + 20 && k <= total; k++) if (!urls[k]) want.push(k); Object.assign(urls, (await jpost("/api/live/media/" + c.id + "/part-urls", { partNumbers: want })).urls); }
+      return urls[n];
+    }
+    async function worker() {
+      while (next <= total) {
+        const n = next++;
+        const blob = file.slice((n - 1) * partSize, Math.min(file.size, n * partSize));
+        for (let attempt = 1; ; attempt++) {
+          try {
+            const r = await fetch(await urlFor(n), { method: "PUT", body: blob });
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            etags[n - 1] = { partNumber: n, etag: r.headers.get("ETag") };
+            break;
+          } catch (e) {
+            if (attempt >= 5) throw new Error("Upload kept failing — check your internet and try again.");
+            delete urls[n]; await new Promise((r) => setTimeout(r, 1500 * attempt));
+          }
+        }
+        done++; ui.pct(done / total); ui.set(Math.round((done / total) * 100) + "% of " + fmtSize(file.size));
+      }
+    }
+    await Promise.all([worker(), worker(), worker()]);
+    ui.set("Checking video…");
+    await jpost("/api/live/media/" + c.id + "/complete", { parts: etags });
+    return c.id;
+  }
+  async function handleFiles(list) {
+    const files = Array.from(list).filter((f) => f.size > 0).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    if (!files.length) return;
+    const series = $("series").value;
+    let ep = Number($("startEp").value) || null;
+    const jobs = files.map((f) => ({ f, ep: series === FILLER ? null : ep ? ep++ : null, ui: queueRow(f) }));
+    if (ep) $("startEp").value = ep;
+    busy++;
+    for (const j of jobs) {
+      try { await uploadOne(j.f, series, j.ep, j.ui); j.ui.set("Uploaded", "ok"); }
+      catch (e) { if (e.signin) { j.ui.set("Sign-in expired — sign in again and re-upload", "err"); } else j.ui.set(e.message || "Failed", "err"); }
+      try { media = (await api("/api/live/media")).media || media; renderShows(); } catch (e) {}
+    }
+    busy--;
+    setTimeout(async () => { try { media = (await api("/api/live/media")).media || media; renderShows(); } catch (e) {} }, 8000);
+  }
+  $("drop").addEventListener("click", () => $("files").click());
+  $("drop").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("files").click(); } });
+  $("files").addEventListener("change", () => { handleFiles($("files").files); $("files").value = ""; });
+  ["dragenter", "dragover"].forEach((ev) => $("drop").addEventListener(ev, (e) => { e.preventDefault(); $("drop").classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) => $("drop").addEventListener(ev, (e) => { e.preventDefault(); $("drop").classList.remove("over"); }));
+  $("drop").addEventListener("drop", (e) => handleFiles(e.dataTransfer.files));
+  window.addEventListener("beforeunload", (e) => { if (busy) { e.preventDefault(); e.returnValue = ""; } });
+
+  loadAll(); loadPlayout(); setInterval(loadPlayout, 15000);
+})();
+</script>
+</body>
+</html>

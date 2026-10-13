@@ -983,6 +983,34 @@ async function initDb(){
       updated_at timestamptz NOT NULL DEFAULT now(),
       updated_by text
     );
+    -- FBI TV episode library and 24/7 playout bookkeeping.
+    CREATE TABLE IF NOT EXISTS tv_media(
+      id uuid PRIMARY KEY,
+      series text NOT NULL,
+      episode int,
+      title text NOT NULL DEFAULT '',
+      filename text NOT NULL DEFAULT '',
+      storage_key text NOT NULL,
+      content_type text NOT NULL DEFAULT 'video/mp4',
+      size_bytes bigint NOT NULL DEFAULT 0,
+      duration_seconds numeric,
+      status text NOT NULL DEFAULT 'uploading',
+      upload_id text,
+      error text,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_tv_media_series ON tv_media(series,episode,created_at);
+    CREATE TABLE IF NOT EXISTS tv_playout_airings(
+      airing_key text PRIMARY KEY,
+      series text NOT NULL,
+      media_ids uuid[] NOT NULL DEFAULT '{}',
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS tv_playout_progress(
+      series text PRIMARY KEY,
+      next_index int NOT NULL DEFAULT 0,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS stream_viewer_stats(
       stream_id uuid NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
       at timestamptz NOT NULL,
@@ -4237,7 +4265,8 @@ app.get("/api/public/stream/:token/status",async(req,res)=>{
     if(!r.rowCount)return res.status(404).json({error:"This stream link is invalid, disabled, or expired."});
     const s=await refreshStreamStatus(r.rows[0]);
     const v=await pool.query("SELECT count(*)::int AS current FROM stream_viewers WHERE stream_id=$1 AND last_seen>=now()-interval '45 seconds'",[s.id]);
-    res.json({live:s.status==="live",title:s.title,name:s.name,current_viewers:v.rows[0].current});
+    const auto=s.status!=="live"&&isPlayoutOnAir(s.id);
+    res.json({live:s.status==="live"||auto,playout:auto,title:s.title,name:s.name,current_viewers:v.rows[0].current});
   }catch(e){res.status(500).json({error:"Could not load stream status"});}
 });
 
@@ -6164,6 +6193,218 @@ app.get("/tv-poster/:name",async(req,res)=>{
     o.Body.pipe(res);
   }catch(e){res.sendStatus(404);}
 });
+// ---- FBI TV episode library (studio) --------------------------------------
+// Episodes are uploaded straight from the browser to storage in 64 MB parts,
+// then their length is read with FFmpeg so the playout knows what fits.
+const TV_MEDIA_PART=64*1024*1024;
+function tvMediaRow(r){return {id:r.id,series:r.series,episode:r.episode,title:r.title,filename:r.filename,size_bytes:Number(r.size_bytes||0),duration_seconds:r.duration_seconds==null?null:Number(r.duration_seconds),status:r.status,error:r.error||null,created_at:r.created_at};}
+function probeDurationSeconds(url){
+  return new Promise(resolve=>{
+    if(!ffmpegPath)return resolve(null);
+    let err="";
+    const p=spawn(ffmpegPath,["-hide_banner","-nostdin","-i",url],{stdio:["ignore","ignore","pipe"]});
+    const t=setTimeout(()=>{try{p.kill("SIGKILL")}catch{}},60000);
+    p.stderr.on("data",d=>{err+=d.toString();if(err.length>200000)err=err.slice(-100000);});
+    p.on("close",()=>{clearTimeout(t);const m=err.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);resolve(m?(+m[1])*3600+(+m[2])*60+(+m[3]):null);});
+    p.on("error",()=>{clearTimeout(t);resolve(null);});
+  });
+}
+app.get("/api/live/media",admin,async(req,res)=>{
+  try{const r=await pool.query("SELECT * FROM tv_media ORDER BY series,episode NULLS LAST,created_at");res.set("Cache-Control","no-store").json({media:r.rows.map(tvMediaRow)});}
+  catch(e){res.status(500).json({error:"Could not load the library."});}
+});
+app.post("/api/live/media",admin,async(req,res)=>{
+  try{
+    if(!s3Ready())return res.status(503).json({error:"Storage is not ready."});
+    const b=req.body||{};
+    const series=String(b.series||"").trim().slice(0,120);
+    const filename=String(b.filename||"").trim().slice(0,240)||"episode.mp4";
+    const size=Number(b.size||0);
+    if(!series)return res.status(400).json({error:"Choose which show this belongs to."});
+    if(!Number.isFinite(size)||size<=0)return res.status(400).json({error:"Empty file."});
+    if(size>200*1024*1024*1024)return res.status(400).json({error:"File is too large."});
+    const type=/^video\//.test(String(b.contentType||""))?String(b.contentType):"video/mp4";
+    const episode=Number.isInteger(Number(b.episode))&&Number(b.episode)>0?Number(b.episode):null;
+    const title=String(b.title||"").trim().slice(0,160);
+    const id=uid(),safe=filename.replace(/[^A-Za-z0-9._-]+/g,"_").slice(-120);
+    const key="tv-media/"+id+"/"+safe;
+    const mp=await s3.send(new CreateMultipartUploadCommand({Bucket:bucket(),Key:key,ContentType:type}));
+    await pool.query("INSERT INTO tv_media(id,series,episode,title,filename,storage_key,content_type,size_bytes,status,upload_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'uploading',$9)",[id,series,episode,title,filename,key,type,size,mp.UploadId]);
+    res.status(201).json({id,partSize:TV_MEDIA_PART,parts:Math.ceil(size/TV_MEDIA_PART)});
+  }catch(e){console.error("TV media create failed:",e);res.status(500).json({error:"Could not start the upload."});}
+});
+app.post("/api/live/media/:id/part-urls",admin,async(req,res)=>{
+  try{
+    const r=await pool.query("SELECT * FROM tv_media WHERE id=$1 AND status='uploading'",[req.params.id]);
+    if(!r.rowCount)return res.status(404).json({error:"Upload not found."});
+    const m=r.rows[0],max=Math.ceil(Number(m.size_bytes)/TV_MEDIA_PART);
+    const nums=(Array.isArray(req.body&&req.body.partNumbers)?req.body.partNumbers:[]).map(Number).filter(n=>Number.isInteger(n)&&n>=1&&n<=max).slice(0,50);
+    const urls={};
+    for(const n of nums)urls[n]=await getSignedUrl(s3,new UploadPartCommand({Bucket:bucket(),Key:m.storage_key,UploadId:m.upload_id,PartNumber:n}),{expiresIn:6*3600});
+    res.json({urls});
+  }catch(e){console.error("TV media part urls failed:",e);res.status(500).json({error:"Could not continue the upload."});}
+});
+app.post("/api/live/media/:id/complete",admin,async(req,res)=>{
+  try{
+    const r=await pool.query("SELECT * FROM tv_media WHERE id=$1 AND status='uploading'",[req.params.id]);
+    if(!r.rowCount)return res.status(404).json({error:"Upload not found."});
+    const m=r.rows[0];
+    const parts=(Array.isArray(req.body&&req.body.parts)?req.body.parts:[])
+      .map(p=>({ETag:String(p.etag||p.ETag||"").replace(/^"+|"+$/g,""),PartNumber:Number(p.partNumber||p.PartNumber)}))
+      .filter(p=>p.ETag&&Number.isInteger(p.PartNumber)&&p.PartNumber>0).sort((a,b)=>a.PartNumber-b.PartNumber);
+    if(parts.length!==Math.ceil(Number(m.size_bytes)/TV_MEDIA_PART))return res.status(400).json({error:"Some parts of the file are missing. Upload it again."});
+    await s3.send(new CompleteMultipartUploadCommand({Bucket:bucket(),Key:m.storage_key,UploadId:m.upload_id,MultipartUpload:{Parts:parts}}));
+    await pool.query("UPDATE tv_media SET status='processing',upload_id=NULL WHERE id=$1",[m.id]);
+    res.json({ok:true});
+    // read the episode length in the background
+    (async()=>{
+      const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:m.storage_key}),{expiresIn:3600});
+      const d=await probeDurationSeconds(url);
+      if(d&&d>5)await pool.query("UPDATE tv_media SET status='ready',duration_seconds=$2,error=NULL WHERE id=$1",[m.id,Math.round(d*10)/10]);
+      else await pool.query("UPDATE tv_media SET status='failed',error='This file could not be read as a video.' WHERE id=$1",[m.id]);
+    })().catch(e=>{console.error("TV media probe failed:",e.message||e);pool.query("UPDATE tv_media SET status='failed',error='Could not read the video.' WHERE id=$1",[m.id]).catch(()=>{});});
+  }catch(e){console.error("TV media complete failed:",e);res.status(500).json({error:"Could not finish the upload."});}
+});
+app.patch("/api/live/media/:id",admin,async(req,res)=>{
+  try{
+    const b=req.body||{};
+    const series=b.series!==undefined?String(b.series||"").trim().slice(0,120):null;
+    if(series!==null&&!series)return res.status(400).json({error:"Show is required."});
+    const episode=b.episode===undefined?undefined:(Number.isInteger(Number(b.episode))&&Number(b.episode)>0?Number(b.episode):null);
+    const title=b.title===undefined?null:String(b.title||"").trim().slice(0,160);
+    const r=await pool.query(`UPDATE tv_media SET series=COALESCE($2,series),title=COALESCE($3,title),episode=CASE WHEN $4::boolean THEN $5::int ELSE episode END WHERE id=$1 RETURNING *`,[req.params.id,series,title,episode!==undefined,episode??null]);
+    if(!r.rowCount)return res.status(404).json({error:"Not found."});
+    res.json({media:tvMediaRow(r.rows[0])});
+  }catch(e){res.status(500).json({error:"Could not update."});}
+});
+app.delete("/api/live/media/:id",admin,async(req,res)=>{
+  try{
+    const r=await pool.query("SELECT * FROM tv_media WHERE id=$1",[req.params.id]);
+    if(!r.rowCount)return res.status(404).json({error:"Not found."});
+    const m=r.rows[0];
+    if(s3Ready()){
+      if(m.upload_id)await s3.send(new AbortMultipartUploadCommand({Bucket:bucket(),Key:m.storage_key,UploadId:m.upload_id})).catch(()=>{});
+      else await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:m.storage_key})).catch(()=>{});
+    }
+    await pool.query("DELETE FROM tv_media WHERE id=$1",[m.id]);
+    res.json({ok:true});
+  }catch(e){res.status(500).json({error:"Could not delete."});}
+});
+app.get(["/library","/library/"],(req,res)=>{
+  res.set("Cache-Control","no-cache, must-revalidate").type("html").sendFile(path.join(ROOT,"library.html"));
+});
+
+// ---- 24/7 playout: what should be on air right now -------------------------
+// The playout service asks this every few seconds. While a scheduled show is
+// on, its episodes play in order (each airing continues where the last one
+// stopped); between shows, items in the "Filler" show loop. OBS always wins:
+// when the studio feed is live the playout steps aside.
+const PLAYOUT_FILLER="Filler";
+const playoutActive=new Map();   // stream id -> {until,title}
+function playoutToken(req){
+  const t=String(process.env.PLAYOUT_TOKEN||"");
+  const h=String(req.headers["x-playout-token"]||"");
+  return t.length>=24&&h.length===t.length&&crypto.timingSafeEqual(Buffer.from(h),Buffer.from(t));
+}
+function isPlayoutOnAir(streamId){const p=playoutActive.get(String(streamId));return !!(p&&p.until>Date.now());}
+function currentSlot(ch,tz,now){
+  const off=tzOffsetMinutes(tz,now),local=new Date(now.getTime()+off*60000);
+  for(const k of [0,-1]){   // today, or a show that started yesterday and runs past midnight
+    const d=new Date(Date.UTC(local.getUTCFullYear(),local.getUTCMonth(),local.getUTCDate()+k));
+    for(const s of ch.schedule||[]){
+      if(Array.isArray(s.days)&&!s.days.includes(d.getUTCDay()))continue;
+      const start=zonedTime(tz,d.getUTCFullYear(),d.getUTCMonth()+1,d.getUTCDate(),s.start);
+      let stop=zonedTime(tz,d.getUTCFullYear(),d.getUTCMonth()+1,d.getUTCDate(),s.end);
+      if(stop<=start)stop=new Date(stop.getTime()+86400000);
+      if(now>=start&&now<stop)return {show:s,start,stop,key:s.title+"|"+start.toISOString()};
+    }
+  }
+  return null;
+}
+async function airingPlan(slot){
+  const ex=await pool.query("SELECT media_ids FROM tv_playout_airings WHERE airing_key=$1",[slot.key]);
+  if(ex.rowCount)return ex.rows[0].media_ids;
+  const eps=(await pool.query("SELECT id,duration_seconds FROM tv_media WHERE series=$1 AND status='ready' ORDER BY episode NULLS LAST,created_at",[slot.show.title])).rows;
+  if(!eps.length)return [];
+  const pr=await pool.query("SELECT next_index FROM tv_playout_progress WHERE series=$1",[slot.show.title]);
+  let idx=pr.rowCount?pr.rows[0].next_index%eps.length:0;
+  const need=(slot.stop-slot.start)/1000,ids=[];let total=0;
+  while(total<need&&ids.length<50){const e=eps[idx%eps.length];ids.push(e.id);total+=Number(e.duration_seconds||0)||1800;idx++;}
+  const ins=await pool.query("INSERT INTO tv_playout_airings(airing_key,series,media_ids) VALUES($1,$2,$3) ON CONFLICT (airing_key) DO NOTHING RETURNING media_ids",[slot.key,slot.show.title,ids]);
+  if(!ins.rowCount)return (await pool.query("SELECT media_ids FROM tv_playout_airings WHERE airing_key=$1",[slot.key])).rows[0].media_ids;
+  await pool.query("INSERT INTO tv_playout_progress(series,next_index,updated_at) VALUES($1,$2,now()) ON CONFLICT (series) DO UPDATE SET next_index=EXCLUDED.next_index,updated_at=now()",[slot.show.title,idx%eps.length]);
+  return ids;
+}
+async function mediaUrl(m){return getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:m.storage_key}),{expiresIn:6*3600});}
+app.get("/api/internal/playout/plan",async(req,res)=>{
+  if(!playoutToken(req))return res.status(401).json({error:"Unauthorised"});
+  try{
+    res.set("Cache-Control","no-store");
+    const cfg=await getTvLineup(),tz=cfg.timeZone||"Africa/Accra",ch=(cfg.channels||[])[0];
+    if(!ch)return res.json({item:null,reason:"no channel"});
+    const st=await pool.query("SELECT * FROM streams WHERE viewer_token=$1",[ch.streamToken]);
+    if(!st.rowCount)return res.json({item:null,reason:"channel not found"});
+    const stream=await refreshStreamStatus(st.rows[0]);
+    const base={streamKey:stream.stream_key,studioLive:stream.status==="live"};
+    if(base.studioLive)return res.json({...base,item:null,reason:"studio live"});
+    if(!s3Ready())return res.json({...base,item:null,reason:"storage not ready"});
+    const now=new Date(),slot=currentSlot(ch,tz,now);
+    if(slot){
+      const ids=await airingPlan(slot);
+      if(ids.length){
+        const rows=(await pool.query("SELECT * FROM tv_media WHERE id=ANY($1::uuid[]) AND status='ready'",[ids])).rows;
+        const byId=new Map(rows.map(r=>[String(r.id),r]));
+        let t=(now-slot.start)/1000;
+        for(const id of ids){
+          const m=byId.get(String(id));if(!m)continue;
+          const d=Number(m.duration_seconds||0);
+          if(t<d-1){
+            const endsAt=new Date(Math.min(slot.stop.getTime(),now.getTime()+(d-t)*1000));
+            return res.json({...base,item:{id:m.id,kind:"show",title:slot.show.title,episode:m.episode,url:await mediaUrl(m),offset:Math.max(0,Math.floor(t)),endsAt:endsAt.toISOString()}});
+          }
+          t-=d;
+        }
+      }
+    }
+    // between shows (or the show's episodes ran out): loop the filler items
+    const fill=(await pool.query("SELECT * FROM tv_media WHERE series=$1 AND status='ready' ORDER BY episode NULLS LAST,created_at",[PLAYOUT_FILLER])).rows;
+    const total=fill.reduce((a,m)=>a+Number(m.duration_seconds||0),0);
+    if(!fill.length||total<5)return res.json({...base,item:null,reason:slot?"no episodes uploaded for "+slot.show.title:"nothing scheduled and no filler"});
+    let t=(now.getTime()/1000)%total;
+    for(const m of fill){
+      const d=Number(m.duration_seconds||0);
+      if(t<d-1){
+        let endsAt=new Date(now.getTime()+(d-t)*1000);
+        const nextSlotStart=(()=>{for(let k=1;k<=Math.ceil(d-t);k+=30){const s2=currentSlot(ch,tz,new Date(now.getTime()+k*1000));if(s2)return s2.start;}return null;})();
+        if(nextSlotStart&&nextSlotStart<endsAt)endsAt=nextSlotStart;
+        return res.json({...base,item:{id:m.id,kind:"filler",title:m.title||"FBI TV",url:await mediaUrl(m),offset:Math.max(0,Math.floor(t)),endsAt:endsAt.toISOString()}});
+      }
+      t-=d;
+    }
+    res.json({...base,item:null,reason:"filler timing"});
+  }catch(e){console.error("Playout plan failed:",e);res.status(500).json({error:"Playout plan failed"});}
+});
+app.post("/api/internal/playout/heartbeat",async(req,res)=>{
+  if(!playoutToken(req))return res.status(401).json({error:"Unauthorised"});
+  try{
+    const cfg=await getTvLineup(),ch=(cfg.channels||[])[0];
+    const st=ch&&await pool.query("SELECT id FROM streams WHERE viewer_token=$1",[ch.streamToken]);
+    if(!st||!st.rowCount)return res.status(404).json({error:"channel not found"});
+    const id=String(st.rows[0].id);
+    if(req.body&&req.body.onAir)playoutActive.set(id,{until:Date.now()+20000,title:String(req.body.title||"").slice(0,160)});
+    else playoutActive.delete(id);
+    res.json({ok:true});
+  }catch(e){res.status(500).json({error:"heartbeat failed"});}
+});
+app.get("/api/live/playout/status",admin,async(req,res)=>{
+  try{
+    const cfg=await getTvLineup(),ch=(cfg.channels||[])[0];
+    const st=ch&&await pool.query("SELECT id FROM streams WHERE viewer_token=$1",[ch.streamToken]);
+    const p=st&&st.rowCount?playoutActive.get(String(st.rows[0].id)):null;
+    res.set("Cache-Control","no-store").json({configured:String(process.env.PLAYOUT_TOKEN||"").length>=24,onAir:!!(p&&p.until>Date.now()),title:p&&p.until>Date.now()?p.title:null});
+  }catch(e){res.status(500).json({error:"status failed"});}
+});
+
 app.get(["/schedule","/schedule/"],(req,res)=>{
   res.set("Cache-Control","no-cache, must-revalidate").type("html").sendFile(path.join(ROOT,"schedule.html"));
 });
