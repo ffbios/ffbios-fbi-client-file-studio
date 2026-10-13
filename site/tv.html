@@ -507,7 +507,7 @@ const CONFIG = {
     teardownVideo();
     if (chatRecordingId) { chatRecordingId = null; loadComments(true); }
     renderSchedule();
-    setupHls(FBIGH + "/api/public/stream/" + encodeURIComponent(tok) + "/hls/index.m3u8");
+    setupHls(HLS_BASE + "/api/public/stream/" + encodeURIComponent(tok) + "/hls/index.m3u8");
   }
   function addIframe(src) {
     const f = document.createElement("iframe");
@@ -637,6 +637,7 @@ const CONFIG = {
 
   // FBI Live Broadcast Studio channel: https://live.fbigh.com/watch/<token>
   const FBIGH = "https://live.fbigh.com";
+  let HLS_BASE = FBIGH;   // where the video is played from (a CDN when configured)
   function fbighToken() {
     const s = CONFIG.stream || {};
     if (s.type !== "fbigh" || !s.watchLink || !s.watchLink.includes("/watch/")) return "";
@@ -829,9 +830,12 @@ const CONFIG = {
   // The lineup comes from /tv-schedule.json (shared with the IPTV guide);
   // the schedule in CONFIG above is only a fallback.
   renderSchedule();
-  fetch("/tv-schedule.json", { cache: "no-store" })
+  // tv-schedule.json may also set "hlsBase": a CDN address the video is
+  // played from (status, chat and viewer counting stay on live.fbigh.com).
+  const scheduleLoaded = fetch("/tv-schedule.json", { cache: "no-store" })
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
+      if (d && typeof d.hlsBase === "string" && /^https:\/\//.test(d.hlsBase)) HLS_BASE = d.hlsBase.replace(/\/+$/, "");
       const ch = d && (d.channels || [])[0];
       if (ch && Array.isArray(ch.schedule)) {
         CONFIG.schedule = ch.schedule;
@@ -842,7 +846,8 @@ const CONFIG = {
     .catch(() => {});
   setInterval(renderSchedule, 60 * 1000);
   startStream();
-  pollViewers();
+  // start the player once we know where the video comes from (max 3 s wait)
+  Promise.race([scheduleLoaded, new Promise((r) => setTimeout(r, 3000))]).then(() => pollViewers());
   setInterval(pollViewers, 20 * 1000);
   loadComments(true);
   setInterval(loadComments, 5 * 1000);
