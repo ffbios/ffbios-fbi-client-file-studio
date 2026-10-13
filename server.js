@@ -6385,7 +6385,7 @@ app.delete("/api/live/media/:id",admin,async(req,res)=>{
     res.json({ok:true});
   }catch(e){res.status(500).json({error:"Could not delete."});}
 });
-app.get(["/library","/library/"],(req,res)=>{
+app.get(["/episodes","/episodes/"],(req,res)=>{
   res.set("Cache-Control","no-cache, must-revalidate").type("html").sendFile(path.join(ROOT,"library.html"));
 });
 
