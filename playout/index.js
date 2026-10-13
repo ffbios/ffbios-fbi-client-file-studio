@@ -20,6 +20,19 @@ const TOKEN = process.env.PLAYOUT_TOKEN || "";
 const RTMP = (process.env.INGEST_RTMP || "rtmp://fbi-live-ingest:1935").replace(/\/+$/, "");
 const POLL_MS = 4000;
 const KICK_BACKOFF_MS = 25000;   // after the studio takes over, don't fight it
+// Channel logo ("bug") in the top-right corner of everything the playout airs.
+// Set PLAYOUT_LOGO=off to hide it; LOGO_WIDTH (pixels on the 1920x1080 picture)
+// and LOGO_OPACITY (0-1) adjust it.
+const LOGO_FILE = require("path").join(__dirname, "logo.png");
+const LOGO_ON = String(process.env.PLAYOUT_LOGO || "on").toLowerCase() !== "off" && require("fs").existsSync(LOGO_FILE);
+const LOGO_WIDTH = Math.max(60, Math.min(600, Number(process.env.LOGO_WIDTH) || 200));
+const LOGO_OPACITY = Math.max(0.1, Math.min(1, Number(process.env.LOGO_OPACITY) || 0.9));
+const BASE_VF = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30";
+// 48 px from the right and 40 px from the top: inside the safe area on TVs.
+const VIDEO_FILTER = LOGO_ON
+  ? "[in]" + BASE_VF + "[base];movie=" + LOGO_FILE + ":loop=0,setpts=N/30/TB,scale=" + LOGO_WIDTH + ":-1,format=rgba,colorchannelmixer=aa=" + LOGO_OPACITY +
+    "[logo];[base][logo]overlay=W-w-48:40:format=auto:shortest=1,format=yuv420p[out]"
+  : BASE_VF + ",format=yuv420p";
 
 if (TOKEN.length < 24) { console.error("PLAYOUT_TOKEN is missing or too short; playout disabled."); }
 
@@ -95,7 +108,7 @@ async function startFeeder(item) {
   const args = ["-hide_banner", "-loglevel", "warning", "-re", "-ss", String(item.offset || 0), "-i", item.url];
   if (!audio) args.push("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo");
   args.push("-t", secs.toFixed(1), "-map", "0:v:0", "-map", audio ? "0:a:0" : "1:a:0",
-    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p",
+    "-vf", VIDEO_FILTER,
     "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-profile:v", "main", "-level", "4.1",
     "-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-b:v", "6M", "-maxrate", "6500k", "-bufsize", "12M",
     "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
@@ -156,7 +169,7 @@ async function tick() {
 http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ ok: true, onAir: !!publisher, playing: current ? current.title : null }));
-}).listen(Number(process.env.PORT || 8080), () => log("FBI TV playout running; web=" + WEB + " ingest=" + RTMP));
+}).listen(Number(process.env.PORT || 8080), () => log("FBI TV playout running; web=" + WEB + " ingest=" + RTMP + " logo=" + (LOGO_ON ? "top-right" : "off")));
 
 setInterval(tick, POLL_MS);
 tick();
