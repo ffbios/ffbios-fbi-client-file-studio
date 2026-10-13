@@ -1,0 +1,21 @@
+{
+  "timeZone": "Africa/Accra",
+  "channels": [
+    {
+      "id": "fbitv.gh",
+      "number": 1,
+      "name": "FBI TV",
+      "group": "FBI TV",
+      "country": "GH",
+      "language": "English",
+      "streamToken": "7UqojM_oCDlDRA4I3izc8Z_gsT-OE4lJ",
+      "logo": "https://live.fbigh.com/tv-icon-512.png",
+      "fillerTitle": "FBI TV",
+      "fillerDescription": "FBI TV | Film Beyond Imagination. Entertainment, Live TV, Talk Shows, Movies, Events and Original Productions.",
+      "schedule": [
+        { "start": "10:00", "end": "11:00", "title": "The Blacklist — Season 1", "host": "", "category": "Series" },
+        { "start": "23:00", "end": "00:00", "title": "Arrow — Season 1", "host": "", "category": "Series" }
+      ]
+    }
+  ]
+}
