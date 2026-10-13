@@ -6122,8 +6122,10 @@ app.get(["/fbitv.m3u","/fbitv.m3u8","/playlist.m3u","/iptv.m3u"],(req,res)=>{
   try{
     const cfg=readTvSchedule();
     const lines=['#EXTM3U url-tvg="'+IPTV_BASE+'/epg.xml" x-tvg-url="'+IPTV_BASE+'/epg.xml"'];
+    // "hlsBase" in tv-schedule.json (or HLS_CDN_BASE) switches the video to a CDN.
+    const hlsBase=String(process.env.HLS_CDN_BASE||(/^https:\/\//.test(cfg.hlsBase||"")?cfg.hlsBase:"")||IPTV_BASE).replace(/\/+$/,"");
     for(const ch of cfg.channels||[]){
-      const url=IPTV_BASE+"/api/public/stream/"+encodeURIComponent(ch.streamToken)+"/hls/index.m3u8";
+      const url=hlsBase+"/api/public/stream/"+encodeURIComponent(ch.streamToken)+"/hls/index.m3u8";
       const attrs=[["tvg-id",ch.id],["tvg-name",ch.name],["tvg-chno",ch.number],["tvg-logo",ch.logo],["tvg-country",ch.country],["tvg-language",ch.language],["group-title",ch.group||ch.name]]
         .filter(([,v])=>v!==undefined&&v!==null&&v!=="").map(([k,v])=>k+'="'+String(v).replace(/"/g,"'")+'"').join(" ");
       lines.push("#EXTINF:-1 "+attrs+","+ch.name,url);
