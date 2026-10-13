@@ -472,6 +472,7 @@ const CONFIG = {
   // ---------- player ----------
   // mode: "live" (the live stream), "replay" (last broadcast while off air), "off"
   let mode = "off";
+  let liveGen = 0;   // bumped each time live starts, so a replay still loading never replaces it
   function showOffline() {
     $("offline").hidden = false;
     $("offBadge").hidden = false;
@@ -507,9 +508,12 @@ const CONFIG = {
     const tok = fbighToken();
     if (!tok || replayLoading || mode === "replay") return;
     replayLoading = true;
+    const gen = liveGen;
     try {
       const r = await fetch(FBIGH + "/api/public/stream/" + encodeURIComponent(tok) + "/replay", { cache: "no-store" });
       const d = await r.json();
+      // The live feed came back while the replay was loading: live wins.
+      if (gen !== liveGen) return;
       if (!r.ok || !d.available || !d.play_url) { if (mode !== "off") goOffline(); else showOffline(); return; }
       teardownVideo();
       mode = "replay";
@@ -545,13 +549,33 @@ const CONFIG = {
       replayLoading = false;
     }
   }
+  // While the channel says it's on air, a playback error means "retry live",
+  // not "show the replay": the stream is often still starting or reconnecting.
+  let liveRetries = 0, liveRetryTimer = 0;   // liveGen is declared with the player state
+  const LIVE_RETRY_MAX = 4;
   function startLive() {
     const tok = fbighToken();
     if (!tok) return;
+    clearTimeout(liveRetryTimer);
+    liveGen++;
     teardownVideo();
     if (chatRecordingId) { chatRecordingId = null; loadComments(true); }
     renderSchedule();
     setupHls(HLS_BASE + "/api/public/stream/" + encodeURIComponent(tok) + "/hls/index.m3u8");
+  }
+  function liveFailed() {
+    if (mode !== "live") return;
+    clearTimeout(liveRetryTimer);
+    if (liveRetries < LIVE_RETRY_MAX) {
+      liveRetries++;
+      liveRetryTimer = setTimeout(() => { if (mode === "live") startLive(); }, 2000 * liveRetries);
+      return;
+    }
+    // Still failing after several tries: show the replay for now. The next
+    // status check (every 20 s) tries live again while the channel is on air.
+    liveRetries = 0;
+    goOffline();
+    startReplay();
   }
   function addIframe(src) {
     const f = document.createElement("iframe");
@@ -570,13 +594,13 @@ const CONFIG = {
     video.preload = "auto";
     player.insertBefore(video, $("player").querySelector(".badges"));
 
-    // Stream dropped: go off air now; the status check then loads the replay
-    // or switches back to live when the broadcast resumes.
-    const onFatal = () => { if (fbighToken()) { goOffline(); startReplay(); } else showOffline(); };
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = url;                                    // Safari / iPhone
-      video.addEventListener("error", onFatal);
-    } else if (window.Hls && Hls.isSupported()) {
+    // Stream dropped: retry live a few times; the status check decides when
+    // the channel is really off air and the replay should play.
+    const onFatal = () => { if (fbighToken()) liveFailed(); else showOffline(); };
+    // hls.js first, the browser's own HLS player only where hls.js can't run
+    // (iPhone). Newer Chrome reports native HLS support too, but its player
+    // fails on this stream, which dropped every Chrome viewer into the replay.
+    if (window.Hls && Hls.isSupported()) {
       // Smart TVs and big screens start at 720p and climb to 1080p; phones
       // start low so the picture appears quickly on mobile data.
       const bigScreen = document.body.classList.contains("tvmode") || new URLSearchParams(location.search).get("tv") === "1" ||
@@ -597,12 +621,15 @@ const CONFIG = {
         showLive(); $("controls").hidden = false;
       });
       window.__hls = hls;
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = url;                                    // Safari / iPhone
+      video.addEventListener("error", onFatal);
     } else {
       onFatal();
       return;
     }
     video.addEventListener("loadedmetadata", () => { showLive(); $("controls").hidden = false; });
-    video.addEventListener("playing", () => { showLive(); $("controls").hidden = false; syncIcons(); });
+    video.addEventListener("playing", () => { liveRetries = 0; showLive(); $("controls").hidden = false; syncIcons(); });
     video.addEventListener("pause", syncIcons);
     video.addEventListener("volumechange", syncIcons);
     video.addEventListener("click", togglePlay);
