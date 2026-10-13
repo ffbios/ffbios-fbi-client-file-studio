@@ -5,6 +5,13 @@ episodes uploaded in the studio's **Episode library** at the times set in the
 **Schedule**, and loops the **Filler** items between shows. OBS always takes
 priority: as soon as the studio goes live, the playout steps aside.
 
+Promos: each show in the Schedule can play a promo **before** and/or **after**
+every episode — its own promo, another show's, or "the next show's promo"
+(coming up). Promo clips are uploaded in the Episode library under
+"<Show> — promos" (stored as series `Promo: <Show>`) and rotate in order.
+Promos count towards the slot's length, and only whole episodes are planned:
+if the next episode won't fit, the rest of the slot plays Filler.
+
 Railway service settings:
 - Root directory: `/playout`, builder: Dockerfile, watch paths: `/playout/**`
 - Variables:

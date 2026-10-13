@@ -42,6 +42,9 @@
   .f label,.f .lab{font-size:13px;font-weight:600;color:var(--muted)}
   input[type=text],input[type=time]{min-height:44px;border-radius:10px;border:1px solid #3A3833;background:#141416;color:var(--text);font:inherit;font-size:15px;padding:0 12px;width:100%}
   input[type=time]{width:140px;color-scheme:dark}
+  select{min-height:44px;border-radius:10px;border:1px solid #3A3833;background:#141416;color:var(--text);font:inherit;font-size:15px;padding:0 10px;width:100%;color-scheme:dark}
+  select:focus{border-color:var(--gold);outline:none}
+  .hint{font-size:12.5px;color:var(--faint);line-height:1.45;margin-top:-4px}
   input:focus{border-color:var(--gold);outline:none}
   .days{display:flex;flex-wrap:wrap;gap:6px}
   .day{min-height:36px;min-width:46px;padding:0 10px;border-radius:999px;border:1px solid #3A3833;background:transparent;color:var(--soft);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
@@ -144,6 +147,23 @@
     return i;
   }
 
+  // what plays before / after each episode: this show's promo, the next
+  // show's promo, or any other scheduled show's promo
+  function promoSelect(s, key) {
+    const sel = document.createElement("select");
+    const opts = [["", "Nothing"]];
+    if (key === "after") opts.push(["@next", "Promo of the next show (coming up)"]);
+    opts.push(["@self", "This show's promo"]);
+    const titles = [...new Set(shows.map((x) => String(x.title || "").trim()).filter((t) => t && t !== String(s.title || "").trim()))];
+    titles.forEach((t) => opts.push([t, "Promo of " + t]));
+    const cur = s[key] || "";
+    if (cur && !opts.some((o) => o[0] === cur)) opts.push([cur, "Promo of " + cur + " (not in schedule)"]);
+    opts.forEach(([v, label]) => { const o = document.createElement("option"); o.value = v; o.textContent = label; sel.appendChild(o); });
+    sel.value = cur;
+    sel.addEventListener("change", () => { if (sel.value) s[key] = sel.value; else delete s[key]; markDirty(); });
+    return sel;
+  }
+
   function render() {
     const box = $("shows");
     box.textContent = "";
@@ -188,6 +208,13 @@
         field("Presenter (optional)", textInput(s.host, "", 80, (v) => (s.host = v)), "grow"),
         field("Category (optional)", textInput(s.category, "Series, Movie, Talk show…", 40, (v) => (s.category = v)), "grow")
       );
+      const r3 = document.createElement("div"); r3.className = "row";
+      r3.append(
+        field("Before each episode", promoSelect(s, "before"), "grow"),
+        field("After each episode", promoSelect(s, "after"), "grow")
+      );
+      const ph = document.createElement("div"); ph.className = "hint";
+      ph.textContent = "Upload promo clips in the Episode library under “" + (String(s.title || "").trim() || "this show") + " — promos”. Promos play inside this show's time slot, so they count towards its length.";
       // days
       const dw = document.createElement("div"); dw.className = "f";
       const dl = document.createElement("div"); dl.className = "lab"; dl.textContent = "Days";
@@ -219,7 +246,7 @@
         if (!s.title || window.confirm("Delete “" + s.title + "” from the schedule?")) { shows.splice(idx, 1); markDirty(); render(); }
       });
       act.appendChild(del);
-      fc.append(r1, r2, dw, act);
+      fc.append(r1, r2, r3, ph, dw, act);
       card.append(pc, fc);
       box.appendChild(card);
     });
