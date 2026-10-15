@@ -24,3 +24,5 @@ jobs:
         run: node --check server.js
       - name: Parse portal inline scripts
         run: node scripts/check-inline-scripts.js
+      - name: Test playout episode and promo planning
+        run: npm run test:playout
