@@ -117,7 +117,7 @@ const base = {
   const result = buildSchedulePlan({
     ...base,
     media: [track("ep1", 1, 30), track("ep2", 2, 30)],
-    slotSeconds: 180,
+    slotSeconds: 80,
     afterPromoKeys: ["Promo: Series"],
     promoPools: { "Promo: Series": { items: [promo("between-episodes", 10)], nextIndex: 0 } }
   });
