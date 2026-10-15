@@ -34,6 +34,7 @@ function buildSchedulePlan(options) {
   const slotSeconds = Math.max(0, finite(opt.slotSeconds, 0));
   const mode = show.contentMode === "playlist" ? "playlist" : "episodes";
   const repeatEpisodes = show.repeatEpisodes === true;
+  const legacyEpisodeIndex = opt.legacyEpisodeIndex === true;
   const intervalMinutes = Math.max(0, Math.min(120, finite(show.promoIntervalMinutes, 10)));
   const intervalSeconds = intervalMinutes > 0 ? intervalMinutes * 60 : 0;
   const media = (Array.isArray(opt.media) ? opt.media : [])
@@ -118,6 +119,10 @@ function buildSchedulePlan(options) {
       return unnumbered;
     }
     if (nextIndex < media.length) return nextIndex;
+    // During the first rollout, old progress rows have only an array index.
+    // Use it once as a fallback if historical airing data cannot recover a
+    // stable pointer; the saved plan will then persist an episode number.
+    if (legacyEpisodeIndex && hasNumbers && media.length) return nextIndex % media.length;
     return repeatEpisodes && media.length ? nextIndex % media.length : -1;
   }
 
