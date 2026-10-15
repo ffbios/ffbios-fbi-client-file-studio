@@ -1000,6 +1000,18 @@ async function initDb(){
       error text,
       created_at timestamptz NOT NULL DEFAULT now()
     );
+    -- Keep metadata for deleted clips because historical airings may still
+    -- reference their IDs and their episode numbers must remain recoverable.
+    CREATE TABLE IF NOT EXISTS tv_media_history(
+      id uuid PRIMARY KEY,
+      series text NOT NULL,
+      episode int,
+      title text NOT NULL DEFAULT '',
+      filename text NOT NULL DEFAULT '',
+      duration_seconds numeric,
+      original_created_at timestamptz,
+      deleted_at timestamptz NOT NULL DEFAULT now()
+    );
     CREATE INDEX IF NOT EXISTS idx_tv_media_series ON tv_media(series,episode,created_at);
     CREATE TABLE IF NOT EXISTS tv_playout_airings(
       airing_key text PRIMARY KEY,
@@ -6404,6 +6416,10 @@ app.delete("/api/live/media/:id",admin,async(req,res)=>{
     const r=await pool.query("SELECT * FROM tv_media WHERE id=$1",[req.params.id]);
     if(!r.rowCount)return res.status(404).json({error:"Not found."});
     const m=r.rows[0];
+    await pool.query(
+      "INSERT INTO tv_media_history(id,series,episode,title,filename,duration_seconds,original_created_at,deleted_at) VALUES($1,$2,$3,$4,$5,$6,$7,now()) ON CONFLICT (id) DO UPDATE SET series=EXCLUDED.series,episode=EXCLUDED.episode,title=EXCLUDED.title,filename=EXCLUDED.filename,duration_seconds=EXCLUDED.duration_seconds,original_created_at=EXCLUDED.original_created_at,deleted_at=now()",
+      [m.id,m.series,m.episode,m.title,m.filename,m.duration_seconds,m.created_at]
+    );
     if(s3Ready()){
       if(m.upload_id)await s3.send(new AbortMultipartUploadCommand({Bucket:bucket(),Key:m.storage_key,UploadId:m.upload_id})).catch(()=>{});
       else await s3.send(new DeleteObjectCommand({Bucket:bucket(),Key:m.storage_key})).catch(()=>{});
@@ -6503,18 +6519,18 @@ async function recoverLegacyEpisodeProgress(slot,media,progressRow,hasProgressRo
         if(Number.isInteger(segmentEpisode)&&segmentEpisode>0){
           lastEpisode=segmentEpisode;lastMediaId=String(segment.id||"");
         }else if(segment.id){
-          const m=(await pool.query("SELECT series,episode FROM tv_media WHERE id=$1",[segment.id])).rows[0];
+          const m=(await pool.query("SELECT series,episode FROM tv_media WHERE id=$1 UNION ALL SELECT h.series,h.episode FROM tv_media_history h WHERE h.id=$1 AND NOT EXISTS(SELECT 1 FROM tv_media x WHERE x.id=$1) LIMIT 1",[segment.id])).rows[0];
           if(m&&m.series===slot.show.title&&Number(m.episode)>0){
             lastEpisode=Number(m.episode);lastMediaId=String(segment.id);
           }
         }
       }
     }else if(Array.isArray(row.media_ids)&&row.media_ids.length){
-      const currentRows=(await pool.query(
-        "SELECT id,series,episode FROM tv_media WHERE id=ANY($1::uuid[])",
-        [row.media_ids]
-      )).rows;
-      const byId=new Map(currentRows.map(m=>[String(m.id),m]));
+      const [currentRows,deletedRows]=await Promise.all([
+        pool.query("SELECT id,series,episode FROM tv_media WHERE id=ANY($1::uuid[])",[row.media_ids]),
+        pool.query("SELECT h.id,h.series,h.episode FROM tv_media_history h WHERE h.id=ANY($1::uuid[]) AND NOT EXISTS(SELECT 1 FROM tv_media m WHERE m.id=h.id)",[row.media_ids])
+      ]);
+      const byId=new Map([...deletedRows.rows,...currentRows.rows].map(m=>[String(m.id),m]));
       for(const id of row.media_ids){
         const m=byId.get(String(id));
         if(!m||m.series!==slot.show.title||!Number.isInteger(Number(m.episode))||Number(m.episode)<=0)continue;
@@ -6580,8 +6596,11 @@ async function airingPlan(slot,ch,tz){
     // are encountered after a deployment.
     if(Array.isArray(row.media_ids)&&row.media_ids.length){
       const ids=row.media_ids;
-      const rows=(await pool.query("SELECT id,series,episode,title,filename,duration_seconds FROM tv_media WHERE id=ANY($1::uuid[])",[ids])).rows;
-      const byId=new Map(rows.map(m=>[String(m.id),m]));
+      const [currentRows,deletedRows]=await Promise.all([
+        pool.query("SELECT id,series,episode,title,filename,duration_seconds FROM tv_media WHERE id=ANY($1::uuid[])",[ids]),
+        pool.query("SELECT h.id,h.series,h.episode,h.title,h.filename,h.duration_seconds FROM tv_media_history h WHERE h.id=ANY($1::uuid[]) AND NOT EXISTS(SELECT 1 FROM tv_media m WHERE m.id=h.id)",[ids])
+      ]);
+      const byId=new Map([...deletedRows.rows,...currentRows.rows].map(m=>[String(m.id),m]));
       const legacy=ids.map(id=>{
         const m=byId.get(String(id));
         if(!m)return null;
