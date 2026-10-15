@@ -136,7 +136,7 @@ function buildSchedulePlan(options) {
     }
   }
 
-  if (slotSeconds > 0.001 && media.length) {
+  if (slotSeconds > 0.001 && media.length && (mode === "playlist" || chooseEpisodeIndex() >= 0)) {
     const preRoll = addPromo(beforeKeys);
     if (preRoll === "added") promoClockSeconds = 0;
 
