@@ -6472,6 +6472,11 @@ async function promoClips(key){
   return r.rows;
 }
 async function recoverLegacyEpisodeProgress(slot,media,progressRow,hasProgressRow){
+  // Unnumbered film/one-off libraries cannot recover an episode number. Keep
+  // their ordinary pointer behavior and avoid scanning irrelevant history.
+  if(!media.some(m=>Number.isInteger(Number(m.episode))&&Number(m.episode)>0)){
+    return {progress:progressRow,legacyEpisodeIndex:false};
+  }
   // Existing deployments stored only a modulo-based next_index. Before trusting
   // it, inspect the most recent prior airing and recover its last known episode
   // number. This handles a library where an operator has deleted or added files
