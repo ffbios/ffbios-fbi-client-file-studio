@@ -40,8 +40,9 @@
   .f{display:flex;flex-direction:column;gap:6px;min-width:0}
   .f.grow{flex:1 1 240px}
   .f label,.f .lab{font-size:13px;font-weight:600;color:var(--muted)}
-  input[type=text],input[type=time]{min-height:44px;border-radius:10px;border:1px solid #3A3833;background:#141416;color:var(--text);font:inherit;font-size:15px;padding:0 12px;width:100%}
+  input[type=text],input[type=time],input[type=number]{min-height:44px;border-radius:10px;border:1px solid #3A3833;background:#141416;color:var(--text);font:inherit;font-size:15px;padding:0 12px;width:100%}
   input[type=time]{width:140px;color-scheme:dark}
+  input[type=number]{width:140px;color-scheme:dark}
   select{min-height:44px;border-radius:10px;border:1px solid #3A3833;background:#141416;color:var(--text);font:inherit;font-size:15px;padding:0 10px;width:100%;color-scheme:dark}
   select:focus{border-color:var(--gold);outline:none}
   .hint{font-size:12.5px;color:var(--faint);line-height:1.45;margin-top:-4px}
@@ -74,6 +75,7 @@
     <nav class="links" aria-label="Studio">
       <a class="lnk" href="/live">← Studio</a>
       <a class="lnk" href="/episodes">Episode library</a>
+      <a class="lnk" href="/airtime">Airtime planner</a>
       <a class="lnk" href="/viewers">Viewer report</a>
       <a class="lnk" href="/tv" target="_blank" rel="noopener">Open watch page</a>
     </nav>
@@ -90,7 +92,7 @@
   <div id="editor" hidden>
     <div>
       <h1>Program lineup</h1>
-      <p class="sub">Times are Ghana time. Saving updates the watch page, the IPTV playlist and the TV guide straight away. A show that ends at or after midnight (for example 23:00 – 00:00) is fine.</p>
+      <p class="sub">Times are Ghana time. Episodes advance by episode number and can resume at the exact file offset on the next airing. Pick episode mode for series and films, or playlist mode for music videos. Promo breaks are inserted into the saved rundown, without cutting music videos in half.</p>
     </div>
     <div id="shows" style="display:flex;flex-direction:column;gap:12px;margin-top:16px"></div>
     <div style="margin-top:12px"><button class="btn" id="addBtn" type="button">＋ Add a show</button></div>
@@ -147,20 +149,54 @@
     return i;
   }
 
-  // what plays before / after each episode: this show's promo, the next
-  // show's promo, or any other scheduled show's promo
+  // Pre-roll is automatic by default: prefer this show's promo and fall back
+  // to the station-wide Promo: General library.
   function promoSelect(s, key) {
     const sel = document.createElement("select");
-    const opts = [["", "Nothing"]];
-    if (key === "after") opts.push(["@next", "Promo of the next show (coming up)"]);
-    opts.push(["@self", "This show's promo"]);
+    const opts = key === "before"
+      ? [["@auto", "Automatic: this show's promo, then station promo"], ["@general", "Station-wide promo only"], ["@self", "Prefer this show's promo"]]
+      : [["", "No after-promo"], ["@next", "Promo of the next show (coming up)"], ["@general", "Station-wide promo"]];
+    if (key === "after") opts.push(["@self", "This show's promo"]);
     const titles = [...new Set(shows.map((x) => String(x.title || "").trim()).filter((t) => t && t !== String(s.title || "").trim()))];
     titles.forEach((t) => opts.push([t, "Promo of " + t]));
-    const cur = s[key] || "";
+    const cur = key === "before" ? (s.before || "@auto") : (s.after || "");
     if (cur && !opts.some((o) => o[0] === cur)) opts.push([cur, "Promo of " + cur + " (not in schedule)"]);
     opts.forEach(([v, label]) => { const o = document.createElement("option"); o.value = v; o.textContent = label; sel.appendChild(o); });
     sel.value = cur;
     sel.addEventListener("change", () => { if (sel.value) s[key] = sel.value; else delete s[key]; markDirty(); });
+    return sel;
+  }
+  function modeSelect(s) {
+    const sel = document.createElement("select");
+    const inferred = /music|playlist/i.test(String(s.category || "") + " " + String(s.title || "")) ? "playlist" : "episodes";
+    const current = s.contentMode || inferred;
+    [["episodes", "Episodes / film (10-minute breaks)"], ["playlist", "Music video playlist (breaks between tracks)"]].forEach(([value, label]) => {
+      const option = document.createElement("option"); option.value = value; option.textContent = label; sel.appendChild(option);
+    });
+    sel.value = current;
+    sel.addEventListener("change", () => { s.contentMode = sel.value; markDirty(); render(); });
+    return sel;
+  }
+  function intervalInput(s) {
+    const input = document.createElement("input");
+    input.type = "number"; input.min = "0"; input.max = "120"; input.step = "1";
+    input.value = s.promoIntervalMinutes == null ? "10" : String(s.promoIntervalMinutes);
+    input.setAttribute("aria-label", "Promo interval in minutes");
+    input.addEventListener("change", () => {
+      const n = Number(input.value);
+      s.promoIntervalMinutes = Number.isFinite(n) ? Math.max(0, Math.min(120, Math.round(n))) : 10;
+      input.value = String(s.promoIntervalMinutes); markDirty();
+    });
+    return input;
+  }
+  function repeatSelect(s) {
+    const sel = document.createElement("select");
+    [["false", "Stop after last episode (then filler)"], ["true", "Loop from the first episode"]].forEach(([value, label]) => {
+      const option = document.createElement("option"); option.value = value; option.textContent = label; sel.appendChild(option);
+    });
+    sel.value = s.repeatEpisodes === true ? "true" : "false";
+    sel.disabled = (s.contentMode || (/music|playlist/i.test(String(s.category || "") + " " + String(s.title || "")) ? "playlist" : "episodes")) === "playlist";
+    sel.addEventListener("change", () => { s.repeatEpisodes = sel.value === "true"; markDirty(); });
     return sel;
   }
 
@@ -210,11 +246,17 @@
       );
       const r3 = document.createElement("div"); r3.className = "row";
       r3.append(
-        field("Before each episode", promoSelect(s, "before"), "grow"),
-        field("After each episode", promoSelect(s, "after"), "grow")
+        field("Content type", modeSelect(s), "grow"),
+        field("Promo interval (minutes)", intervalInput(s)),
+        field("Repeat episodes", repeatSelect(s), "grow")
+      );
+      const r4 = document.createElement("div"); r4.className = "row";
+      r4.append(
+        field("Promo before programme / each episode", promoSelect(s, "before"), "grow"),
+        field("Optional promo after each episode", promoSelect(s, "after"), "grow")
       );
       const ph = document.createElement("div"); ph.className = "hint";
-      ph.textContent = "Upload promo clips in the Episode library under “" + (String(s.title || "").trim() || "this show") + " — promos”. Promos play inside this show's time slot, so they count towards its length.";
+      ph.textContent = "Upload show promos under “" + (String(s.title || "").trim() || "this show") + " — promos” or station-wide promos under “Promo: General”. If both are empty, existing clips in Filler are used as a fallback promo pool. Episode mode resumes from the same source point after each interval; playlist mode inserts interval promos only between music videos. Set the interval to 0 to disable mid-roll/track-interval breaks; the opening and per-episode promos remain enabled.";
       // days
       const dw = document.createElement("div"); dw.className = "f";
       const dl = document.createElement("div"); dl.className = "lab"; dl.textContent = "Days";
@@ -261,13 +303,29 @@
     if (!r.ok) { $("savebar").hidden = false; setStatus(d.error || "Could not load the schedule.", "err"); return; }
     const ch = (d.doc && d.doc.channels || [])[0] || {};
     shows = JSON.parse(JSON.stringify(ch.schedule || []));
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("fillGap") === "1") {
+      const start = params.get("start") || "";
+      const end = params.get("end") || "";
+      const day = Number(params.get("day"));
+      if (/^([01]\d|2[0-3]):[0-5]\d$/.test(start) && /^([01]\d|2[0-3]):[0-5]\d$/.test(end) && Number.isInteger(day) && day >= 0 && day <= 6) {
+        shows.push({title:"New programme",start,end,days:[day],host:"",category:"",contentMode:"episodes",promoIntervalMinutes:10,repeatEpisodes:false,before:"@auto"});
+        dirty = true;
+        setStatus("Free slot added as a draft. Rename it and save when ready.");
+        history.replaceState(null, "", window.location.pathname);
+      }
+    }
     $("editor").hidden = false; $("savebar").hidden = false;
-    setStatus("All changes saved", "ok");
+    if (!dirty) setStatus("All changes saved", "ok");
     render();
+    if (dirty) {
+      const titleInput = $("shows").querySelector("section.show:last-child input[type=text]");
+      if (titleInput) titleInput.focus();
+    }
   }
 
   $("addBtn").addEventListener("click", () => {
-    shows.push({ title: "", start: "", end: "", host: "", category: "" });
+    shows.push({ title: "", start: "", end: "", host: "", category: "", contentMode: "episodes", promoIntervalMinutes: 10, repeatEpisodes: false, before: "@auto" });
     markDirty(); render();
     const inputs = $("shows").querySelectorAll("section.show:last-child input[type=text]");
     if (inputs[0]) inputs[0].focus();

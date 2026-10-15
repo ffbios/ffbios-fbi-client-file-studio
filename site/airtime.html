@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>FBI TV — Airtime Planner</title>
+<meta name="theme-color" content="#111113">
+<link rel="icon" type="image/png" sizes="192x192" href="/tv-icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700&display=swap">
+<style>
+  :root{--bg:#161618;--bar:#111113;--card:#1D1D20;--line:#2A2A2D;--text:#F2EFE8;--strong:#F7F4EC;--muted:#B3AC9E;--faint:#8E887B;--gold:#E8B93A;--green:#8FD19E;--red:#E8A0A0}
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:'Archivo',system-ui,sans-serif}
+  a{color:var(--gold)}
+  :focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+  @media(max-width:600px){.wrap{padding:0 16px}}
+  header{background:var(--bar);border-bottom:1px solid var(--line)}
+  header .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding-top:14px;padding-bottom:14px}
+  .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--strong)}
+  .brand img{width:36px;height:36px;border-radius:9px}
+  .brand b{font-family:'Archivo Black',sans-serif;font-weight:400;font-size:20px}
+  .brand span{color:var(--muted);font-weight:600;font-size:15px}
+  .links{display:flex;flex-wrap:wrap;gap:8px}
+  .lnk,.btn{min-height:42px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border-radius:10px;border:1px solid #3A3833;background:#1F1F22;color:var(--text);text-decoration:none;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+  .lnk:hover,.btn:hover{border-color:var(--gold)}
+  .btn.gold{background:var(--gold);color:#161618;border-color:var(--gold)}
+  .btn:disabled{opacity:.55;cursor:default}
+  main.wrap{padding-top:24px;padding-bottom:60px;display:flex;flex-direction:column;gap:16px}
+  h1{margin:0;font-family:'Archivo Black',sans-serif;font-weight:400;font-size:clamp(23px,3vw,30px);color:var(--strong)}
+  h2{margin:0;font-size:17px;color:var(--strong)}
+  .sub{color:var(--muted);font-size:14px;margin:5px 0 0;line-height:1.55}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .toolbar{display:flex;flex-wrap:wrap;align-items:end;gap:12px}
+  .f{display:flex;flex-direction:column;gap:6px;min-width:min(100%,220px)}
+  label{font-size:13px;font-weight:600;color:var(--muted)}
+  select{min-height:44px;border-radius:10px;border:1px solid #3A3833;background:#141416;color:var(--text);font:inherit;font-size:15px;padding:0 12px;color-scheme:dark}
+  .summary{display:flex;flex-wrap:wrap;gap:10px}
+  .stat{flex:1 1 160px;border:1px solid var(--line);border-radius:12px;padding:13px 15px;background:#171719}
+  .stat b{display:block;font-size:22px;color:var(--strong);font-variant-numeric:tabular-nums}
+  .stat span{color:var(--muted);font-size:12px}
+  .tablebox{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{color:var(--muted);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+  td.time{white-space:nowrap;font-variant-numeric:tabular-nums;font-weight:700}
+  tr.free td:first-child{border-left:3px solid var(--green)}
+  tr.booked td:first-child{border-left:3px solid var(--gold)}
+  .state{display:inline-flex;padding:5px 8px;border-radius:7px;background:#26262A;font-size:12px;font-weight:700}
+  tr.free .state{color:var(--green)}
+  tr.booked .state{color:var(--gold)}
+  .small{font-size:12px;color:var(--muted);line-height:1.4}
+  .status{font-size:14px;color:var(--muted)}
+  .status.err{color:var(--red)}
+  .signin{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+  .empty{border:1px dashed #3A3833;border-radius:12px;padding:24px;text-align:center;color:var(--muted)}
+  @media print{
+    :root{--bg:#fff;--card:#fff;--text:#111;--strong:#111;--muted:#444;--line:#ccc;--gold:#8a6a00;--green:#176c37}
+    html,body{background:#fff!important;color:#111!important;font-size:11pt}
+    header,.toolbar,.no-print,.btn,.lnk{display:none!important}
+    .wrap,main.wrap{max-width:none;padding:0;margin:0;gap:10px}
+    .card,.stat{background:#fff!important;border:1px solid #bbb;break-inside:avoid}
+    h1,h2,.sub,th,td,.stat b,.stat span,.state{color:#111!important}
+    .state{background:#eee}
+    tr.free td:first-child,tr.booked td:first-child{border-left-color:#555}
+    a{color:#111;text-decoration:none}
+    @page{size:A4 portrait;margin:15mm}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="brand" href="/live"><img src="/tv-icon-192.png" alt=""><b>FBI TV</b><span>Airtime Planner</span></a>
+    <nav class="links" aria-label="Studio">
+      <a class="lnk" href="/live">← Studio</a>
+      <a class="lnk" href="/schedule">Schedule</a>
+      <a class="lnk" href="/episodes">Episode library</a>
+      <a class="lnk" href="/viewers">Viewer report</a>
+    </nav>
+  </div>
+</header>
+<main class="wrap">
+  <section class="card" id="signin" hidden>
+    <h1>Sign in to view airtime</h1>
+    <p class="sub">This planner is only available to the FBI Live studio team.</p>
+    <a class="btn gold" href="/live">Open the studio sign-in</a>
+  </section>
+  <section id="planner" hidden>
+    <div style="margin-bottom:14px">
+      <h1>Available airtime</h1>
+      <p class="sub">Review scheduled programmes and the open windows between them using Ghana time (Africa/Accra). Print the daily rundown or create a draft programme directly from a free slot.</p>
+    </div>
+    <div class="card toolbar no-print" style="margin-bottom:14px">
+      <div class="f">
+        <label for="day">Broadcast day</label>
+        <select id="day">
+          <option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option>
+          <option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option>
+        </select>
+      </div>
+      <button class="btn" id="refresh" type="button">Refresh schedule</button>
+      <button class="btn gold" id="print" type="button">Print daily rundown</button>
+      <span class="status" id="status" role="status" aria-live="polite">Loading schedule…</span>
+    </div>
+    <div class="summary" id="summary" style="margin-bottom:14px"></div>
+    <section class="card">
+      <h2 id="tableTitle">Daily rundown</h2>
+      <p class="sub" id="dayNote">Scheduled shows and free windows from 00:00 to 24:00.</p>
+      <div class="tablebox" style="margin-top:12px">
+        <table>
+          <thead><tr><th>Start</th><th>End</th><th>Duration</th><th>Time slot</th><th>Action / Notes</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="empty" hidden>No scheduled programmes or free windows were found.</div>
+    </section>
+    <p class="small">Free airtime is calculated from the weekly schedule only. Ads and episode breaks are inserted inside a programme's slot, so they do not create additional free time outside the scheduled start and end.</p>
+  </section>
+</main>
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const dayNames = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  let schedule = [];
+  function mins(value){const p=String(value||"").split(":").map(Number);return (p[0]||0)*60+(p[1]||0);}
+  function clock(m){m=Math.max(0,Math.round(m));if(m===1440)return "24:00";return String(Math.floor(m/60)%24).padStart(2,"0")+":"+String(m%60).padStart(2,"0");}
+  function duration(m){const n=Math.max(0,Math.round(m));const h=Math.floor(n/60),r=n%60;return h? h+"h "+String(r).padStart(2,"0")+"m":r+" min";}
+  function applies(show,day){return !Array.isArray(show.days)||show.days.includes(day);}
+  function intervalsForDay(day){
+    const intervals=[];
+    schedule.forEach(show=>{
+      const start=mins(show.start),rawEnd=mins(show.end),end=rawEnd<=start?rawEnd+1440:rawEnd;
+      if(applies(show,day)){
+        const a=Math.max(0,start),b=Math.min(1440,end);
+        if(b>a)intervals.push({start:a,end:b,title:show.title,notes:end>1440?"Continues after midnight":""});
+      }
+      const previous=(day+6)%7;
+      if(end>1440&&applies(show,previous)){
+        const a=Math.max(0,start-1440),b=Math.min(1440,end-1440);
+        if(b>a)intervals.push({start:a,end:b,title:show.title,notes:"Continues from the previous day"});
+      }
+    });
+    return intervals.sort((a,b)=>a.start-b.start||a.end-b.end);
+  }
+  function freeIntervals(intervals){
+    const merged=[];
+    intervals.slice().sort((a,b)=>a.start-b.start||a.end-b.end).forEach(item=>{
+      const last=merged[merged.length-1];
+      if(last&&item.start<=last.end)last.end=Math.max(last.end,item.end);
+      else merged.push({start:item.start,end:item.end});
+    });
+    const free=[];let cursor=0;
+    merged.forEach(item=>{if(item.start>cursor)free.push({start:cursor,end:item.start});cursor=Math.max(cursor,item.end);});
+    if(cursor<1440)free.push({start:cursor,end:1440});
+    return free.filter(x=>x.end-x.start>=1);
+  }
+  function node(tag,text,className){
+    const e=document.createElement(tag);e.textContent=text;
+    if(className)e.className=className;
+    return e;
+  }
+  function addStat(label,value){
+    const el=document.createElement("div");el.className="stat";
+    el.append(node("b",value),node("span",label));$("summary").appendChild(el);
+  }
+  function draftLink(start,end,day){
+    const endValue=end===1440?"00:00":clock(end);
+    const params=new URLSearchParams({fillGap:"1",start:clock(start),end:endValue,day:String(day)});
+    return "/schedule?"+params.toString();
+  }
+  function render(){
+    const day=Number($("day").value);
+    const intervals=intervalsForDay(day);
+    const free=freeIntervals(intervals);
+    const rows=intervals.map(x=>({...x,free:false})).concat(free.map(x=>({...x,title:"Available airtime",notes:"No programme is scheduled in this window.",free:true})))
+      .sort((a,b)=>a.start-b.start||(a.free?-1:1));
+    $("rows").textContent="";
+    rows.forEach(item=>{
+      const tr=document.createElement("tr");tr.className=item.free?"free":"booked";
+      tr.append(node("td",clock(item.start),"time"),node("td",clock(item.end),"time"),node("td",duration(item.end-item.start)));
+      const titleTd=document.createElement("td");
+      titleTd.appendChild(node("span",item.free?"FREE":"SCHEDULED","state"));
+      titleTd.appendChild(document.createTextNode(" "+item.title));
+      tr.appendChild(titleTd);
+      const action=document.createElement("td");
+      action.appendChild(node("div",item.notes||""));
+      if(item.free){
+        const link=node("a","Draft programme in this gap","btn small no-print");
+        link.href=draftLink(item.start,item.end,day);
+        link.style.marginTop="7px";
+        action.appendChild(link);
+      }
+      tr.appendChild(action);$("rows").appendChild(tr);
+    });
+    $("empty").hidden=rows.length>0;
+    $("tableTitle").textContent=dayNames[day]+" programming timeline";
+    $("dayNote").textContent=dayNames[day]+" · Ghana time · 00:00 to 24:00";
+    $("summary").textContent="";
+    const totalFree=free.reduce((sum,x)=>sum+x.end-x.start,0);
+    addStat("Scheduled blocks",String(intervals.length));
+    addStat("Free windows",String(free.length));
+    addStat("Available airtime",duration(totalFree));
+    addStat("Occupied time",duration(1440-totalFree));
+  }
+  async function load(){
+    $("status").textContent="Loading schedule…";$("status").className="status";
+    try{
+      const response=await fetch("/api/live/tv-lineup",{cache:"no-store",credentials:"same-origin"});
+      if(response.status===401){$("signin").hidden=false;$("planner").hidden=true;return;}
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(result.error||"Could not load the schedule.");
+      const ch=(result.doc&&result.doc.channels||[])[0]||{};
+      schedule=Array.isArray(ch.schedule)?ch.schedule:[];
+      $("planner").hidden=false;
+      $("status").textContent="Schedule loaded · Africa/Accra";
+      render();
+    }catch(e){$("status").textContent=e.message||"Could not load schedule.";$("status").className="status err";}
+  }
+  const today= new Intl.DateTimeFormat("en-US",{timeZone:"Africa/Accra",weekday:"short"}).format(new Date());
+  $("day").value=String(["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].indexOf(today)>=0?["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].indexOf(today):0);
+  $("day").addEventListener("change",render);
+  $("refresh").addEventListener("click",load);
+  $("print").addEventListener("click",()=>window.print());
+  load();
+})();
+</script>
+</body>
+</html>
