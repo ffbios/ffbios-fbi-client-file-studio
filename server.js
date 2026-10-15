@@ -6466,6 +6466,76 @@ async function promoClips(series){
   );
   return r.rows;
 }
+async function recoverLegacyEpisodeProgress(slot,media,progressRow,hasProgressRow){
+  // Existing deployments stored only a modulo-based next_index. Before trusting
+  // it, inspect the most recent prior airing and recover its last known episode
+  // number. This handles a library where an operator has deleted or added files
+  // since the previous broadcast.
+  if(progressRow&&(progressRow.next_episode!=null||progressRow.next_media_id))return {progress:progressRow,legacyEpisodeIndex:false};
+  const history=(await pool.query(
+    "SELECT airing_key,media_ids,media_plan FROM tv_playout_airings WHERE series=$1 ORDER BY created_at DESC LIMIT 80",
+    [slot.show.title]
+  )).rows;
+  const prior=history.map(row=>{
+    const key=String(row.airing_key||"");
+    const cut=key.lastIndexOf("|");
+    const start=cut>=0?Date.parse(key.slice(cut+1)):NaN;
+    return {row,start};
+  }).filter(x=>Number.isFinite(x.start)&&x.start<slot.start.getTime())
+    .sort((a,b)=>b.start-a.start);
+  for(const entry of prior){
+    const row=entry.row;
+    let lastEpisode=null,lastMediaId=null,lastIndex=-1;
+    if(Array.isArray(row.media_plan)&&row.media_plan.length){
+      for(const segment of row.media_plan){
+        if(!segment||segment.kind==="promo"||segment.kind==="filler")continue;
+        const segmentEpisode=Number(segment.episode);
+        if(Number.isInteger(segmentEpisode)&&segmentEpisode>0){
+          lastEpisode=segmentEpisode;lastMediaId=String(segment.id||"");
+        }else if(segment.id){
+          const m=(await pool.query("SELECT series,episode FROM tv_media WHERE id=$1",[segment.id])).rows[0];
+          if(m&&m.series===slot.show.title&&Number(m.episode)>0){
+            lastEpisode=Number(m.episode);lastMediaId=String(segment.id);
+          }
+        }
+      }
+    }else if(Array.isArray(row.media_ids)&&row.media_ids.length){
+      const currentRows=(await pool.query(
+        "SELECT id,series,episode FROM tv_media WHERE id=ANY($1::uuid[])",
+        [row.media_ids]
+      )).rows;
+      const byId=new Map(currentRows.map(m=>[String(m.id),m]));
+      for(const id of row.media_ids){
+        const m=byId.get(String(id));
+        if(!m||m.series!==slot.show.title||!Number.isInteger(Number(m.episode))||Number(m.episode)<=0)continue;
+        lastEpisode=Number(m.episode);lastMediaId=String(m.id);
+      }
+    }
+    if(lastEpisode!=null){
+      const nextIndex=media.findIndex(m=>Number(m.episode)===lastEpisode+1);
+      // Do not turn a missing episode number into a list wrap. The builder
+      // selects the next higher available episode when a number is skipped.
+      return {
+        progress:{
+          ...progressRow,
+          next_index:nextIndex>=0?nextIndex:(media.findIndex(m=>String(m.id)===lastMediaId)+1),
+          next_episode:lastEpisode+1,
+          next_offset:0,
+          next_media_id:null,
+          promo_clock_seconds:0
+        },
+        legacyEpisodeIndex:false
+      };
+    }
+  }
+  // No usable airing history exists (for example, a freshly installed channel).
+  // An existing legacy progress row may still be used once as a last resort.
+  return {
+    progress:progressRow,
+    legacyEpisodeIndex:!!hasProgressRow&&progressRow.next_episode==null&&!progressRow.next_media_id
+  };
+}
+
 function normalizedPlayoutShow(show){
   const s=show||{};
   const category=String(s.category||"");
@@ -6527,8 +6597,14 @@ async function airingPlan(slot,ch,tz){
     "SELECT next_index,next_episode,next_offset,next_media_id,promo_clock_seconds FROM tv_playout_progress WHERE series=$1",
     [slot.show.title]
   );
-  const progressRow=progressResult.rowCount?progressResult.rows[0]:{};
+  let progressRow=progressResult.rowCount?progressResult.rows[0]:{};
   const show=normalizedPlayoutShow(slot.show);
+  let legacyEpisodeIndex=false;
+  if(show.contentMode!=="playlist"){
+    const recovered=await recoverLegacyEpisodeProgress(slot,media,progressRow,progressResult.rowCount>0);
+    progressRow=recovered.progress||progressRow;
+    legacyEpisodeIndex=recovered.legacyEpisodeIndex;
+  }
   const beforeTitle=promoSource(show.before||"@auto",slot,ch,tz)||slot.show.title;
   const beforeKeys=[...new Set([PROMO_PREFIX+beforeTitle,PROMO_PREFIX+"General"])];
   const afterTitle=show.after?promoSource(show.after,slot,ch,tz):null;
@@ -6547,6 +6623,7 @@ async function airingPlan(slot,ch,tz){
     show,
     slotSeconds:(slot.stop.getTime()-slot.start.getTime())/1000,
     media,
+    legacyEpisodeIndex,
     progress:{
       nextIndex:progressRow.next_index,
       nextEpisode:progressRow.next_episode,
