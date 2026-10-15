@@ -154,7 +154,7 @@
   function promoSelect(s, key) {
     const sel = document.createElement("select");
     const opts = key === "before"
-      ? [["@auto", "Automatic: this show's promo, then station promo"], ["@general", "Station-wide promo only"], ["@self", "This show's promo only"]]
+      ? [["@auto", "Automatic: this show's promo, then station promo"], ["@general", "Station-wide promo only"], ["@self", "Prefer this show's promo"]]
       : [["", "No after-promo"], ["@next", "Promo of the next show (coming up)"], ["@general", "Station-wide promo"]];
     if (key === "after") opts.push(["@self", "This show's promo"]);
     const titles = [...new Set(shows.map((x) => String(x.title || "").trim()).filter((t) => t && t !== String(s.title || "").trim()))];
