@@ -122,7 +122,10 @@ function buildSchedulePlan(options) {
     // During the first rollout, old progress rows have only an array index.
     // Use it once as a fallback if historical airing data cannot recover a
     // stable pointer; the saved plan will then persist an episode number.
-    if (legacyEpisodeIndex && hasNumbers && media.length) return nextIndex % media.length;
+    // Never modulo-wrap a numbered episodic library during legacy migration:
+    // if the old index cannot be reconciled with today's media list, go to
+    // filler instead of risking another repeat of an already-aired episode.
+    if (legacyEpisodeIndex && hasNumbers) return -1;
     return repeatEpisodes && media.length ? nextIndex % media.length : -1;
   }
 
