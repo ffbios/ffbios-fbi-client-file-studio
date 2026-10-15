@@ -4,7 +4,8 @@
   "private": true,
   "description": "FBI Client File Studio - Railway cloud client delivery platform",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test:playout": "node scripts/test-playout-plan-builder.js"
   },
   "engines": {
     "node": ">=22"
