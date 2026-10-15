@@ -6445,6 +6445,7 @@ function currentSlot(ch,tz,now){
 }
 // Promos for a show are uploaded in the Episode library under "Promo: <title>".
 const PROMO_PREFIX="Promo: ";
+const PROMO_FILLER_FALLBACK_KEY="__promo_fallback_filler__";
 function nextShowTitle(ch,tz,from,currentKey){
   for(let k=0;k<=1440;k++){
     const s=currentSlot(ch,tz,new Date(from.getTime()+k*60000));
@@ -6458,8 +6459,12 @@ function promoSource(v,slot,ch,tz){
   if(v==="@general")return "General";
   return v;
 }
-async function promoClips(series){
-  if(!series)return [];
+async function promoClips(key){
+  if(!key)return [];
+  // Filler was the original place for general promos and idents. Reuse it as
+  // a fallback pool, but rotate it under a separate progress key so promo
+  // insertion never resets the actual Filler playlist's track pointer.
+  const series=key===PROMO_FILLER_FALLBACK_KEY?PLAYOUT_FILLER:key;
   const r=await pool.query(
     "SELECT id,series,episode,title,filename,duration_seconds,created_at FROM tv_media WHERE series=$1 AND status='ready' AND duration_seconds>0 ORDER BY episode NULLS LAST,created_at",
     [series]
@@ -6606,9 +6611,9 @@ async function airingPlan(slot,ch,tz){
     legacyEpisodeIndex=recovered.legacyEpisodeIndex;
   }
   const beforeTitle=promoSource(show.before||"@auto",slot,ch,tz)||slot.show.title;
-  const beforeKeys=[...new Set([PROMO_PREFIX+beforeTitle,PROMO_PREFIX+"General"])];
+  const beforeKeys=[...new Set([PROMO_PREFIX+beforeTitle,PROMO_PREFIX+"General",PROMO_FILLER_FALLBACK_KEY])];
   const afterTitle=show.after?promoSource(show.after,slot,ch,tz):null;
-  const afterKeys=show.after?[...new Set([...(afterTitle?[PROMO_PREFIX+afterTitle]:[]),PROMO_PREFIX+"General"])]:[];
+  const afterKeys=show.after?[...new Set([...(afterTitle?[PROMO_PREFIX+afterTitle]:[]),PROMO_PREFIX+"General",PROMO_FILLER_FALLBACK_KEY])]:[];
   const poolKeys=[...new Set([...beforeKeys,...afterKeys])];
   const promoPools={};
   for(const series of poolKeys){
