@@ -76,6 +76,7 @@
     <nav class="links" aria-label="Studio">
       <a class="lnk" href="/live">← Studio</a>
       <a class="lnk" href="/schedule">Schedule</a>
+      <a class="lnk" href="/airtime">Airtime planner</a>
       <a class="lnk" href="/viewers">Viewer report</a>
     </nav>
   </div>
@@ -91,7 +92,7 @@
   <div id="app" hidden style="display:flex;flex-direction:column;gap:18px">
     <div>
       <h1>Episode library</h1>
-      <p class="sub">Upload episodes for each show in your schedule. When the studio isn't live, FBI TV plays them automatically at their scheduled times, in episode order, continuing from where the last airing stopped. Upload promos or your logo ident to <b>Filler</b> to play between shows. To play a promo before or after every episode, upload it under <b>“Show name — promos”</b>, then pick it for that show on the Schedule page.</p>
+      <p class="sub">Upload each show's episodes here and manage how they air on the Schedule page. Before a programme starts, FBI TV plays a show-specific promo when available, then falls back to <b>Promo: General</b>. Episode mode inserts another promo after each configured interval and resumes at the same point in the episode. Music-video playlist mode inserts interval promos only between complete tracks. <b>Filler</b> remains content for gaps between scheduled programmes.</p>
     </div>
 
     <section class="card onair" aria-live="polite"><span class="dot" id="paDot"></span><span id="paText">Checking 24/7 playout…</span></section>
@@ -160,9 +161,10 @@
     lineupTitles.concat(FILLER).forEach((t) => {
       const o = document.createElement("option"); o.value = t; o.textContent = t === FILLER ? "Filler (promos & idents between shows)" : t; sel.appendChild(o);
     });
-    const og = document.createElement("optgroup"); og.label = "Promos (played before / after episodes)";
+    const og = document.createElement("optgroup"); og.label = "Promos (pre-rolls and interval breaks)";
+    const general = document.createElement("option"); general.value = PROMO + "General"; general.textContent = "Station-wide promo — General fallback"; og.appendChild(general);
     lineupTitles.forEach((t) => { const o = document.createElement("option"); o.value = PROMO + t; o.textContent = t + " — promos"; og.appendChild(o); });
-    if (lineupTitles.length) sel.appendChild(og);
+    sel.appendChild(og);
     if (cur) sel.value = cur;
     suggestEp();
   }
@@ -177,7 +179,8 @@
     const box = $("shows"); box.textContent = "";
     const groups = new Map();
     lineupTitles.concat(FILLER).forEach((t) => groups.set(t, []));
-    // promo sections only appear once something is uploaded to them
+    groups.set(PROMO + "General", []);
+    // Keep uploaded promo pools visible even when no matching show is scheduled.
     media.forEach((m) => { if (String(m.series).startsWith(PROMO) && !groups.has(m.series)) groups.set(m.series, []); });
     media.forEach((m) => { if (!groups.has(m.series)) groups.set(m.series, []); groups.get(m.series).push(m); });
     for (const [series, list] of groups) {
@@ -189,7 +192,7 @@
       sp.textContent = ready.length + " ready · " + fmtDur(tot) + " total" + (list.length ? " · " + fmtSize(list.reduce((a, m) => a + m.size_bytes, 0)) : "");
       h.appendChild(sp); sec.appendChild(h);
       const promoOf = series.startsWith(PROMO) ? series.slice(PROMO.length) : null;
-      if (promoOf !== null ? !lineupTitles.includes(promoOf) : (!lineupTitles.includes(series) && series !== FILLER)) {
+      if (promoOf !== null ? (promoOf !== "General" && !lineupTitles.includes(promoOf)) : (!lineupTitles.includes(series) && series !== FILLER)) {
         const w = document.createElement("div"); w.className = "warn";
         w.textContent = promoOf !== null
           ? "This show isn't in the schedule (was it renamed?), so these promos won't play until a show with exactly this name is scheduled."
@@ -198,7 +201,13 @@
       }
       if (!list.length) {
         const e = document.createElement("div"); e.className = "sub";
-        e.textContent = series === FILLER ? "No filler yet. Upload your promos or logo ident here to fill gaps between shows." : "No episodes yet.";
+        e.textContent = series === FILLER
+          ? "No filler yet. Upload content here for gaps between scheduled shows."
+          : series === PROMO + "General"
+            ? "No station-wide promos uploaded yet. Add short promo clips here; they are the fallback when a show-specific promo is unavailable."
+            : series.startsWith(PROMO)
+              ? "No show-specific promos uploaded yet. The scheduler can use these before the show and at interval breaks."
+              : "No episodes yet.";
         sec.appendChild(e); box.appendChild(sec); continue;
       }
       const tb = document.createElement("div"); tb.className = "tablebox";
