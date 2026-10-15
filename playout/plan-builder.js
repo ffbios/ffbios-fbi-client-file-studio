@@ -189,6 +189,7 @@ function buildSchedulePlan(options) {
       }
     } else {
       let firstEpisode = true;
+      let previousEpisodeHadAfterPromo = false;
       let guard = 0;
       while (remaining > 0.001 && guard++ < 2000) {
         const ix = chooseEpisodeIndex();
@@ -200,13 +201,14 @@ function buildSchedulePlan(options) {
 
         // The slot-level pre-roll also serves as the pre-roll for its first
         // episode, including a resumed episode. Later episodes get one too.
-        if (!firstEpisode && offset <= 0.001) {
+        if (!firstEpisode && offset <= 0.001 && !previousEpisodeHadAfterPromo) {
           const status = addPromo(beforeKeys);
           if (status === "no-fit") {
             setEpisodePending(item, ix, 0, false);
             break;
           }
         }
+        previousEpisodeHadAfterPromo = false;
         firstEpisode = false;
         let finished = false;
         while (remaining > 0.001 && offset < total - 0.05) {
@@ -220,7 +222,7 @@ function buildSchedulePlan(options) {
           if (offset >= total - 0.05) {
             finished = true;
             setEpisodePending(item, ix, total, true);
-            if (afterKeys.length) addPromo(afterKeys);
+            if (afterKeys.length) previousEpisodeHadAfterPromo = addPromo(afterKeys) === "added";
             break;
           }
           if (intervalSeconds > 0 && Math.abs(offset / intervalSeconds - Math.round(offset / intervalSeconds)) < 0.0001) {
