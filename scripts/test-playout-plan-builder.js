@@ -82,7 +82,7 @@ const base = {
     ...base,
     show: { contentMode: "playlist", repeatEpisodes: false, promoIntervalMinutes: 10 },
     media: [track("music-a", 1, 480, "Music"), track("music-b", 2, 480, "Music")],
-    slotSeconds: 1010,
+    slotSeconds: 1020,
     beforePromoKeys: ["Promo: General"],
     promoPools: { "Promo: General": { items: [promo("station-promo", 30, "Promo: General")], nextIndex: 0 } }
   });
