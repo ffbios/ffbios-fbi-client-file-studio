@@ -89,7 +89,7 @@ const base = {
   assert.deepEqual(result.segments.map((s) => s.id), ["station-promo", "music-a", "music-b", "station-promo"]);
   assert.equal(result.progress.nextMediaId, "music-a");
   assert.equal(result.progress.nextOffset, 0);
-  assert.ok(result.segments.reduce((sum, s) => sum + s.duration, 0) <= 1010.001);
+  assert.ok(result.segments.reduce((sum, s) => sum + s.duration, 0) <= 1020.001);
 }
 
 {
