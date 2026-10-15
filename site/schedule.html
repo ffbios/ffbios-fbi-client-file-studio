@@ -256,7 +256,7 @@
         field("Optional promo after each episode", promoSelect(s, "after"), "grow")
       );
       const ph = document.createElement("div"); ph.className = "hint";
-      ph.textContent = "Upload show promos under “" + (String(s.title || "").trim() || "this show") + " — promos” or station-wide promos under “Promo: General”. Episode mode interrupts the episode after each interval and resumes from the same point. Playlist mode inserts promos only between complete music videos. Set the interval to 0 to disable interval breaks; the opening promo remains enabled.";
+      ph.textContent = "Upload show promos under “" + (String(s.title || "").trim() || "this show") + " — promos” or station-wide promos under “Promo: General”. If both are empty, existing clips in Filler are used as a fallback promo pool. Episode mode resumes from the same source point after each interval; playlist mode inserts interval promos only between music videos. Set the interval to 0 to disable mid-roll/track-interval breaks; the opening and per-episode promos remain enabled.";
       // days
       const dw = document.createElement("div"); dw.className = "f";
       const dl = document.createElement("div"); dl.className = "lab"; dl.textContent = "Days";
