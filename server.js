@@ -6532,7 +6532,7 @@ async function airingPlan(slot,ch,tz){
   const beforeTitle=promoSource(show.before||"@auto",slot,ch,tz)||slot.show.title;
   const beforeKeys=[...new Set([PROMO_PREFIX+beforeTitle,PROMO_PREFIX+"General"])];
   const afterTitle=show.after?promoSource(show.after,slot,ch,tz):null;
-  const afterKeys=afterTitle?[...new Set([PROMO_PREFIX+afterTitle,PROMO_PREFIX+"General"])]:[];
+  const afterKeys=show.after?[...new Set([...(afterTitle?[PROMO_PREFIX+afterTitle]:[]),PROMO_PREFIX+"General"])]:[];
   const poolKeys=[...new Set([...beforeKeys,...afterKeys])];
   const promoPools={};
   for(const series of poolKeys){
@@ -6585,6 +6585,77 @@ async function airingPlan(slot,ch,tz){
   return built.segments;
 }
 async function mediaUrl(m){return getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:m.storage_key}),{expiresIn:6*3600});}
+function fillerProgramSlot(start,stop,key){
+  return {
+    show:{title:PLAYOUT_FILLER,contentMode:"playlist",repeatEpisodes:true,promoIntervalMinutes:10,before:"@general"},
+    start,stop,key:"Filler|"+key
+  };
+}
+function upcomingScheduleSlots(ch,tz,now){
+  const off=tzOffsetMinutes(tz,now),local=new Date(now.getTime()+off*60000),slots=[];
+  for(let k=-2;k<=2;k++){
+    const d=new Date(Date.UTC(local.getUTCFullYear(),local.getUTCMonth(),local.getUTCDate()+k));
+    for(const show of ch.schedule||[]){
+      if(Array.isArray(show.days)&&!show.days.includes(d.getUTCDay()))continue;
+      const start=zonedTime(tz,d.getUTCFullYear(),d.getUTCMonth()+1,d.getUTCDate(),show.start);
+      let stop=zonedTime(tz,d.getUTCFullYear(),d.getUTCMonth()+1,d.getUTCDate(),show.end);
+      if(stop<=start)stop=new Date(stop.getTime()+86400000);
+      if(stop>new Date(now.getTime()-48*3600000)&&start<new Date(now.getTime()+48*3600000)){
+        slots.push({show,start,stop,key:show.title+"|"+start.toISOString()});
+      }
+    }
+  }
+  return slots.sort((a,b)=>a.start-b.start);
+}
+function fillerSlotForOpenWindow(ch,tz,now){
+  const off=tzOffsetMinutes(tz,now),local=new Date(now.getTime()+off*60000);
+  const midnight=zonedTime(tz,local.getUTCFullYear(),local.getUTCMonth()+1,local.getUTCDate(),"00:00");
+  const tomorrow=zonedTime(tz,local.getUTCFullYear(),local.getUTCMonth()+1,local.getUTCDate()+1,"00:00");
+  const slots=upcomingScheduleSlots(ch,tz,now);
+  const previous=slots.filter(s=>s.stop<=now).sort((a,b)=>b.stop-a.stop)[0];
+  const next=slots.filter(s=>s.start>now).sort((a,b)=>a.start-b.start)[0];
+  let start=previous&&previous.stop>midnight?previous.stop:midnight;
+  let stop=next&&next.start<tomorrow?next.start:tomorrow;
+  if(start>now)start=now;
+  if(stop<=now)stop=tomorrow;
+  if(stop<=start||now<start||now>=stop)return null;
+  return fillerProgramSlot(start,stop,start.toISOString()+"|"+stop.toISOString());
+}
+async function itemForPlannedSegments(planned,timelineSlot,now,base){
+  if(!Array.isArray(planned)||!planned.length)return null;
+  const ids=[...new Set(planned.map(segment=>segment.id))];
+  const rows=(await pool.query("SELECT * FROM tv_media WHERE id=ANY($1::uuid[]) AND status='ready'",[ids])).rows;
+  const byId=new Map(rows.map(r=>[String(r.id),r]));
+  let t=(now-timelineSlot.start)/1000;
+  for(const segment of planned){
+    const d=Math.max(0,Number(segment.duration||0));
+    if(d<=0)continue;
+    const m=byId.get(String(segment.id));
+    // If an item was removed after a rundown was saved, skip it without
+    // producing a negative offset for the following item.
+    if(!m){t=t>=d?t-d:0;continue;}
+    if(t<d-0.05){
+      const endsAt=new Date(Math.min(timelineSlot.stop.getTime(),now.getTime()+(d-t)*1000));
+      const isPromo=segment.kind==="promo"||String(m.series).startsWith(PROMO_PREFIX);
+      const sourceOffset=Math.max(0,Number(segment.offset||0)+t);
+      const isFiller=timelineSlot.show.title===PLAYOUT_FILLER;
+      return {
+        ...base,
+        item:{
+          id:m.id,
+          kind:isPromo?"promo":isFiller?"filler":"show",
+          title:isPromo?(segment.title||m.title||m.series):isFiller?(m.title||m.filename||"FBI TV"):timelineSlot.show.title,
+          episode:isPromo?null:(segment.episode??m.episode),
+          url:await mediaUrl(m),
+          offset:Math.max(0,Math.floor(sourceOffset)),
+          endsAt:endsAt.toISOString()
+        }
+      };
+    }
+    t-=d;
+  }
+  return null;
+}
 app.get("/api/internal/playout/plan",async(req,res)=>{
   if(!playoutToken(req))return res.status(401).json({error:"Unauthorised"});
   try{
@@ -6600,34 +6671,28 @@ app.get("/api/internal/playout/plan",async(req,res)=>{
     const now=new Date(),slot=currentSlot(ch,tz,now);
     if(slot){
       const planned=await airingPlan(slot,ch,tz);
-      if(planned.length){
-        const ids=[...new Set(planned.map(segment=>segment.id))];
-        const rows=(await pool.query("SELECT * FROM tv_media WHERE id=ANY($1::uuid[]) AND status='ready'",[ids])).rows;
-        const byId=new Map(rows.map(r=>[String(r.id),r]));
-        let t=(now-slot.start)/1000;
-        for(const segment of planned){
-          const d=Math.max(0,Number(segment.duration||0));
-          if(d<=0){continue;}
-          const m=byId.get(String(segment.id));
-          // Even if a librarian deletes a planned file, keep its scheduled
-          // duration in the timeline so later items do not replay at the wrong offset.
-          if(!m){t-=d;continue;}
-          if(t<d-0.05){
-            const endsAt=new Date(Math.min(slot.stop.getTime(),now.getTime()+(d-t)*1000));
-            const isPromo=segment.kind==="promo"||String(m.series).startsWith(PROMO_PREFIX);
-            const sourceOffset=Math.max(0,Number(segment.offset||0)+t);
-            return res.json({...base,item:{
-              id:m.id,kind:isPromo?"promo":"show",
-              title:isPromo?(segment.title||m.title||m.series):slot.show.title,
-              episode:isPromo?null:(segment.episode??m.episode),
-              url:await mediaUrl(m),offset:Math.max(0,Math.floor(sourceOffset)),endsAt:endsAt.toISOString()
-            }});
-          }
-          t-=d;
-        }
+      const item=await itemForPlannedSegments(planned,slot,now,base);
+      if(item)return res.json(item);
+      // If a programme runs out of uploaded episodes before its slot ends,
+      // fill the remainder with a scheduled promo + the Filler playlist.
+      const used=planned.reduce((sum,segment)=>sum+Math.max(0,Number(segment.duration||0)),0);
+      const fillStart=new Date(slot.start.getTime()+used*1000);
+      if(fillStart<slot.stop){
+        const fillSlot=fillerProgramSlot(fillStart,slot.stop,"after|"+slot.key+"|"+fillStart.toISOString());
+        const fillPlan=await airingPlan(fillSlot,ch,tz);
+        const fillItem=await itemForPlannedSegments(fillPlan,fillSlot,now,base);
+        if(fillItem)return res.json(fillItem);
+      }
+    }else{
+      const fillSlot=fillerSlotForOpenWindow(ch,tz,now);
+      if(fillSlot){
+        const fillPlan=await airingPlan(fillSlot,ch,tz);
+        const fillItem=await itemForPlannedSegments(fillPlan,fillSlot,now,base);
+        if(fillItem)return res.json(fillItem);
       }
     }
-    // between shows (or the show's episodes ran out): loop the filler items
+    // Safety fallback for an empty planner/library: retain the legacy continuous
+    // filler loop if there are no promo/filler segments to plan.
     const fill=(await pool.query("SELECT * FROM tv_media WHERE series=$1 AND status='ready' ORDER BY episode NULLS LAST,created_at",[PLAYOUT_FILLER])).rows;
     const total=fill.reduce((a,m)=>a+Number(m.duration_seconds||0),0);
     if(!fill.length||total<5)return res.json({...base,item:null,reason:slot?"no episodes uploaded for "+slot.show.title:"nothing scheduled and no filler"});
