@@ -130,7 +130,7 @@
   function mins(value){const p=String(value||"").split(":").map(Number);return (p[0]||0)*60+(p[1]||0);}
   function clock(m){m=Math.max(0,Math.round(m));if(m===1440)return "24:00";return String(Math.floor(m/60)%24).padStart(2,"0")+":"+String(m%60).padStart(2,"0");}
   function duration(m){const n=Math.max(0,Math.round(m));const h=Math.floor(n/60),r=n%60;return h? h+"h "+String(r).padStart(2,"0")+"m":r+" min";}
-  function applies(show,day){return !Array.isArray(show.days)||!show.days.length||show.days.includes(day);}
+  function applies(show,day){return !Array.isArray(show.days)||show.days.includes(day);}
   function intervalsForDay(day){
     const intervals=[];
     schedule.forEach(show=>{
