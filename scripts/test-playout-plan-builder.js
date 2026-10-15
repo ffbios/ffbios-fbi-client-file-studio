@@ -113,4 +113,20 @@ const base = {
   assert.deepEqual(result.segments, []);
 }
 
+{
+  const result = buildSchedulePlan({
+    ...base,
+    media: [track("ep1", 1, 30), track("ep2", 2, 30)],
+    slotSeconds: 180,
+    afterPromoKeys: ["Promo: Series"],
+    promoPools: { "Promo: Series": { items: [promo("between-episodes", 10)], nextIndex: 0 } }
+  });
+  assert.deepEqual(result.segments.map((s) => [s.kind, s.id]), [
+    ["promo", "between-episodes"],
+    ["show", "ep1"],
+    ["promo", "between-episodes"],
+    ["show", "ep2"]
+  ]);
+}
+
 console.log("Playout plan-builder tests passed.");
