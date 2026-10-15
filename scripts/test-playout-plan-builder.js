@@ -102,4 +102,15 @@ const base = {
   assert.equal(result.progress.nextEpisode, 3);
 }
 
+{
+  const result = buildSchedulePlan({
+    ...base,
+    media: [track("ep1", 1, 60), track("ep2", 2, 60)],
+    slotSeconds: 60,
+    legacyEpisodeIndex: true,
+    progress: { nextIndex: 3, nextEpisode: null, nextMediaId: null }
+  });
+  assert.deepEqual(result.segments, []);
+}
+
 console.log("Playout plan-builder tests passed.");
