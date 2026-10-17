@@ -1148,6 +1148,26 @@ async function initDb(){
   // "Save for later" table. Kept in its own try/catch so that a problem here can
   // never stop the server from starting; it would only disable that feature.
   try{await pool.query(LV.SAVED_SCHEMA_SQL)}catch(e){console.error("Save-for-later schema failed:",e?.message||e)}
+  // Anonymous device subscriptions and one-time reminders for the public FBI TV page.
+  try{await pool.query([
+    "CREATE TABLE IF NOT EXISTS tv_push_subscriptions(",
+    " id uuid PRIMARY KEY, endpoint text UNIQUE NOT NULL, p256dh text NOT NULL, auth text NOT NULL,",
+    " created_at timestamptz NOT NULL DEFAULT now()",
+    ");",
+    "CREATE TABLE IF NOT EXISTS tv_push_reminders(",
+    " subscription_id uuid NOT NULL REFERENCES tv_push_subscriptions(id) ON DELETE CASCADE,",
+    " event_date date NOT NULL, channel_id text NOT NULL, show_key text NOT NULL,",
+    " lead_minutes smallint NOT NULL DEFAULT 10 CHECK(lead_minutes IN (5,10,15)),",
+    " created_at timestamptz NOT NULL DEFAULT now(),",
+    " PRIMARY KEY(subscription_id,event_date,show_key)",
+    ");",
+    "CREATE INDEX IF NOT EXISTS idx_tv_push_reminders_date ON tv_push_reminders(event_date);",
+    "CREATE TABLE IF NOT EXISTS tv_push_deliveries(",
+    " subscription_id uuid NOT NULL REFERENCES tv_push_subscriptions(id) ON DELETE CASCADE,",
+    " event_key text NOT NULL, sent_at timestamptz NOT NULL DEFAULT now(),",
+    " PRIMARY KEY(subscription_id,event_key)",
+    ");"
+  ].join("\n"))}catch(e){console.error("TV push schema failed:",e?.message||e)}
   // What's New announcements + per-user read state + web-push subscriptions.
   try{await pool.query(`
     CREATE TABLE IF NOT EXISTS announcements(
@@ -6893,6 +6913,243 @@ function channelProgrammes(ch,tz,days){
   if(cur<last)filled.push({start:cur,stop:last,title:ch.fillerTitle||ch.name,desc:ch.fillerDescription||"",category:""});
   return filled;
 }
+function tvReminderShowKey(channelId,show){
+  return [channelId,show&&show.start,show&&show.end,show&&show.title].map(v=>String(v||"").trim()).join("|");
+}
+function tvPushEndpointAllowed(value){
+  try{
+    const raw=String(value||"");
+    if(raw.length>2048)return false;
+    const u=new URL(raw);
+    const host=u.hostname.toLowerCase();
+    return u.protocol==="https:"&&!u.username&&!u.password&&(!u.port||u.port==="443")&&(
+      host==="fcm.googleapis.com"||
+      host==="web.push.apple.com"||host.endsWith(".push.apple.com")||
+      host==="push.services.mozilla.com"||host.endsWith(".push.services.mozilla.com")||
+      host.endsWith(".notify.windows.com")
+    );
+  }catch{return false;}
+}
+function tvPushSameOrigin(req,res,next){
+  const origin=String(req.get("origin")||"");
+  if(!origin)return next();
+  try{
+    if(new URL(origin).host.toLowerCase()!==String(req.get("host")||"").toLowerCase())
+      return res.status(403).json({error:"This request must come from FBI TV."});
+  }catch{return res.status(403).json({error:"Invalid request origin."});}
+  next();
+}
+function tvZonedParts(date,timeZone){
+  const parts=new Intl.DateTimeFormat("en-US",{
+    timeZone,year:"numeric",month:"2-digit",day:"2-digit",weekday:"short",
+    hour:"2-digit",minute:"2-digit",hourCycle:"h23"
+  }).formatToParts(date);
+  const value=type=>parts.find(p=>p.type===type)?.value||"0";
+  const weekdays={Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
+  return {year:Number(value("year")),month:Number(value("month")),day:Number(value("day")),
+    weekday:weekdays[value("weekday")],hour:Number(value("hour")),minute:Number(value("minute"))};
+}
+function tvLocalTimeEpoch(year,month,day,hour,minute,timeZone){
+  const target=Date.UTC(year,month-1,day,hour,minute,0);
+  let guess=target;
+  for(let i=0;i<5;i++){
+    const p=tvZonedParts(new Date(guess),timeZone);
+    const represented=Date.UTC(p.year,p.month-1,p.day,p.hour,p.minute,0);
+    const delta=target-represented;
+    guess+=delta;
+    if(!delta)break;
+  }
+  return guess;
+}
+function tvDateString(parts){
+  return String(parts.year).padStart(4,"0")+"-"+String(parts.month).padStart(2,"0")+"-"+String(parts.day).padStart(2,"0");
+}
+function tvValidPushEvent(lineup,channelId,eventDate,showKey){
+  const tz=String(lineup.timeZone||"Africa/Accra");
+  const match=/^(\d{4})-(\d{2})-(\d{2})$/.exec(eventDate);
+  if(!match)return {error:"Choose a valid show date."};
+  const year=Number(match[1]),month=Number(match[2]),day=Number(match[3]);
+  const dateUtc=new Date(Date.UTC(year,month-1,day));
+  if(dateUtc.toISOString().slice(0,10)!==eventDate)return {error:"Choose a valid show date."};
+  const today=tvDateString(tvZonedParts(new Date(),tz));
+  const todayParts=today.split("-").map(Number);
+  const latest=new Date(Date.UTC(todayParts[0],todayParts[1]-1,todayParts[2]+30)).toISOString().slice(0,10);
+  if(eventDate<today||eventDate>latest)return {error:"Reminders can be set for shows in the next 30 days."};
+  const channel=(lineup.channels||[]).find(c=>String(c.id||"")===channelId);
+  const show=channel&&(channel.schedule||[]).find(s=>tvReminderShowKey(channelId,s)===showKey);
+  if(!channel||!show)return {error:"That show is no longer on the schedule. Refresh FBI TV and try again."};
+  const weekday=dateUtc.getUTCDay();
+  if(Array.isArray(show.days)&&show.days.length&&!show.days.includes(weekday))return {error:"That show is not scheduled on this date."};
+  const [hour,minute]=String(show.start||"").split(":").map(Number);
+  const scheduledAt=tvLocalTimeEpoch(year,month,day,hour,minute,tz);
+  if(scheduledAt<=Date.now())return {error:"This show has already started. Choose a future show."};
+  return {channel,show,scheduledAt};
+}
+const tvPushRateBuckets=new Map();
+function tvPushRateLimit(req,res,next){
+  const now=Date.now(),key=String(req.ip||req.socket?.remoteAddress||"unknown");
+  let bucket=tvPushRateBuckets.get(key);
+  if(!bucket||now-bucket.start>60000){bucket={start:now,count:0};tvPushRateBuckets.set(key,bucket);}
+  if(bucket.count>=90)return res.status(429).json({error:"Too many reminder changes. Please try again shortly."});
+  bucket.count++;
+  if(tvPushRateBuckets.size>5000){
+    for(const [ip,value] of tvPushRateBuckets)if(now-value.start>60000)tvPushRateBuckets.delete(ip);
+    if(tvPushRateBuckets.size>5000)tvPushRateBuckets.delete(tvPushRateBuckets.keys().next().value);
+  }
+  next();
+}
+app.get("/api/tv/push/config",(req,res)=>{
+  res.set("Cache-Control","no-store").json({enabled:pushReady,vapidPublicKey:pushReady?VAPID_PUBLIC_KEY:""});
+});
+app.post("/api/tv/push/subscribe",tvPushSameOrigin,tvPushRateLimit,async(req,res)=>{
+  try{
+    if(!pushReady)return res.status(503).json({error:"Show reminders are temporarily unavailable."});
+    const sub=req.body?.subscription||{};
+    const endpoint=String(sub.endpoint||"");
+    const p256dh=String(sub.keys?.p256dh||""),auth=String(sub.keys?.auth||"");
+    if(!tvPushEndpointAllowed(endpoint)||
+       !/^[A-Za-z0-9_-]{40,256}$/.test(p256dh)||!/^[A-Za-z0-9_-]{12,128}$/.test(auth))
+      return res.status(400).json({error:"The browser returned an invalid push subscription."});
+    const channelId=String(req.body?.channelId||"").trim();
+    const eventDate=String(req.body?.eventDate||"").trim();
+    const showKey=String(req.body?.showKey||"").trim();
+    const leadMinutes=Number(req.body?.leadMinutes||10);
+    if(!channelId||channelId.length>100||showKey.length>500||![5,10,15].includes(leadMinutes))
+      return res.status(400).json({error:"The reminder details are invalid."});
+    const lineup=await getTvLineup(true);
+    const event=tvValidPushEvent(lineup,channelId,eventDate,showKey);
+    if(event.error)return res.status(400).json({error:event.error});
+    const saved=await pool.query(
+      "INSERT INTO tv_push_subscriptions(id,endpoint,p256dh,auth) VALUES($1,$2,$3,$4) "+
+      "ON CONFLICT(endpoint) DO UPDATE SET p256dh=EXCLUDED.p256dh,auth=EXCLUDED.auth RETURNING id",
+      [crypto.randomUUID(),endpoint,p256dh,auth]);
+    await pool.query(
+      "INSERT INTO tv_push_reminders(subscription_id,event_date,channel_id,show_key,lead_minutes,created_at) "+
+      "VALUES($1,$2,$3,$4,$5,now()) "+
+      "ON CONFLICT(subscription_id,event_date,show_key) DO UPDATE SET channel_id=EXCLUDED.channel_id,lead_minutes=EXCLUDED.lead_minutes,created_at=now()",
+      [saved.rows[0].id,eventDate,channelId,showKey,leadMinutes]);
+    res.json({ok:true,eventDate,showKey,leadMinutes});
+  }catch(e){console.error("TV push subscribe failed:",e?.message||e);res.status(500).json({error:"Could not save this reminder."})}
+});
+app.post("/api/tv/push/reminders/list",tvPushSameOrigin,tvPushRateLimit,async(req,res)=>{
+  try{
+    const endpoint=String(req.body?.endpoint||"");
+    if(!tvPushEndpointAllowed(endpoint))return res.status(400).json({error:"Invalid browser subscription."});
+    const rows=(await pool.query(
+      "SELECT r.event_date,r.channel_id,r.show_key FROM tv_push_reminders r "+
+      "JOIN tv_push_subscriptions s ON s.id=r.subscription_id WHERE s.endpoint=$1 ORDER BY r.event_date",
+      [endpoint])).rows;
+    const lineup=await getTvLineup();
+    const reminders=[];
+    for(const row of rows){
+      const channel=(lineup.channels||[]).find(c=>String(c.id||"")===row.channel_id);
+      const show=channel&&(channel.schedule||[]).find(s=>tvReminderShowKey(row.channel_id,s)===row.show_key);
+      if(!show)continue;
+      const date=typeof row.event_date==="string"?row.event_date:row.event_date.toISOString().slice(0,10);
+      reminders.push(date+"|"+show.start+"|"+show.title);
+    }
+    res.set("Cache-Control","no-store").json({reminders});
+  }catch(e){console.error("TV push reminder lookup failed:",e?.message||e);res.status(500).json({error:"Could not load reminders."})}
+});
+app.post("/api/tv/push/reminders/remove",tvPushSameOrigin,tvPushRateLimit,async(req,res)=>{
+  try{
+    const endpoint=String(req.body?.endpoint||"");
+    const eventDate=String(req.body?.eventDate||"");
+    const channelId=String(req.body?.channelId||"");
+    const showKey=String(req.body?.showKey||"");
+    if(!tvPushEndpointAllowed(endpoint)||!/^(\d{4})-(\d{2})-(\d{2})$/.test(eventDate)||
+       !channelId||!showKey||showKey.length>500)
+      return res.status(400).json({error:"Invalid reminder details."});
+    await pool.query(
+      "DELETE FROM tv_push_reminders r USING tv_push_subscriptions s "+
+      "WHERE r.subscription_id=s.id AND s.endpoint=$1 AND r.event_date=$2 AND r.channel_id=$3 AND r.show_key=$4",
+      [endpoint,eventDate,channelId,showKey]);
+    const count=await pool.query(
+      "SELECT count(*)::int AS count FROM tv_push_reminders r "+
+      "JOIN tv_push_subscriptions s ON s.id=r.subscription_id WHERE s.endpoint=$1",[endpoint]);
+    const active=Number(count.rows[0]?.count||0)>0;
+    if(!active)await pool.query("DELETE FROM tv_push_subscriptions WHERE endpoint=$1",[endpoint]);
+    res.json({ok:true,active});
+  }catch(e){console.error("TV push reminder removal failed:",e?.message||e);res.status(500).json({error:"Could not remove this reminder."})}
+});
+let tvPushSweepBusy=false,tvPushLastCleanup=0;
+async function sweepTvPushReminders(){
+  if(!pushReady||tvPushSweepBusy)return;
+  tvPushSweepBusy=true;
+  try{
+    const lineup=await getTvLineup();
+    const reminders=(await pool.query(
+      "SELECT r.subscription_id,r.event_date,r.channel_id,r.show_key,r.lead_minutes,r.created_at,"+
+      "s.endpoint,s.p256dh,s.auth FROM tv_push_reminders r "+
+      "JOIN tv_push_subscriptions s ON s.id=r.subscription_id"
+    )).rows;
+    const now=Date.now(),tz=String(lineup.timeZone||"Africa/Accra");
+    for(const r of reminders){
+      const eventDate=typeof r.event_date==="string"?r.event_date:r.event_date.toISOString().slice(0,10);
+      const dateMatch=/^(\d{4})-(\d{2})-(\d{2})$/.exec(eventDate);
+      const channel=(lineup.channels||[]).find(c=>String(c.id||"")===r.channel_id);
+      const show=channel&&(channel.schedule||[]).find(s=>tvReminderShowKey(r.channel_id,s)===r.show_key);
+      if(!dateMatch||!show){
+        await pool.query("DELETE FROM tv_push_reminders WHERE subscription_id=$1 AND event_date=$2 AND show_key=$3",[r.subscription_id,eventDate,r.show_key]).catch(()=>{});
+        continue;
+      }
+      const year=Number(dateMatch[1]),month=Number(dateMatch[2]),day=Number(dateMatch[3]);
+      const utcDate=new Date(Date.UTC(year,month-1,day));
+      if(utcDate.toISOString().slice(0,10)!==eventDate||
+         (Array.isArray(show.days)&&show.days.length&&!show.days.includes(utcDate.getUTCDay()))){
+        await pool.query("DELETE FROM tv_push_reminders WHERE subscription_id=$1 AND event_date=$2 AND show_key=$3",[r.subscription_id,eventDate,r.show_key]).catch(()=>{});
+        continue;
+      }
+      const [hour,minute]=String(show.start||"").split(":").map(Number);
+      const startsAt=tvLocalTimeEpoch(year,month,day,hour,minute,tz);
+      if(startsAt<=now){
+        await pool.query("DELETE FROM tv_push_reminders WHERE subscription_id=$1 AND event_date=$2 AND show_key=$3",[r.subscription_id,eventDate,r.show_key]).catch(()=>{});
+        continue;
+      }
+      const createdAt=Date.parse(r.created_at)||now;
+      const dueAt=Math.max(startsAt-Number(r.lead_minutes||10)*60000,createdAt);
+      if(dueAt>now+30000)continue;
+      const eventKey=eventDate+"|"+r.show_key;
+      const claim=await pool.query(
+        "INSERT INTO tv_push_deliveries(subscription_id,event_key) VALUES($1,$2) "+
+        "ON CONFLICT(subscription_id,event_key) DO NOTHING RETURNING subscription_id",
+        [r.subscription_id,eventKey]);
+      if(!claim.rowCount)continue;
+      const tag="fbi-tv-"+crypto.createHash("sha256").update(eventKey).digest("hex").slice(0,18);
+      const payload=JSON.stringify({
+        title:String(show.title||"FBI TV").slice(0,120)+" starts soon",
+        body:"FBI TV goes live in about "+Math.max(1,Math.min(Number(r.lead_minutes||10),Math.ceil((startsAt-now)/60000)))+" minutes. Tap to watch.",
+        url:"/tv#watch",tag,icon:"/tv-icon-192.png",eventDate
+      });
+      try{
+        await webpush.sendNotification(
+          {endpoint:r.endpoint,keys:{p256dh:r.p256dh,auth:r.auth}},payload,
+          {TTL:Math.max(60,Math.min(86400,Math.floor((startsAt-now)/1000))),urgency:"high"});
+        await pool.query(
+          "DELETE FROM tv_push_reminders WHERE subscription_id=$1 AND event_date=$2 AND show_key=$3",
+          [r.subscription_id,eventDate,r.show_key]);
+        await pool.query(
+          "DELETE FROM tv_push_subscriptions WHERE id=$1 AND NOT EXISTS "+
+          "(SELECT 1 FROM tv_push_reminders WHERE subscription_id=$1)",[r.subscription_id]);
+      }catch(err){
+        const code=err&&err.statusCode;
+        if(code===404||code===410)await pool.query("DELETE FROM tv_push_subscriptions WHERE id=$1",[r.subscription_id]).catch(()=>{});
+        else await pool.query(
+          "DELETE FROM tv_push_deliveries WHERE subscription_id=$1 AND event_key=$2",
+          [r.subscription_id,eventKey]).catch(()=>{});
+      }
+    }
+    if(now-tvPushLastCleanup>6*60*60*1000){
+      tvPushLastCleanup=now;
+      await pool.query("DELETE FROM tv_push_deliveries WHERE sent_at<now()-interval '30 days'").catch(()=>{});
+    }
+  }catch(e){console.error("TV push reminder sweep failed:",e?.message||e)}
+  finally{tvPushSweepBusy=false;}
+}
+const tvPushSweepTimer=setInterval(sweepTvPushReminders,30000);
+tvPushSweepTimer.unref?.();
+setTimeout(sweepTvPushReminders,5000).unref?.();
+
 app.get(["/tv-schedule.json"],async(req,res)=>{
   try{res.set("Cache-Control","no-cache").json(await getTvLineup());}
   catch(e){res.set("Cache-Control","no-cache").type("application/json").sendFile(path.join(ROOT,"tv-schedule.json"));}

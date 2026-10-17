@@ -243,6 +243,7 @@
     .reminder-btn:hover { color: #f6cd79; border-color: rgba(245,158,11,.3); }
     .reminder-btn[aria-pressed="true"] { color: #f5c971; border-color: rgba(245,158,11,.4); background: rgba(245,158,11,.09); }
     .reminder-btn .icon { width: 12px; height: 12px; }
+    .reminder-btn:disabled { opacity: .55; cursor: not-allowed; }
     .hub-section { padding-top: 44px; }
     .hub-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .hub-card { position: relative; min-width: 0; overflow: hidden; padding: 21px; border: 1px solid var(--line); border-radius: 17px; background: linear-gradient(125deg, rgba(22,22,28,.88), rgba(16,15,18,.86)); box-shadow: inset 0 1px rgba(255,255,255,.025); }
@@ -922,6 +923,7 @@ const CONFIG = {
   const $ = (id) => document.getElementById(id);
   const player = $("player");
   let video = null, playerIframe = null;
+  let currentTvChannelId = "fbitv.gh";
 
   // ---------- time helpers (in the station's time zone) ----------
   function stationNow() {
@@ -1578,6 +1580,7 @@ const CONFIG = {
       if (d && typeof d.hlsBase === "string" && /^https:\/\//.test(d.hlsBase)) HLS_BASE = d.hlsBase.replace(/\/+$/, "");
       const ch = d && (d.channels || [])[0];
       if (ch && Array.isArray(ch.schedule)) {
+        currentTvChannelId = String(ch.id || currentTvChannelId);
         CONFIG.schedule = ch.schedule;
         if (d.timeZone) CONFIG.timeZone = d.timeZone;
         document.body.dataset.timeZone = CONFIG.timeZone;
@@ -1751,6 +1754,8 @@ const CONFIG = {
   function enhanceSchedule() {
     if (!schedule) return;
     schedule.querySelectorAll("li:not(.empty)").forEach((item) => {
+      item.dataset.reminderDate = stationParts().date;
+      item.dataset.channelId = currentTvChannelId;
       const info = item.querySelector(".schedule-info") || item.lastElementChild;
       const image = item.querySelector(".thumb");
       if (!image && !item.querySelector(".epg-poster")) {
@@ -1770,14 +1775,11 @@ const CONFIG = {
         button.setAttribute("aria-pressed", String(reminders.has(id)));
         button.innerHTML = '<svg class="icon"><use href="#i-bell"/></svg><span></span>';
         button.lastElementChild.textContent = reminders.has(id) ? "Reminder set" : "Set reminder";
-        button.addEventListener("click", () => {
-          const key = button.dataset.reminder, active = !reminders.has(key);
-          if (active) reminders.add(key); else reminders.delete(key);
-          try { localStorage.setItem(reminderStore, JSON.stringify([...reminders])); } catch {}
-          button.setAttribute("aria-pressed", String(active));
-          button.lastElementChild.textContent = active ? "Reminder set" : "Set reminder";
-          toast(active ? "Reminder saved in this browser." : "Reminder removed.");
-        });
+        const alreadyStarted = toMinutes(item.dataset.start) <= stationParts().mins;
+        button.lastElementChild.textContent = reminders.has(id) ? "Reminder set" : alreadyStarted ? (item.classList.contains("is-now") ? "Now airing" : "Already started") : "Set reminder";
+        button.disabled = alreadyStarted && !reminders.has(id);
+        button.title = alreadyStarted ? "This scheduled start time has passed." : "Get a push notification 10 minutes before this show starts.";
+        button.addEventListener("click", () => togglePushReminder(item, button));
         info?.append(button);
       }
     });
@@ -1798,18 +1800,131 @@ const CONFIG = {
   }
   updateClock();
   setInterval(() => { updateClock(); updateProgress(); }, 30000);
-  const reminderFired = new Set();
-  function checkReminders() {
-    const now = stationParts();
-    schedule?.querySelectorAll("li:not(.empty)").forEach((item) => {
-      const key = reminderId(item);
-      if (!reminders.has(key) || reminderFired.has(key) || toMinutes(item.dataset.start) !== now.mins) return;
-      reminderFired.add(key);
-      toast(item.dataset.title + " is on now");
-      if ("Notification" in window && Notification.permission === "granted") new Notification("FBI TV reminder", { body: item.dataset.title + " is on now." });
+  function updateReminderButtons() {
+    schedule?.querySelectorAll(".reminder-btn").forEach((button) => {
+      const item = button.closest("li");
+      const active = reminders.has(button.dataset.reminder);
+      const alreadyStarted = item && toMinutes(item.dataset.start) <= stationParts().mins;
+      button.setAttribute("aria-pressed", String(active));
+      button.lastElementChild.textContent = active ? "Reminder set" : alreadyStarted ? (item.classList.contains("is-now") ? "Now airing" : "Already started") : "Set reminder";
+      button.disabled = Boolean(alreadyStarted && !active);
     });
   }
-  setInterval(checkReminders, 30000);
+  async function togglePushReminder(item, button) {
+    if (!button || button.disabled) return;
+    button.disabled = true;
+    const key = button.dataset.reminder || reminderId(item);
+    const active = !reminders.has(key);
+    try {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+        throw new Error("Push reminders are not supported in this browser.");
+      }
+      if (isIOS && !isStandalone()) {
+        throw new Error("On iPhone or iPad, add FBI TV to your Home Screen before setting reminders.");
+      }
+      if (active && Notification.permission !== "granted") {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") throw new Error("Allow notifications for FBI TV to set this reminder.");
+      }
+      const registration = await navigator.serviceWorker.ready;
+      let subscription = await registration.pushManager.getSubscription();
+      if (active) {
+        const configResponse = await fetch("/api/tv/push/config", { cache: "no-store" });
+        const config = await configResponse.json().catch(() => ({}));
+        if (!configResponse.ok || !config.enabled || !config.vapidPublicKey) {
+          throw new Error(config.error || "Show reminders are temporarily unavailable.");
+        }
+        if (!subscription) {
+          const padded = config.vapidPublicKey + "=".repeat((4 - config.vapidPublicKey.length % 4) % 4);
+          const raw = atob(padded.replace(/-/g, "+").replace(/_/g, "/"));
+          const applicationServerKey = Uint8Array.from(raw, character => character.charCodeAt(0));
+          subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
+        }
+        const channelId = item.dataset.channelId || currentTvChannelId;
+        const eventDate = item.dataset.reminderDate || stationParts().date;
+        const showKey = [channelId, item.dataset.start, item.dataset.end, item.dataset.title].map(value => String(value || "").trim()).join("|");
+        const response = await fetch("/api/tv/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subscription: subscription.toJSON(), channelId, eventDate, showKey, leadMinutes: 10 })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || "Could not set this reminder.");
+        reminders.add(key);
+        try { localStorage.setItem(reminderStore, JSON.stringify([...reminders])); } catch {}
+        button.setAttribute("aria-pressed", "true");
+        button.lastElementChild.textContent = "Reminder set";
+        toast("We'll notify you 10 minutes before " + item.dataset.title + " starts.");
+      } else {
+        if (!subscription) {
+          reminders.delete(key);
+          try { localStorage.setItem(reminderStore, JSON.stringify([...reminders])); } catch {}
+          updateReminderButtons();
+          toast("Reminder removed.");
+          return;
+        }
+        const channelId = item.dataset.channelId || currentTvChannelId;
+        const eventDate = item.dataset.reminderDate || stationParts().date;
+        const showKey = [channelId, item.dataset.start, item.dataset.end, item.dataset.title].map(value => String(value || "").trim()).join("|");
+        const response = await fetch("/api/tv/push/reminders/remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: subscription.endpoint, channelId, eventDate, showKey })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || "Could not remove this reminder.");
+        reminders.delete(key);
+        try { localStorage.setItem(reminderStore, JSON.stringify([...reminders])); } catch {}
+        updateReminderButtons();
+        if (!result.active) await subscription.unsubscribe().catch(() => {});
+        toast("Reminder removed.");
+      }
+    } catch (error) {
+      toast(error.message || "Could not update this reminder.");
+    } finally {
+      button.disabled = false;
+    }
+  }
+  let pushReminderSyncRunning = false;
+  async function syncPushReminders() {
+    if (pushReminderSyncRunning) return;
+    pushReminderSyncRunning = true;
+    try {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+        reminders.clear();
+        try { localStorage.setItem(reminderStore, "[]"); } catch {}
+        updateReminderButtons();
+        return;
+      }
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        reminders.clear();
+        try { localStorage.setItem(reminderStore, "[]"); } catch {}
+        updateReminderButtons();
+        return;
+      }
+      const response = await fetch("/api/tv/push/reminders/list", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: subscription.endpoint })
+      });
+      if (!response.ok) return;
+      const result = await response.json();
+      reminders = new Set(Array.isArray(result.reminders) ? result.reminders : []);
+      try { localStorage.setItem(reminderStore, JSON.stringify([...reminders])); } catch {}
+      updateReminderButtons();
+    } catch {
+      // Keep saved reminder state until the server can be reached again.
+    } finally {
+      pushReminderSyncRunning = false;
+    }
+  }
+  scheduleLoaded.then(() => syncPushReminders()).catch(() => {});
+  syncPushReminders();
+  navigator.serviceWorker?.addEventListener("message", (event) => {
+    if (event.data?.type === "fbi-tv-push-delivered") syncPushReminders();
+  });
 
   function gfMultiply(a, b) {
     let result = 0;
