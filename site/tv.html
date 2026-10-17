@@ -141,6 +141,9 @@
   .sched .empty{padding:16px 20px;color:var(--muted);font-size:14px}
   .iptv{padding:18px 20px;display:flex;flex-direction:column;gap:10px}
   .sports .btn{text-decoration:none;align-self:flex-start}
+  .sports .provider-link{display:inline-flex;align-items:center;min-height:32px;font-size:14px;font-weight:600;text-decoration:none}
+  .sports-return{position:absolute;left:16px;top:68px;z-index:5;min-height:44px;padding:0 14px;border:1px solid var(--gold);border-radius:10px;background:rgba(17,17,19,.94);color:var(--text);font-weight:700;cursor:pointer}
+  .sports-return:hover{background:var(--gold);color:var(--bg)}
   .iptv p{margin:0;font-size:14px;line-height:1.5;color:var(--soft)}
   .iptv .row{display:flex;align-items:center;gap:8px;background:#141416;border:1px solid #33322E;border-radius:10px;padding:6px 6px 6px 12px}
   .iptv .row span{flex:1;min-width:0;font-size:13px;color:var(--muted)}
@@ -233,7 +236,7 @@
     <nav aria-label="Main">
       <a href="#watch" aria-current="page">Watch live</a>
       <a href="#schedule">Schedule</a>
-      <a href="https://www.dazn.com/fifaplus" target="_blank" rel="noopener noreferrer">Sports</a>
+      <a href="#watch" id="btnSports">Sports</a>
       <a href="#about">About</a>
       <button class="install" id="btnInstall" type="button" hidden>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
@@ -246,6 +249,7 @@
 <main class="wrap" id="watch">
   <section class="col-main" aria-label="Live stream">
     <div class="player" id="player">
+      <button class="sports-return" id="btnReturnLive" type="button" hidden>← Back to FBI TV</button>
       <div class="watermark"><svg viewBox="-50 -50 100 100" aria-hidden="true"><use href="#aperture"/></svg></div>
       <div class="badges">
         <span class="badge live" id="liveBadge" hidden><i></i>LIVE</span>
@@ -340,8 +344,10 @@
     </section>
     <section class="card iptv sports" aria-labelledby="sportsH">
       <h2 id="sportsH">FBI TV Sports</h2>
-      <p>Watch free live football, highlights and replays on FIFA+ via DAZN. Match availability and commentary, including English, vary by competition and location.</p>
-      <a class="btn" href="https://www.dazn.com/fifaplus" target="_blank" rel="noopener noreferrer">Watch FIFA+ on DAZN</a>
+      <p>When the Ghana Football Association streams a live match on its official YouTube channel, watch it here in the FBI TV player. The feed is available only during GFA broadcasts; it does not include Premier League or Champions League coverage.</p>
+      <button class="btn" id="btnSportsFeed" type="button">Watch GFA Live in FBI TV</button>
+      <a class="provider-link" href="https://www.youtube.com/@gfa-official" target="_blank" rel="noopener noreferrer">GFA official YouTube channel</a>
+      <a class="provider-link" href="https://www.dazn.com/fifaplus" target="_blank" rel="noopener noreferrer">Explore FIFA+ on DAZN</a>
     </section>
     <section class="card sched" aria-labelledby="schedH">
       <h2 id="schedH">On today</h2>
@@ -414,7 +420,7 @@ const CONFIG = {
 (function () {
   const $ = (id) => document.getElementById(id);
   const player = $("player");
-  let video = null;
+  let video = null, playerIframe = null;
 
   // ---------- time helpers (in the station's time zone) ----------
   function stationNow() {
@@ -448,6 +454,7 @@ const CONFIG = {
     });
   }
   function renderSchedule() {
+    if (mode === "sports") return;
     const list = todaysShows();
     const now = currentShow(list);
     const ul = $("schedList");
@@ -492,7 +499,7 @@ const CONFIG = {
   }
 
   // ---------- player ----------
-  // mode: "live" (the live stream), "replay" (last broadcast while off air), "off"
+  // mode: "live" (the live stream), "replay" (last broadcast while off air), "sports" (official GFA YouTube), "off"
   let mode = "off";
   let liveGen = 0;   // bumped each time live starts, so a replay still loading never replaces it
   function showOffline() {
@@ -515,6 +522,10 @@ const CONFIG = {
       try { video.pause(); video.removeAttribute("src"); video.load(); } catch (e) {}
       video.remove();
       video = null;
+    }
+    if (playerIframe) {
+      playerIframe.remove();
+      playerIframe = null;
     }
   }
   function goOffline() {
@@ -599,14 +610,48 @@ const CONFIG = {
     goOffline();
     startReplay();
   }
-  function addIframe(src) {
+  function addIframe(src, title = "FBI TV live stream") {
     const f = document.createElement("iframe");
     f.src = src;
-    f.title = "FBI TV live stream";
+    f.title = title;
     f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
     f.allowFullscreen = true;
     player.appendChild(f);
+    playerIframe = f;
     showLive();
+  }
+  const GFA_YOUTUBE_CHANNEL_ID = "UCqFWYTyuTCqH5f1FQcPLPSw";
+  function startSports() {
+    clearTimeout(liveRetryTimer);
+    liveGen++;
+    liveRetries = 0;
+    teardownVideo();
+    mode = "sports";
+    $("btnReturnLive").hidden = false;
+    $("nowKicker").textContent = "FBI TV Sports";
+    $("nowTitle").textContent = "Ghana Football Association";
+    $("nowMeta").textContent = "Official GFA live match stream — available when the GFA is broadcasting.";
+    $("offline").hidden = true;
+    $("liveBadge").hidden = true;
+    $("offBadge").hidden = true;
+    $("replayBadge").hidden = true;
+    $("viewers").hidden = true;
+    $("unmute").hidden = true;
+    $("controls").hidden = true;
+    addIframe(
+      "https://www.youtube.com/embed/live_stream?channel=" +
+        encodeURIComponent(GFA_YOUTUBE_CHANNEL_ID) + "&autoplay=1&mute=1",
+      "Official Ghana Football Association live stream"
+    );
+  }
+  function returnToFbiTv() {
+    if (mode !== "sports") return;
+    $("btnReturnLive").hidden = true;
+    teardownVideo();
+    mode = "off";
+    renderSchedule();
+    if (fbighToken()) pollViewers();
+    else startStream();
   }
   function setupHls(url) {
     mode = "live";
@@ -770,9 +815,9 @@ const CONFIG = {
       const n = Number(tok ? d.current_viewers : d.viewers);
       if (Number.isFinite(n)) {
         $("viewerCount").textContent = n.toLocaleString();
-        $("viewers").hidden = !(tok && d.live);
+        $("viewers").hidden = !(tok && d.live && mode !== "sports");
       }
-      if (tok && r.ok) {
+      if (tok && r.ok && mode !== "sports") {
         if (d.live && mode !== "live") startLive();           // back on air
         else if (!d.live && mode !== "replay") startReplay(); // off air: show last broadcast
       }
@@ -1017,6 +1062,17 @@ const CONFIG = {
     })
     .catch(() => {});
   setInterval(renderSchedule, 60 * 1000);
+  $("btnSports").addEventListener("click", (event) => {
+    event.preventDefault();
+    startSports();
+    $("player").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  $("btnSportsFeed").addEventListener("click", () => {
+    startSports();
+    $("player").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  $("btnReturnLive").addEventListener("click", returnToFbiTv);
+
   startStream();
   // start the player once we know where the video comes from (max 3 s wait)
   Promise.race([scheduleLoaded, new Promise((r) => setTimeout(r, 3000))]).then(() => pollViewers());
