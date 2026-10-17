@@ -59,27 +59,8 @@ function startPublisher(key) {
   pubKey = key;
   pubStart = Date.now();
   nextTs = 0;
-  // Each feeder creates a fresh MPEG-TS muxer. When those TS packets are
-  // concatenated into one publisher, continuity counters and source PTS can
-  // reset at programme boundaries. A stream-copy publisher forwards those
-  // discontinuities to MediaMTX, which can make HLS viewers jump. Drop corrupt
-  // boundary packets, then rebuild a continuous 30 fps video clock and audio
-  // sample clock in this persistent publisher before sending RTMP.
-  const args = [
-    "-hide_banner", "-loglevel", "warning",
-    "-fflags", "+genpts+discardcorrupt",
-    "-f", "mpegts", "-i", "pipe:0",
-    "-map", "0:v:0", "-map", "0:a:0?",
-    "-vf", "setpts=N/(30*TB),fps=30,format=yuv420p",
-    "-af", "asetpts=N/SR/TB",
-    "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
-    "-profile:v", "main", "-level", "4.1",
-    "-r", "30", "-g", "60", "-keyint_min", "60", "-sc_threshold", "0",
-    "-b:v", "6M", "-maxrate", "6500k", "-bufsize", "12M",
-    "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
-    "-flvflags", "no_duration_filesize",
-    "-f", "flv", RTMP + "/encoded/" + key
-  ];
+  const args = ["-hide_banner", "-loglevel", "warning", "-fflags", "+genpts", "-f", "mpegts", "-i", "pipe:0",
+    "-c", "copy", "-f", "flv", RTMP + "/encoded/" + key];
   const p = spawn("ffmpeg", args, { stdio: ["pipe", "ignore", "pipe"] });
   p.stdin.on("error", () => {});
   p.stderr.on("data", (d) => process.stdout.write("[publisher] " + d));
