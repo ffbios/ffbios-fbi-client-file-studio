@@ -924,6 +924,7 @@ const CONFIG = {
   const player = $("player");
   let video = null, playerIframe = null;
   let currentTvChannelId = "fbitv.gh";
+  window.FBI_TV_CHANNEL_ID = currentTvChannelId;
 
   // ---------- time helpers (in the station's time zone) ----------
   function stationNow() {
@@ -1581,6 +1582,7 @@ const CONFIG = {
       const ch = d && (d.channels || [])[0];
       if (ch && Array.isArray(ch.schedule)) {
         currentTvChannelId = String(ch.id || currentTvChannelId);
+        window.FBI_TV_CHANNEL_ID = currentTvChannelId;
         CONFIG.schedule = ch.schedule;
         if (d.timeZone) CONFIG.timeZone = d.timeZone;
         document.body.dataset.timeZone = CONFIG.timeZone;
@@ -1755,7 +1757,7 @@ const CONFIG = {
     if (!schedule) return;
     schedule.querySelectorAll("li:not(.empty)").forEach((item) => {
       item.dataset.reminderDate = stationParts().date;
-      item.dataset.channelId = currentTvChannelId;
+      item.dataset.channelId = window.FBI_TV_CHANNEL_ID || "fbitv.gh";
       const info = item.querySelector(".schedule-info") || item.lastElementChild;
       const image = item.querySelector(".thumb");
       if (!image && !item.querySelector(".epg-poster")) {
@@ -1819,7 +1821,9 @@ const CONFIG = {
       if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
         throw new Error("Push reminders are not supported in this browser.");
       }
-      if (isIOS && !isStandalone()) {
+      const appleMobile = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+      const installedApp = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+      if (appleMobile && !installedApp) {
         throw new Error("On iPhone or iPad, add FBI TV to your Home Screen before setting reminders.");
       }
       if (active && Notification.permission !== "granted") {
@@ -1840,7 +1844,7 @@ const CONFIG = {
           const applicationServerKey = Uint8Array.from(raw, character => character.charCodeAt(0));
           subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
         }
-        const channelId = item.dataset.channelId || currentTvChannelId;
+        const channelId = item.dataset.channelId || window.FBI_TV_CHANNEL_ID || "fbitv.gh";
         const eventDate = item.dataset.reminderDate || stationParts().date;
         const showKey = [channelId, item.dataset.start, item.dataset.end, item.dataset.title].map(value => String(value || "").trim()).join("|");
         const response = await fetch("/api/tv/push/subscribe", {
@@ -1863,7 +1867,7 @@ const CONFIG = {
           toast("Reminder removed.");
           return;
         }
-        const channelId = item.dataset.channelId || currentTvChannelId;
+        const channelId = item.dataset.channelId || window.FBI_TV_CHANNEL_ID || "fbitv.gh";
         const eventDate = item.dataset.reminderDate || stationParts().date;
         const showKey = [channelId, item.dataset.start, item.dataset.end, item.dataset.title].map(value => String(value || "").trim()).join("|");
         const response = await fetch("/api/tv/push/reminders/remove", {
@@ -1920,7 +1924,6 @@ const CONFIG = {
       pushReminderSyncRunning = false;
     }
   }
-  scheduleLoaded.then(() => syncPushReminders()).catch(() => {});
   syncPushReminders();
   navigator.serviceWorker?.addEventListener("message", (event) => {
     if (event.data?.type === "fbi-tv-push-delivered") syncPushReminders();
