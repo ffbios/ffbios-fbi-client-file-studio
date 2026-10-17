@@ -140,6 +140,7 @@
   .sched .h{font-size:13px;color:var(--muted);margin-top:2px}
   .sched .empty{padding:16px 20px;color:var(--muted);font-size:14px}
   .iptv{padding:18px 20px;display:flex;flex-direction:column;gap:10px}
+  .sports .btn{text-decoration:none;align-self:flex-start}
   .iptv p{margin:0;font-size:14px;line-height:1.5;color:var(--soft)}
   .iptv .row{display:flex;align-items:center;gap:8px;background:#141416;border:1px solid #33322E;border-radius:10px;padding:6px 6px 6px 12px}
   .iptv .row span{flex:1;min-width:0;font-size:13px;color:var(--muted)}
@@ -232,6 +233,7 @@
     <nav aria-label="Main">
       <a href="#watch" aria-current="page">Watch live</a>
       <a href="#schedule">Schedule</a>
+      <a href="https://www.dazn.com/fifaplus" target="_blank" rel="noopener noreferrer">Sports</a>
       <a href="#about">About</a>
       <button class="install" id="btnInstall" type="button" hidden>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
@@ -335,6 +337,11 @@
         <button type="submit" id="chatSend">Send</button>
       </form>
       <div class="chat-status" id="chatStatus" role="status"></div>
+    </section>
+    <section class="card iptv sports" aria-labelledby="sportsH">
+      <h2 id="sportsH">FBI TV Sports</h2>
+      <p>Watch free live football, highlights and replays on FIFA+ via DAZN. Match availability and commentary, including English, vary by competition and location.</p>
+      <a class="btn" href="https://www.dazn.com/fifaplus" target="_blank" rel="noopener noreferrer">Watch FIFA+ on DAZN</a>
     </section>
     <section class="card sched" aria-labelledby="schedH">
       <h2 id="schedH">On today</h2>
