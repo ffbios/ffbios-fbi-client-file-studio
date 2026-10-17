@@ -643,6 +643,8 @@ const CONFIG = {
         encodeURIComponent(GFA_YOUTUBE_CHANNEL_ID) + "&autoplay=1&mute=1",
       "Official Ghana Football Association live stream"
     );
+    $("liveBadge").hidden = true; // YouTube confirms live status inside its own player.
+    $("viewers").hidden = true;
   }
   function returnToFbiTv() {
     if (mode !== "sports") return;
