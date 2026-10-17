@@ -344,10 +344,9 @@
     </section>
     <section class="card iptv sports" aria-labelledby="sportsH">
       <h2 id="sportsH">FBI TV Sports</h2>
-      <p>When the Ghana Football Association streams a live match on its official YouTube channel, watch it here in the FBI TV player. The feed is available only during GFA broadcasts; it does not include Premier League or Champions League coverage.</p>
-      <button class="btn" id="btnSportsFeed" type="button">Watch GFA Live in FBI TV</button>
-      <a class="provider-link" href="https://www.youtube.com/@gfa-official" target="_blank" rel="noopener noreferrer">GFA official YouTube channel</a>
-      <a class="provider-link" href="https://www.dazn.com/fifaplus" target="_blank" rel="noopener noreferrer">Explore FIFA+ on DAZN</a>
+      <p>When CAF Zone West B (WAFU B) broadcasts a football match on its official YouTube channel, watch it here inside the FBI TV player. Live coverage is event-based and may be unavailable between matches.</p>
+      <button class="btn" id="btnSportsFeed" type="button">Watch WAFU B Live in FBI TV</button>
+      <a class="provider-link" href="https://www.youtube.com/@cafzoneouestb/streams" target="_blank" rel="noopener noreferrer">Official CAF Zone West B live streams</a>
     </section>
     <section class="card sched" aria-labelledby="schedH">
       <h2 id="schedH">On today</h2>
@@ -499,7 +498,7 @@ const CONFIG = {
   }
 
   // ---------- player ----------
-  // mode: "live" (the live stream), "replay" (last broadcast while off air), "sports" (official GFA YouTube), "off"
+  // mode: "live" (the live stream), "replay" (last broadcast while off air), "sports" (official CAF Zone West B YouTube), "off"
   let mode = "off";
   let liveGen = 0;   // bumped each time live starts, so a replay still loading never replaces it
   function showOffline() {
@@ -620,7 +619,7 @@ const CONFIG = {
     playerIframe = f;
     showLive();
   }
-  const GFA_YOUTUBE_CHANNEL_ID = "UCqFWYTyuTCqH5f1FQcPLPSw";
+  const WAFU_B_YOUTUBE_CHANNEL_ID = "UCE54Dw_PdmmBY0gFG1GO6Bg";
   function startSports() {
     clearTimeout(liveRetryTimer);
     liveGen++;
@@ -629,8 +628,8 @@ const CONFIG = {
     mode = "sports";
     $("btnReturnLive").hidden = false;
     $("nowKicker").textContent = "FBI TV Sports";
-    $("nowTitle").textContent = "Ghana Football Association";
-    $("nowMeta").textContent = "Official GFA live match stream — available when the GFA is broadcasting.";
+    $("nowTitle").textContent = "CAF Zone West B (WAFU B)";
+    $("nowMeta").textContent = "Official CAF Zone West B match stream — available during its live broadcasts.";
     $("offline").hidden = true;
     $("liveBadge").hidden = true;
     $("offBadge").hidden = true;
@@ -640,8 +639,8 @@ const CONFIG = {
     $("controls").hidden = true;
     addIframe(
       "https://www.youtube.com/embed/live_stream?channel=" +
-        encodeURIComponent(GFA_YOUTUBE_CHANNEL_ID) + "&autoplay=1&mute=1",
-      "Official Ghana Football Association live stream"
+        encodeURIComponent(WAFU_B_YOUTUBE_CHANNEL_ID) + "&autoplay=1&mute=1",
+      "Official CAF Zone West B live match stream"
     );
     $("liveBadge").hidden = true; // YouTube confirms live status inside its own player.
     $("viewers").hidden = true;
