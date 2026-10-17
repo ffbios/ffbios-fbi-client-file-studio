@@ -3829,10 +3829,10 @@ function countHlsAppViewer(streamId,req){
 // with aligned keyframes. 480p is listed first so phones start at a quality
 // that loads quickly on mobile data, then adapt; TVs climb to 1080p.
 const ABR_MASTER=["#EXTM3U","#EXT-X-VERSION:3","#EXT-X-INDEPENDENT-SEGMENTS",
+  '#EXT-X-STREAM-INF:BANDWIDTH=900000,AVERAGE-BANDWIDTH=720000,RESOLUTION=640x360,FRAME-RATE=30.000,CODECS="avc1.4d401f,mp4a.40.2"',"r/360/index.m3u8",
   '#EXT-X-STREAM-INF:BANDWIDTH=1600000,AVERAGE-BANDWIDTH=1300000,RESOLUTION=854x480,FRAME-RATE=30.000,CODECS="avc1.4d401f,mp4a.40.2"',"r/480/index.m3u8",
   '#EXT-X-STREAM-INF:BANDWIDTH=3900000,AVERAGE-BANDWIDTH=3200000,RESOLUTION=1280x720,FRAME-RATE=30.000,CODECS="avc1.4d401f,mp4a.40.2"',"r/720/index.m3u8",
-  '#EXT-X-STREAM-INF:BANDWIDTH=7200000,AVERAGE-BANDWIDTH=6200000,RESOLUTION=1920x1080,FRAME-RATE=30.000,CODECS="avc1.4d4029,mp4a.40.2"',"r/1080/index.m3u8",
-  '#EXT-X-STREAM-INF:BANDWIDTH=900000,AVERAGE-BANDWIDTH=720000,RESOLUTION=640x360,FRAME-RATE=30.000,CODECS="avc1.4d401f,mp4a.40.2"',"r/360/index.m3u8"].join("\n")+"\n";
+  '#EXT-X-STREAM-INF:BANDWIDTH=7200000,AVERAGE-BANDWIDTH=6200000,RESOLUTION=1920x1080,FRAME-RATE=30.000,CODECS="avc1.4d4029,mp4a.40.2"',"r/1080/index.m3u8"].join("\n")+"\n";
 const abrAvailCache=new Map(), abrVariantName=new Map();
 async function abrAvailable(row,base){
   const key=String(row.stream_key||"");if(!key)return false;
