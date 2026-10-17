@@ -621,24 +621,8 @@ const CONFIG = {
       const bigScreen = document.body.classList.contains("tvmode") || new URLSearchParams(location.search).get("tv") === "1" ||
         /\b(Android TV|GoogleTV|AFT[A-Z0-9]*|BRAVIA|SMART-TV|SmartTV|Tizen|Web0S|webOS|NetCast|HbbTV|CrKey|Roku|Viera)\b/i.test(navigator.userAgent) ||
         Math.max(screen.width, screen.height) * (window.devicePixelRatio || 1) >= 1600 && !/Mobi|Android(?!.*TV)/i.test(navigator.userAgent);
-      const hls = new Hls({
-        // This is a normal rolling HLS playlist, not LL-HLS. A slightly
-        // deeper buffer avoids chasing the edge and seeking during jitter.
-        lowLatencyMode: false,
-        liveSyncDurationCount: 4,
-        liveMaxLatencyDurationCount: 6,
-        maxLiveSyncPlaybackRate: 1.03,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        backBufferLength: 30,
-        startFragPrefetch: true,
-        abrEwmaDefaultEstimate: bigScreen ? 3500000 : 1200000,
-        abrBandWidthFactor: 0.8,
-        abrBandWidthUpFactor: 0.65,
-        fragLoadingMaxRetry: 6,
-        manifestLoadingMaxRetry: 6,
-        levelLoadingMaxRetry: 6
-      });
+      const hls = new Hls({ lowLatencyMode: true, liveSyncDurationCount: 3,
+        abrEwmaDefaultEstimate: bigScreen ? 5000000 : 500000 });
       hls.loadSource(url);
       hls.attachMedia(video);
       hls.on(Hls.Events.ERROR, (e, d) => {
