@@ -3764,7 +3764,7 @@ const PUBLIC_HLS_CACHE_TTL=6500;
 const PUBLIC_HLS_CACHE_MAX_BYTES=48*1024*1024;
 let publicHlsCacheBytes=0;
 function publicHlsCacheKey(token,upstreamPath,pathname,query){
-  const q=new URLSearchParams(query||""); q.delete("session"); q.delete("cookieCheck");
+  const q=new URLSearchParams(query||""); q.delete("session"); q.delete("cookieCheck"); q.delete("vt");
   return String(token)+"|"+String(upstreamPath||"")+"|"+String(pathname||"")+"|"+q.toString();
 }
 function publicHlsCacheGet(key){
@@ -3810,12 +3810,52 @@ async function fetchPublicHlsBody(url,headers){
   const body=Buffer.from(await response.arrayBuffer());
   return {response,type,body};
 }
+// ---- Download protection ----------------------------------------------------
+// Public video is for watching on FBI pages only. Browsers label every request
+// with Sec-Fetch-* headers; ffmpeg, download managers and IPTV apps don't, and
+// a link opened in the address bar is labelled "none"/"document". iPhone's own
+// player (AppleCoreMedia) sends no Sec-Fetch headers, so it passes on its UA.
+const VIEWER_SITE_RE=/^https:\/\/(?:(?:[a-z0-9-]+\.)*fbigh\.com|fbi-[a-z0-9-]+\.up\.railway\.app)$/i;
+function viewerOrigin(req){
+  const o=String(req.headers.origin||"");if(o)return o;
+  try{return new URL(String(req.headers.referer||"")).origin}catch{return ""}
+}
+function isApplePlayer(req){
+  const ua=String(req.headers["user-agent"]||"");
+  if(/AppleCoreMedia/i.test(ua))return true;
+  return /\b(iPhone|iPad|iPod|Macintosh)\b/.test(ua)&&/AppleWebKit/.test(ua)&&!/Chrome\/|Firefox\/|Edg\//.test(ua);
+}
+function isViewerPlayback(req,dests){
+  const site=String(req.headers["sec-fetch-site"]||"").toLowerCase();
+  const dest=String(req.headers["sec-fetch-dest"]||"").toLowerCase();
+  if(!site&&!dest)return isApplePlayer(req);
+  if(dest&&!dests.includes(dest))return false;
+  if(site==="same-origin"||site==="same-site")return true;
+  if(site==="cross-site")return VIEWER_SITE_RE.test(viewerOrigin(req));
+  return false;
+}
+// The first live playlist hands the player a viewer ticket ("vt") that every
+// later playlist and segment URL must carry, so a copied segment or variant
+// URL stops working after a few hours.
+const VIEWER_TICKET_MS=6*3600*1000;
+function viewerTicketSig(token,exp){return crypto.createHmac("sha256",SESSION_SECRET).update("vt|"+token+"|"+exp).digest("base64url").slice(0,22)}
+function viewerTicket(token){const exp=(Date.now()+VIEWER_TICKET_MS).toString(36);return exp+"."+viewerTicketSig(token,exp)}
+function viewerTicketOk(token,vt){
+  const [exp,sig]=String(vt||"").split(".");
+  if(!exp||!sig||!(parseInt(exp,36)>Date.now()))return false;
+  const want=viewerTicketSig(token,exp);
+  return sig.length===want.length&&crypto.timingSafeEqual(Buffer.from(sig),Buffer.from(want));
+}
+function appendQueryExceptTicket(req,url){
+  for(const [k,v] of Object.entries(req.query||{}))if(k!=="vt")url.searchParams.append(k,String(v));
+}
 function setPublicHlsCors(req,res){
-  // Public viewer playback is intentionally cross-origin because the player page
-  // lives on files.fbigh.com while HLS is served from live.fbigh.com.
-  // The viewer token is the access control; no browser credentials are required
-  // for the HLS media requests because the session is carried in rewritten URLs.
-  res.set("Access-Control-Allow-Origin","*");
+  // Public viewer playback is cross-origin because the player page can live on
+  // files.fbigh.com while HLS is served from live.fbigh.com. Only FBI pages may
+  // read it; other websites get no CORS header and their players fail.
+  const origin=String(req.headers.origin||"");
+  res.vary("Origin");
+  if(VIEWER_SITE_RE.test(origin))res.set("Access-Control-Allow-Origin",origin);
   res.set("Access-Control-Allow-Methods","GET,HEAD,OPTIONS");
   res.set("Access-Control-Allow-Headers","Range,Origin,Accept,Content-Type");
   res.set("Access-Control-Expose-Headers","Content-Length,Content-Range");
@@ -3883,15 +3923,16 @@ async function abrOpenSession(base,upstreamPath,token){
   abrVariantName.set(upstreamPath,variant);
   return {session:sess,variant};
 }
-function abrUri(raw,prefix,sess){
+function abrUri(raw,prefix,sess,vt){
   const v=String(raw).trim();const qi=v.indexOf("?");
   const name=(qi>=0?v.slice(0,qi):v).replace(/^.*\//,"");
   const sp=new URLSearchParams(qi>=0?v.slice(qi+1):"");
   if(sess&&!sp.has("session"))sp.set("session",sess);
   sp.delete("cookieCheck");
+  if(vt)sp.set("vt",vt);
   const q=sp.toString();return prefix+name+(q?"?"+q:"");
 }
-async function proxyAbrRendition(req,res,token,row,q,rest,base){
+async function proxyAbrRendition(req,res,token,row,q,rest,base,vt){
   const upstreamPath=(q==="1080"?"encoded/":"encoded"+q+"/")+String(row.stream_key||"");
   if(/\.m3u8$/i.test(rest)){
     countHlsAppViewer(row.id,req);
@@ -3904,8 +3945,8 @@ async function proxyAbrRendition(req,res,token,row,q,rest,base){
       const prefix="/api/public/stream/"+encodeURIComponent(token)+"/hls/r/"+q+"/";
       const text=out.body.toString("utf8").split(/\r?\n/).map(l=>{
         if(!l.trim())return l;
-        if(l.startsWith("#"))return l.replace(/URI="([^"]+)"/g,(m,v)=>'URI="'+abrUri(v,prefix,sess)+'"');
-        return abrUri(l,prefix,sess);
+        if(l.startsWith("#"))return l.replace(/URI="([^"]+)"/g,(m,v)=>'URI="'+abrUri(v,prefix,sess,vt)+'"');
+        return abrUri(l,prefix,sess,vt);
       }).join("\n");
       return res.status(200).set("Cache-Control","no-store, no-cache, must-revalidate").type("application/vnd.apple.mpegurl").send(text);
     }
@@ -3913,7 +3954,7 @@ async function proxyAbrRendition(req,res,token,row,q,rest,base){
     return res.status(404).end();
   }
   const u=new URL(base+"/"+upstreamPath+"/"+rest);
-  for(const [k,v] of Object.entries(req.query||{}))u.searchParams.append(k,String(v));
+  appendQueryExceptTicket(req,u);
   const cacheKey=publicHlsCacheKey(token,upstreamPath,rest,u.search);
   const hdr="public, max-age=2, s-maxage=6, stale-while-revalidate=4";
   const cached=publicHlsCacheGet(cacheKey);
@@ -3941,20 +3982,25 @@ async function proxyPublicHlsStream(req,res){
     if(/^index\.m3u8\/index\.m3u8$/i.test(sub))sub="index.m3u8";
     else if(/^index\.m3u8\//i.test(sub))sub=sub.slice("index.m3u8/".length);
     const forceOriginalInput=String(req.query?.source||"").toLowerCase()==="input";
+    // Download protection: only a browser playing on an FBI page gets video.
+    // The entry playlist issues the viewer ticket; everything else needs it.
+    if(!isViewerPlayback(req,["empty","video","audio"]))return res.status(403).json({error:"FBI TV can only be watched at live.fbigh.com/tv."});
+    const vt=sub==="index.m3u8"?viewerTicket(token):String(req.query?.vt||"");
+    if(sub!=="index.m3u8"&&!viewerTicketOk(token,vt))return res.status(403).json({error:"This video link has expired. Reload the page to keep watching."});
     // Adaptive quality: r/<1080|720|480|360>/... are the four renditions; the
     // main index.m3u8 becomes a master playlist listing them (falls back to
     // the single full-quality stream if the renditions aren't running).
     const abrMatch=/^r\/(1080|720|480|360)\/(.+)$/i.exec(sub);
-    if(abrMatch&&!forceOriginalInput)return await proxyAbrRendition(req,res,token,row,abrMatch[1],abrMatch[2],internalBase);
+    if(abrMatch&&!forceOriginalInput)return await proxyAbrRendition(req,res,token,row,abrMatch[1],abrMatch[2],internalBase,vt);
     if(sub==="index.m3u8"&&!forceOriginalInput&&process.env.HLS_ABR!=="0"&&!programRouteActive(row.id)&&await abrAvailable(row,internalBase)){
       countHlsAppViewer(row.id,req);
-      return res.status(200).set("Cache-Control","no-store, no-cache, must-revalidate").type("application/vnd.apple.mpegurl").send(ABR_MASTER);
+      return res.status(200).set("Cache-Control","no-store, no-cache, must-revalidate").type("application/vnd.apple.mpegurl").send(ABR_MASTER.replace(/index\.m3u8/g,"index.m3u8?vt="+vt));
     }
     const upstreamPath=forceOriginalInput
       ?"live/"+String(row.stream_key||"")
       :(programRouteActive(row.id)?"program/"+String(row.stream_key||""):"encoded/"+String(row.stream_key||""));
     const upstream=new URL(internalBase+"/"+upstreamPath+(sub?"/"+sub:""));
-    for(const [k,v] of Object.entries(req.query||{}))upstream.searchParams.append(k,String(v));
+    appendQueryExceptTicket(req,upstream);
     if(forceOriginalInput)upstream.searchParams.delete("source");
     const incomingCookies=String(req.headers.cookie||"");
     const proxySession=(incomingCookies.match(/(?:^|;\s*)fbi_public_hls_session=([^;]+)/)||[])[1]||"";
@@ -4052,6 +4098,7 @@ async function proxyPublicHlsStream(req,res){
           // Keep Preview on the raw input: without this the variant/segment
           // URLs fell back to the encoded path with the input's session (401).
           if(forceOriginalInput)sp.set("source","input");
+          sp.set("vt",vt);
           const suffix=sp.toString(); return url+(suffix?"?"+suffix:"");
         }catch{return value}
       }
@@ -4200,7 +4247,9 @@ app.get("/api/public/stream/:token/replay",async(req,res)=>{
       console.error("Replay HEAD failed:",JSON.stringify({recordingId:recording.id,key:recording.storage_key,ms:Date.now()-t0,name:headErr?.name,status:headErr?.$metadata?.httpStatusCode,message:String(headErr?.message||headErr).slice(0,300)}));
     }
     if(!Number.isFinite(total)||total<=0)return res.json({available:false,status:"empty"});
-    const play_url=await getSignedUrl(replayS3,new GetObjectCommand({Bucket:bucket(),Key:recording.storage_key,ResponseContentType:"video/mp4",ResponseContentDisposition:"inline"}),{expiresIn:3600});
+    // Never hand out the storage link: it downloads the whole MP4. Viewers play
+    // through replay/file, which streams it in small, rate-limited pieces.
+    const play_url="/api/public/stream/"+encodeURIComponent(req.params.token)+"/replay/file?recordingId="+encodeURIComponent(recording.id);
     res.json({available:true,status:"completed",play_url,recording:{id:recording.id,filename:recording.filename,size_bytes:total,started_at:recording.started_at,ended_at:recording.ended_at}});
   }catch(e){
     console.error("Public replay load failed:",e?.stack||e);
@@ -4208,15 +4257,49 @@ app.get("/api/public/stream/:token/replay",async(req,res)=>{
   }
 });
 
+// Replays are watch-only: each response is at most REPLAY_CHUNK bytes and each
+// viewer (IP + recording) may pull at a few times the playback rate. Playing
+// is unaffected; ripping a 14-hour broadcast takes hours instead of minutes.
+const REPLAY_CHUNK=4*1024*1024,REPLAY_BURST=48*1024*1024;
+const replayBudgets=new Map(),replaySizeCache=new Map();
+async function replayThrottle(key,bytesPerSec,bytes){
+  const now=Date.now();
+  let b=replayBudgets.get(key);
+  if(!b){b={tokens:REPLAY_BURST,at:now};replayBudgets.set(key,b);}
+  b.tokens=Math.min(REPLAY_BURST,b.tokens+(now-b.at)/1000*bytesPerSec);b.at=now;
+  b.tokens-=bytes;
+  if(b.tokens<0){
+    const wait=-b.tokens/bytesPerSec*1000;
+    if(wait>20000){b.tokens+=bytes;return false;}
+    await new Promise(r=>setTimeout(r,wait));
+  }
+  if(replayBudgets.size>5000)for(const [k,v] of replayBudgets)if(now-v.at>600000)replayBudgets.delete(k);
+  return true;
+}
+async function replayObjectSize(recording){
+  const c=replaySizeCache.get(recording.id);
+  if(c&&Date.now()-c.at<600000)return c.size;
+  let total=Number(recording.size_bytes||0);
+  const t0=Date.now();
+  try{
+    const meta=await replayS3.send(new HeadObjectCommand({Bucket:bucket(),Key:recording.storage_key}),{abortSignal:AbortSignal.timeout(5000)});
+    total=Number(meta.ContentLength||total);
+    replaySizeCache.set(recording.id,{size:total,at:Date.now()});
+  }catch(headErr){
+    console.error("Replay file HEAD failed:",JSON.stringify({recordingId:recording.id,key:recording.storage_key,ms:Date.now()-t0,name:headErr?.name,status:headErr?.$metadata?.httpStatusCode,message:String(headErr?.message||headErr).slice(0,300)}));
+  }
+  return total;
+}
 app.get("/api/public/stream/:token/replay/file",async(req,res)=>{
   try{
+    if(!isViewerPlayback(req,["video","audio"]))return res.status(403).json({error:"Replays can only be watched at live.fbigh.com/tv."});
     const r=await publicStreamByToken(req.params.token);
     if(!r.rowCount)return res.status(404).json({error:"Stream not found"});
     const stream=r.rows[0];
     const recordingId=String(req.query.recordingId||"").trim();
     const query=recordingId
-      ? "SELECT id,filename,status,size_bytes,storage_key FROM stream_recordings WHERE stream_id=$1 AND id=$2 LIMIT 1"
-      : "SELECT id,filename,status,size_bytes,storage_key FROM stream_recordings WHERE stream_id=$1 AND status='completed' AND size_bytes>0 ORDER BY ended_at DESC NULLS LAST,created_at DESC LIMIT 1";
+      ? "SELECT id,filename,status,size_bytes,storage_key,started_at,ended_at,duration_seconds FROM stream_recordings WHERE stream_id=$1 AND id=$2 LIMIT 1"
+      : "SELECT id,filename,status,size_bytes,storage_key,started_at,ended_at,duration_seconds FROM stream_recordings WHERE stream_id=$1 AND status='completed' AND size_bytes>0 ORDER BY ended_at DESC NULLS LAST,created_at DESC LIMIT 1";
     const q=recordingId
       ? await pool.query(query,[stream.id,recordingId])
       : await pool.query(query,[stream.id]);
@@ -4224,22 +4307,9 @@ app.get("/api/public/stream/:token/replay/file",async(req,res)=>{
     if(!recording)return res.status(404).json({error:"Replay recording was not found."});
     if(recording.status!=="completed")return res.status(409).json({error:"Replay recording is still being finalized."});
     if(!s3Ready())return res.status(503).json({error:"Replay storage is not ready."});
-    // Send the player straight to storage with a short-lived signed link.
-    // This avoids proxying video bytes through this server (whose own
-    // connection to the bucket can stall). ?proxy=1 keeps the old behaviour.
-    if(String(req.query.proxy||"")!=="1"){
-      const signed=await getSignedUrl(replayS3,new GetObjectCommand({Bucket:bucket(),Key:recording.storage_key,ResponseContentType:"video/mp4",ResponseContentDisposition:"inline"}),{expiresIn:6*3600});
-      res.setHeader("Cache-Control","no-store");
-      return res.redirect(302,signed);
-    }
-    let total=Number(recording.size_bytes||0);
-    const t0=Date.now();
-    try{
-      const meta=await replayS3.send(new HeadObjectCommand({Bucket:bucket(),Key:recording.storage_key}),{abortSignal:AbortSignal.timeout(5000)});
-      total=Number(meta.ContentLength||total);
-    }catch(headErr){
-      console.error("Replay file HEAD failed:",JSON.stringify({recordingId:recording.id,key:recording.storage_key,ms:Date.now()-t0,name:headErr?.name,status:headErr?.$metadata?.httpStatusCode,message:String(headErr?.message||headErr).slice(0,300)}));
-    }
+    // Always stream through this server: a signed storage link (the old
+    // redirect) let anyone download the whole MP4 in one go.
+    const total=await replayObjectSize(recording);
     if(!Number.isFinite(total)||total<=0)return res.status(404).json({error:"Replay file is empty."});
     const range=String(req.headers.range||"").match(/^bytes=(\d*)-(\d*)$/i);
     let start=0,end=total-1;
@@ -4256,8 +4326,19 @@ app.get("/api/public/stream/:token/replay/file",async(req,res)=>{
       }
       if(start>=total||start>end)return res.status(416).set("Content-Range","bytes */"+total).end();
     }
-    const partial=!!range;
+    // Every answer is a small partial piece, even when the whole file was asked
+    // for; video players simply ask for the next piece.
+    end=Math.min(end,start+REPLAY_CHUNK-1);
+    const partial=true;
     const contentLength=end-start+1;
+    if(req.method!=="HEAD"){
+      const start_=recording.started_at?new Date(recording.started_at).getTime():0,end_=recording.ended_at?new Date(recording.ended_at).getTime():0;
+      const seconds=Number(recording.duration_seconds)>0?Number(recording.duration_seconds):Math.max(0,(end_-start_)/1000);
+      const bytesPerSec=seconds>60?Math.max(512*1024,3*total/seconds):1024*1024;
+      const viewerIp=String(req.headers["cf-connecting-ip"]||clientIp(req));
+      if(!await replayThrottle(viewerIp+"|"+recording.id,bytesPerSec,contentLength))
+        return res.status(429).set("Retry-After","10").json({error:"Too many replay requests. Please wait a moment."});
+    }
     res.status(partial?206:200);
     res.set({
       "Content-Type":"video/mp4",
@@ -7158,21 +7239,10 @@ app.get(["/tv-schedule.json"],async(req,res)=>{
   try{res.set("Cache-Control","no-cache").json(await getTvLineup());}
   catch(e){res.set("Cache-Control","no-cache").type("application/json").sendFile(path.join(ROOT,"tv-schedule.json"));}
 });
-app.get(["/fbitv.m3u","/fbitv.m3u8","/playlist.m3u","/iptv.m3u"],async(req,res)=>{
-  try{
-    const cfg=await getTvLineup();
-    const lines=['#EXTM3U url-tvg="'+IPTV_BASE+'/epg.xml" x-tvg-url="'+IPTV_BASE+'/epg.xml"'];
-    // "hlsBase" in tv-schedule.json (or HLS_CDN_BASE) switches the video to a CDN.
-    const hlsBase=String(process.env.HLS_CDN_BASE||(/^https:\/\//.test(cfg.hlsBase||"")?cfg.hlsBase:"")||IPTV_BASE).replace(/\/+$/,"");
-    for(const ch of cfg.channels||[]){
-      const url=hlsBase+"/api/public/stream/"+encodeURIComponent(ch.streamToken)+"/hls/index.m3u8";
-      const attrs=[["tvg-id",ch.id],["tvg-name",ch.name],["tvg-chno",ch.number],["tvg-logo",ch.logo],["tvg-country",ch.country],["tvg-language",ch.language],["group-title",ch.group||ch.name]]
-        .filter(([,v])=>v!==undefined&&v!==null&&v!=="").map(([k,v])=>k+'="'+String(v).replace(/"/g,"'")+'"').join(" ");
-      lines.push("#EXTINF:-1 "+attrs+","+ch.name,url);
-    }
-    res.set("Cache-Control","no-cache").type("audio/x-mpegurl; charset=utf-8")
-      .set("Content-Disposition",'inline; filename="fbitv.m3u"').send(lines.join("\n")+"\n");
-  }catch(e){console.error("IPTV playlist failed:",e);res.status(500).send("#EXTM3U\n");}
+// The public IPTV playlist is retired: it let any app or tool pull the stream.
+// FBI TV now plays only on FBI pages (see the download protection above).
+app.get(["/fbitv.m3u","/fbitv.m3u8","/playlist.m3u","/iptv.m3u"],(req,res)=>{
+  res.status(410).set("Cache-Control","no-cache").type("text/plain").send("FBI TV is watched at https://live.fbigh.com/tv\n");
 });
 app.get(["/epg.xml","/guide.xml","/xmltv.xml"],async(req,res)=>{
   try{
