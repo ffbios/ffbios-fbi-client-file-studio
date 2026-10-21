@@ -21,4 +21,11 @@ Railway service settings:
 
 Episodes are played at 1080p (6 Mbps); the ingest makes the 720p, 480p and 360p copies.
 
+Smooth playback: files are downloaded to a local cache (`/tmp/fbi-tv-cache`)
+the first time they air and played from disk after that, and the next item is
+prepared a few seconds early (the plan endpoint takes `?at=<time>` for this) so
+items change without a gap. Optional variables:
+- `PLAYOUT_CACHE_GB` — cache size limit (default 4)
+- `PLAYOUT_CACHE=off` — always stream from storage
+
 Health: `GET /` returns `{ ok, onAir, playing }`.

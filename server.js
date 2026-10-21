@@ -6794,7 +6794,11 @@ app.get("/api/internal/playout/plan",async(req,res)=>{
     const base={streamKey:stream.stream_key,studioLive:stream.status==="live"};
     if(base.studioLive)return res.json({...base,item:null,reason:"studio live"});
     if(!s3Ready())return res.json({...base,item:null,reason:"storage not ready"});
-    const now=new Date(),slot=currentSlot(ch,tz,now);
+    // Optional look-ahead (?at=ISO time, up to 2 minutes ahead) so the playout
+    // can prepare the next item before the current one ends.
+    const atMs=Date.parse(String(req.query.at||""));
+    const nowMs=Date.now();
+    const now=new Date(Number.isFinite(atMs)&&atMs>nowMs&&atMs<nowMs+120000?atMs:nowMs),slot=currentSlot(ch,tz,now);
     if(slot){
       const planned=await airingPlan(slot,ch,tz);
       const item=await itemForPlannedSegments(planned,slot,now,base);
