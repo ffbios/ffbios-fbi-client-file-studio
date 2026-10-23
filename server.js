@@ -6185,11 +6185,186 @@ app.get("/api/public/file/:id",async(req,res)=>{
  }catch(e){console.error(e);res.status(500).send("Unable to serve file")}
 });
 
-app.get("/share/:token",(req,res)=>{
+// ---- Link previews for client share links -------------------------------
+// WhatsApp, iMessage, Telegram, Slack, Facebook, X, etc. never run the
+// gallery's JavaScript; they read Open Graph tags from the raw HTML and fetch
+// og:image. So /share/:token gets per-delivery meta tags injected server side
+// and /share/:token/preview.jpg serves a 1200x630 card built from the gallery.
+const SHARE_OG_W=1200,SHARE_OG_H=630,SHARE_OG_VERSION="v1";
+let shareIndexCache={mtime:0,html:""};
+async function shareIndexHtml(){
+  const file=path.join(ROOT,"index.html");
+  const st=await fsp.stat(file);
+  if(st.mtimeMs!==shareIndexCache.mtime)shareIndexCache={mtime:st.mtimeMs,html:await fsp.readFile(file,"utf8")};
+  return shareIndexCache.html;
+}
+function escHtmlAttr(v){return String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
+function publicBase(req){return PUBLIC_BASE_URL||(req.protocol+"://"+req.get("host"));}
+async function loadSharePreviewInfo(tokenValue){
+  if(!tokenValue||tokenValue.length>200)return null;
+  const q=await pool.query("SELECT id,name,client_name,expires_at FROM projects WHERE share_token=$1 AND shared=true",[tokenValue]);
+  if(!q.rowCount)return null;
+  const p=q.rows[0];
+  if(p.expires_at&&new Date(p.expires_at).getTime()<Date.now())return null;
+  const counts=await pool.query(`SELECT count(*)::int total,
+      count(*) FILTER (WHERE mime_type LIKE 'image/%')::int images,
+      count(*) FILTER (WHERE mime_type LIKE 'video/%')::int videos
+    FROM files WHERE project_id=$1 AND trashed_at IS NULL`,[p.id]);
+  // Cover = what the client sees first in the gallery: first photo, else first video, else first file.
+  const cover=await pool.query(`SELECT id,original_name,storage_path,mime_type,project_id FROM files
+    WHERE project_id=$1 AND trashed_at IS NULL
+    ORDER BY CASE WHEN mime_type LIKE 'image/%' THEN 0 WHEN mime_type LIKE 'video/%' THEN 1 ELSE 2 END,
+      relative_path ASC,created_at DESC LIMIT 1`,[p.id]);
+  const creative=await creativeBrandingForProject(p.id);
+  return {project:p,counts:counts.rows[0]||{total:0,images:0,videos:0},cover:cover.rows[0]||null,creative};
+}
+function sharePreviewDescription(info){
+  const c=info.counts,parts=[];
+  if(c.images)parts.push(c.images+(c.images===1?" photo":" photos"));
+  if(c.videos)parts.push(c.videos+(c.videos===1?" video":" videos"));
+  const other=c.total-c.images-c.videos;
+  if(other>0)parts.push(other+(other===1?" file":" files"));
+  const what=parts.length?parts.join(", "):"Your files";
+  const from=String(info.creative.business_name||"Film Beyond Imagination").trim();
+  return what+" shared with you by "+from+". Tap to view and download.";
+}
+function sharePreviewTitle(info){
+  const name=String(info.project.name||"").trim()||"Your files are ready";
+  const client=String(info.project.client_name||"").trim();
+  return client&&!name.toLowerCase().includes(client.toLowerCase())?name+" · "+client:name;
+}
+function sharePreviewUsesCover(info){
+  // Respect the creative's "allow client preview" switch: if they turned
+  // previews off, the link card shows a branded card instead of the photo.
+  return Boolean(info.cover)&&info.creative.preferences?.allow_client_preview!==false;
+}
+function sharePreviewImageKey(info){
+  const c=info.creative||{};
+  const sig=[SHARE_OG_VERSION,info.project.id,sharePreviewUsesCover(info)?info.cover.id:"card",info.project.name,info.counts.total,
+    c.watermark_enabled?1:0,c.watermark_type,c.watermark_text,c.watermark_opacity,c.watermark_position,c.watermark_size,c.logo_key,c.business_name].join("|");
+  return crypto.createHash("sha1").update(sig).digest("hex");
+}
+function sharePreviewCardSvg(info){
+  const W=SHARE_OG_W,H=SHARE_OG_H;
+  const accent=/^#[0-9a-f]{3,8}$/i.test(String(info.creative.accent_color||""))?info.creative.accent_color:"#d4af37";
+  let title=String(info.project.name||"Your files are ready").trim();if(title.length>42)title=title.slice(0,40)+"…";
+  const m=/^(.*) shared with you by (.*)\. Tap/.exec(sharePreviewDescription(info))||[];
+  let sub=m[1]||"Your files";if(sub.length>48)sub=sub.slice(0,46)+"…";
+  let by=m[2]?"from "+m[2]:"";if(by.length>48)by=by.slice(0,46)+"…";
+  return Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'">'+
+    '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#17171a"/><stop offset="1" stop-color="#09090a"/></linearGradient></defs>'+
+    '<rect width="100%" height="100%" fill="url(#g)"/>'+
+    '<rect x="64" y="64" width="'+(W-128)+'" height="'+(H-128)+'" rx="28" fill="none" stroke="'+accent+'" stroke-opacity=".35" stroke-width="2"/>'+
+    '<rect x="112" y="200" width="88" height="110" rx="12" fill="none" stroke="'+accent+'" stroke-width="6"/>'+
+    '<path d="M132 280 L156 248 L172 268 L182 256 L194 280 Z" fill="'+accent+'"/><circle cx="178" cy="232" r="9" fill="'+accent+'"/>'+
+    '<text x="240" y="250" font-family="DejaVu Sans,Arial,Helvetica,sans-serif" font-size="54" font-weight="700" fill="#ffffff">'+escapeSvgText(title)+'</text>'+
+    '<text x="240" y="300" font-family="DejaVu Sans,Arial,Helvetica,sans-serif" font-size="28" fill="#c9c9cf">'+escapeSvgText(sub)+'</text>'+
+    (by?'<text x="240" y="342" font-family="DejaVu Sans,Arial,Helvetica,sans-serif" font-size="26" fill="#8d8d95">'+escapeSvgText(by)+'</text>':'')+
+    '<text x="112" y="'+(H-104)+'" font-family="DejaVu Sans,Arial,Helvetica,sans-serif" font-size="24" font-weight="700" letter-spacing="3" fill="'+accent+'">SECURE CLIENT DELIVERY</text>'+
+    '</svg>');
+}
+async function sharePreviewSource(f,creative){
+  const kind=thumbKind(f);
+  if(kind==="video"){
+    const url=await getSignedUrl(s3,new GetObjectCommand({Bucket:bucket(),Key:f.storage_path}),{expiresIn:600});
+    try{return {buf:await runFfmpegPoster(url,3),video:true}}catch(_e){return {buf:await runFfmpegPoster(url,0),video:true}}
+  }
+  // Photos (incl. RAW and PSD) go through the gallery's own preview builder,
+  // so the creative's watermark is applied exactly as in the gallery.
+  return {buf:await buildPreviewImage(f,1600,1600,creative),video:false};
+}
+async function buildSharePreviewJpeg(info){
+  const W=SHARE_OG_W,H=SHARE_OG_H;
+  if(sharePreviewUsesCover(info)&&s3Ready()){
+    try{
+      const {buf,video}=await sharePreviewSource(info.cover,info.creative);
+      // Blurred fill behind + the whole photo contained on top, so portraits
+      // are not cropped (no cut-off heads in the chat bubble).
+      const bg=await sharp(buf).rotate().resize(W,H,{fit:"cover"}).blur(28).modulate({brightness:.55}).toBuffer();
+      const fg=await sharp(buf).rotate().resize(W,H,{fit:"inside",withoutEnlargement:false}).toBuffer();
+      const layers=[{input:fg,gravity:"center"}];
+      if(video){
+        const r=56,cx=W/2,cy=H/2;
+        layers.push({input:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'"><circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="#000" fill-opacity=".55"/><circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="#fff" stroke-width="4"/><path d="M'+(cx-16)+' '+(cy-26)+' L'+(cx+28)+' '+cy+' L'+(cx-16)+' '+(cy+26)+' Z" fill="#fff"/></svg>'),left:0,top:0});
+      }
+      return await sharp(bg).composite(layers).jpeg({quality:82,mozjpeg:true}).toBuffer();
+    }catch(e){console.warn("Share link preview fell back to branded card:",info.cover?.original_name,e?.message||e)}
+  }
+  return sharp(sharePreviewCardSvg(info)).jpeg({quality:86,mozjpeg:true}).toBuffer();
+}
+const sharePreviewInflight=new Map();
+async function sharePreviewJpeg(info){
+  const key="__share-previews/"+sharePreviewImageKey(info)+".jpg";
+  if(sharePreviewInflight.has(key))return sharePreviewInflight.get(key);
+  const job=(async()=>{
+    if(s3Ready()&&await storedObjectExists(key)){
+      try{const obj=await s3.send(new GetObjectCommand({Bucket:bucket(),Key:key}));return await bodyToBuffer(obj.Body)}catch(_e){}
+    }
+    const jpg=await buildSharePreviewJpeg(info);
+    if(s3Ready())await s3.send(new PutObjectCommand({Bucket:bucket(),Key:key,Body:jpg,ContentType:"image/jpeg",CacheControl:"public, max-age=31536000, immutable",Metadata:{source_project_id:String(info.project.id),generated_by:"fbi-client-file-studio-share-preview"}})).catch(e=>console.warn("Could not persist share preview:",e?.message||e));
+    return jpg;
+  })();
+  sharePreviewInflight.set(key,job);
+  try{return await job}finally{sharePreviewInflight.delete(key)}
+}
+function shareMetaTags(req,tokenValue,info){
+  const base=publicBase(req),pageUrl=base+"/share/"+encodeURIComponent(tokenValue);
+  if(!info){
+    return '<title>FBI Client Delivery</title>'+
+      '<meta property="og:title" content="FBI Client Delivery"><meta property="og:description" content="This delivery link is no longer available.">'+
+      '<meta property="og:type" content="website"><meta name="robots" content="noindex,nofollow">';
+  }
+  const title=sharePreviewTitle(info),desc=sharePreviewDescription(info);
+  const site=String(info.creative.business_name||"Film Beyond Imagination").trim();
+  const img=pageUrl+"/preview.jpg?v="+sharePreviewImageKey(info).slice(0,12);
+  return '<title>'+escHtmlAttr(title)+'</title>'+
+    '<meta name="description" content="'+escHtmlAttr(desc)+'">'+
+    '<meta name="robots" content="noindex,nofollow">'+
+    '<meta property="og:type" content="website">'+
+    '<meta property="og:site_name" content="'+escHtmlAttr(site)+'">'+
+    '<meta property="og:title" content="'+escHtmlAttr(title)+'">'+
+    '<meta property="og:description" content="'+escHtmlAttr(desc)+'">'+
+    '<meta property="og:url" content="'+escHtmlAttr(pageUrl)+'">'+
+    '<meta property="og:image" content="'+escHtmlAttr(img)+'">'+
+    '<meta property="og:image:secure_url" content="'+escHtmlAttr(img)+'">'+
+    '<meta property="og:image:type" content="image/jpeg">'+
+    '<meta property="og:image:width" content="'+SHARE_OG_W+'">'+
+    '<meta property="og:image:height" content="'+SHARE_OG_H+'">'+
+    '<meta property="og:image:alt" content="'+escHtmlAttr("Preview of "+title)+'">'+
+    '<meta name="twitter:card" content="summary_large_image">'+
+    '<meta name="twitter:title" content="'+escHtmlAttr(title)+'">'+
+    '<meta name="twitter:description" content="'+escHtmlAttr(desc)+'">'+
+    '<meta name="twitter:image" content="'+escHtmlAttr(img)+'">';
+}
+
+app.get("/share/:token",async(req,res)=>{
   res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
   res.set("Pragma","no-cache");
   res.set("Expires","0");
-  res.type("html").sendFile(path.join(ROOT,"index.html"));
+  try{
+    const tokenValue=String(req.params.token||"");
+    let info=null;
+    try{info=await loadSharePreviewInfo(tokenValue)}catch(e){console.warn("Share preview lookup failed:",e?.message||e)}
+    const html=await shareIndexHtml();
+    const tags=shareMetaTags(req,tokenValue,info);
+    const out=/<title>[^<]*<\/title>/i.test(html)?html.replace(/<title>[^<]*<\/title>/i,()=>tags):html.replace(/<head>/i,()=>"<head>"+tags);
+    res.type("html").send(out);
+  }catch(e){
+    console.error("Share page render failed; serving plain page:",e?.message||e);
+    res.type("html").sendFile(path.join(ROOT,"index.html"));
+  }
+});
+app.get("/share/:token/preview.jpg",async(req,res)=>{
+  try{
+    const info=await loadSharePreviewInfo(String(req.params.token||""));
+    if(!info)return res.status(404).type("text/plain").send("Delivery not found");
+    const jpg=await sharePreviewJpeg(info);
+    res.status(200).type("image/jpeg")
+      .set("Cache-Control","public, max-age=86400, stale-while-revalidate=604800")
+      .set("X-Content-Type-Options","nosniff")
+      .set("Content-Length",String(jpg.length))
+      .send(jpg);
+  }catch(e){console.error("Share link preview image failed:",e?.stack||e);res.status(500).type("text/plain").send("Unable to build preview")}
 });
 app.get("/share/:token/manifest.webmanifest",async(req,res)=>{
   try{
