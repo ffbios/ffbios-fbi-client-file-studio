@@ -6316,8 +6316,9 @@ function shareMetaTags(req,tokenValue,info){
   }
   const title=sharePreviewTitle(info),desc=sharePreviewDescription(info);
   const site=String(info.creative.business_name||"Film Beyond Imagination").trim();
-  const img=pageUrl+"/preview.jpg?v="+sharePreviewImageKey(info).slice(0,12);
+  const img=pageUrl+"/preview-"+sharePreviewImageKey(info).slice(0,12)+".jpg";
   return '<title>'+escHtmlAttr(title)+'</title>'+
+    '<meta property="og:image" content="'+escHtmlAttr(img)+'">'+
     '<meta name="description" content="'+escHtmlAttr(desc)+'">'+
     '<meta name="robots" content="noindex,nofollow">'+
     '<meta property="og:type" content="website">'+
@@ -6325,7 +6326,6 @@ function shareMetaTags(req,tokenValue,info){
     '<meta property="og:title" content="'+escHtmlAttr(title)+'">'+
     '<meta property="og:description" content="'+escHtmlAttr(desc)+'">'+
     '<meta property="og:url" content="'+escHtmlAttr(pageUrl)+'">'+
-    '<meta property="og:image" content="'+escHtmlAttr(img)+'">'+
     '<meta property="og:image:secure_url" content="'+escHtmlAttr(img)+'">'+
     '<meta property="og:image:type" content="image/jpeg">'+
     '<meta property="og:image:width" content="'+SHARE_OG_W+'">'+
@@ -6334,17 +6334,35 @@ function shareMetaTags(req,tokenValue,info){
     '<meta name="twitter:card" content="summary_large_image">'+
     '<meta name="twitter:title" content="'+escHtmlAttr(title)+'">'+
     '<meta name="twitter:description" content="'+escHtmlAttr(desc)+'">'+
-    '<meta name="twitter:image" content="'+escHtmlAttr(img)+'">';
+    '<meta name="twitter:image" content="'+escHtmlAttr(img)+'">'+
+    '<meta itemprop="image" content="'+escHtmlAttr(img)+'">'+
+    '<link rel="image_src" href="'+escHtmlAttr(img)+'">';
+}
+
+// Link-preview fetchers. They get a tiny page that holds only the preview
+// tags: the full app page is ~900 KB with a ~100 KB <head>, which some
+// preview fetchers (WhatsApp in particular) give up on before the image.
+const LINK_PREVIEW_BOT_RE=/whatsapp|facebookexternalhit|facebookcatalog|meta-externalagent|twitterbot|telegrambot|slackbot|linkedinbot|discordbot|skypeuripreview|microsoftpreview|pinterest|redditbot|applebot|iframely|embedly|vkshare|viber|snapchat|kakaotalk|googlebot|bingbot|bingpreview|yandex|duckduckbot|ia_archiver|preview/i;
+function isLinkPreviewBot(req){return LINK_PREVIEW_BOT_RE.test(String(req.get("user-agent")||""))}
+function sharePreviewOnlyHtml(req,tokenValue,info){
+  const pageUrl=publicBase(req)+"/share/"+encodeURIComponent(tokenValue);
+  const title=info?sharePreviewTitle(info):"FBI Client Delivery";
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8">'+shareMetaTags(req,tokenValue,info)+
+    '<meta name="viewport" content="width=device-width,initial-scale=1"></head><body>'+
+    '<h1>'+escHtmlAttr(title)+'</h1>'+(info?'<p>'+escHtmlAttr(sharePreviewDescription(info))+'</p>':'')+
+    '<p><a href="'+escHtmlAttr(pageUrl)+'">Open delivery</a></p></body></html>';
 }
 
 app.get("/share/:token",async(req,res)=>{
   res.set("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
   res.set("Pragma","no-cache");
   res.set("Expires","0");
+  res.set("Vary","User-Agent");
   try{
     const tokenValue=String(req.params.token||"");
     let info=null;
     try{info=await loadSharePreviewInfo(tokenValue)}catch(e){console.warn("Share preview lookup failed:",e?.message||e)}
+    if(isLinkPreviewBot(req))return res.type("html").send(sharePreviewOnlyHtml(req,tokenValue,info));
     const html=await shareIndexHtml();
     const tags=shareMetaTags(req,tokenValue,info);
     const out=/<title>[^<]*<\/title>/i.test(html)?html.replace(/<title>[^<]*<\/title>/i,()=>tags):html.replace(/<head>/i,()=>"<head>"+tags);
@@ -6354,7 +6372,8 @@ app.get("/share/:token",async(req,res)=>{
     res.type("html").sendFile(path.join(ROOT,"index.html"));
   }
 });
-app.get("/share/:token/preview.jpg",async(req,res)=>{
+app.get("/share/:token/:file",async(req,res,next)=>{
+  if(!/^preview(-[0-9a-f]{6,40})?\.jpg$/.test(String(req.params.file||"")))return next();
   try{
     const info=await loadSharePreviewInfo(String(req.params.token||""));
     if(!info)return res.status(404).type("text/plain").send("Delivery not found");
