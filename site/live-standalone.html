@@ -164,10 +164,11 @@ button{cursor:pointer}
 .smallbtn:hover{background:#1b1f27;border-color:#3a4150}
 .smallbtn.primary{background:linear-gradient(180deg,#f1da7e,#d8b744);color:#17150a;border-color:#d8b744}
 .chip.tv{color:#ff6b6b;border-color:rgba(255,90,90,.4);background:rgba(255,90,90,.08)}
-.tv-push{width:100%;border:1px solid var(--line2);background:var(--panel2);color:#e8ebf1;border-radius:10px;padding:12px 10px;font-size:12px;font-weight:800;letter-spacing:.06em;transition:.15s;cursor:pointer}
-.tv-push:hover{border-color:#3a4150;background:#1b1f27}
-.tv-push.on{background:linear-gradient(180deg,#e5484d,#b8262b);border-color:#e5484d;color:#fff}
-.tv-push:disabled{opacity:.55;cursor:default}
+.tv-push{display:inline-flex;align-items:center;gap:8px;border:1px solid #d8b744;background:linear-gradient(180deg,#f1da7e,#d8b744);color:#17150a;border-radius:10px;padding:10px 16px;font-size:13px;font-weight:900;letter-spacing:.06em;transition:.15s;cursor:pointer;white-space:nowrap}
+.tv-push svg{width:18px;height:18px}
+.tv-push:hover{filter:brightness(1.07)}
+.tv-push.on{background:linear-gradient(180deg,#e5484d,#b8262b);border-color:#e5484d;color:#fff;box-shadow:0 0 0 3px rgba(229,72,77,.22)}
+.tv-push:disabled{background:var(--panel2);border-color:var(--line2);color:#7d8491;cursor:not-allowed;filter:none}
 .tv-note{margin:8px 0 0;font-size:11.5px;line-height:1.45;color:var(--muted,#9aa1ad)}
 .footer{margin-top:14px;color:var(--dim);font-size:12px;text-align:center}
 
@@ -547,15 +548,16 @@ button{cursor:pointer}
     const live=s.status==='live'&&!!s.viewer_url;
     const rec=!!s.record_enabled,viewers=Number(s.current_viewers||0);
     const onTv=!!s.on_tv,isTv=!!s.is_tv_channel;
-    const tvNote=isTv?'This is the FBI TV channel. Whatever you stream here is already on TV.'
-      :onTv?(live?'This broadcast is on FBI TV now. Viewers at live.fbigh.com/tv are watching it.':'Armed: this broadcast will go on FBI TV as soon as you go live.')
-      :'Send this broadcast to the FBI TV channel as well as its own watch page. The schedule resumes when you stop.';
-    const tvPanel='<div class="panel"><div class="ph">FBI TV channel</div><div class="pb">'+
-      (isTv?'':'<button class="tv-push'+(onTv?' on':'')+'" id="tvPushBtn">'+(onTv?(live?'● ON FBI TV — TAKE OFF':'ARMED FOR FBI TV — CANCEL'):'PUSH TO FBI TV')+'</button>')+
-      '<p class="tv-note">'+tvNote+'</p></div></div>';
+    const tvNote=isTv?'This is the FBI TV channel itself. Whatever you stream here is already on TV.'
+      :onTv?'On FBI TV now, and still on its own watch page. Viewers at live.fbigh.com/tv are watching it.'
+      :live?'Press PUSH TO FBI TV at the top to put this broadcast on the TV channel as well. It stays on its watch page.'
+      :'Go live first, then press PUSH TO FBI TV at the top.';
+    const tvPanel='<div class="panel"><div class="ph">FBI TV channel</div><div class="pb"><div class="rack-row"><span>On FBI TV</span><b>'+(isTv?'THIS IS FBI TV':onTv?'YES':'NO')+'</b></div><p class="tv-note">'+tvNote+'</p></div></div>';
+    const tvBtnHtml=isTv?'<span class="chip tv">FBI TV CHANNEL</span>'
+      :'<button class="tv-push'+(onTv?' on':'')+'" id="tvPushBtn"'+(!live&&!onTv?' disabled title="Go live first"':'')+'>'+ICON.tv+(onTv?'ON FBI TV · TAKE OFF':'PUSH TO FBI TV')+'</button>';
     studio.innerHTML=
-      '<div class="statusbar"><div class="chips"><span class="chip'+(live?' live':'')+'">'+(live?'LIVE':'OFFLINE')+'</span><span class="chip quiet">'+esc(s.name)+'</span><span class="chip gold">'+(rec?'AUTO-RECORD ON':'AUTO-RECORD OFF')+'</span>'+(onTv&&!isTv?'<span class="chip tv">'+(live?'ON FBI TV':'FBI TV ARMED')+'</span>':'')+'</div>'+
-      '<div class="chips"><span class="control" id="duration">'+(live?'ON AIR':'OFFLINE')+'</span><span class="chip quiet"><span class="viewers"><b id="viewerTop">'+viewers+'</b> viewers</span></span></div></div>'+
+      '<div class="statusbar"><div class="chips"><span class="chip'+(live?' live':'')+'">'+(live?'LIVE':'OFFLINE')+'</span><span class="chip quiet">'+esc(s.name)+'</span><span class="chip gold">'+(rec?'AUTO-RECORD ON':'AUTO-RECORD OFF')+'</span>'+'</div>'+
+      '<div class="chips">'+tvBtnHtml+'<span class="control" id="duration">'+(live?'ON AIR':'OFFLINE')+'</span><span class="chip quiet"><span class="viewers"><b id="viewerTop">'+viewers+'</b> viewers</span></span></div></div>'+
       '<div class="work"><div class="primary-area">'+
         '<div class="views">'+
           '<div class="view"><div class="view-head"><b class="preview-label">PREVIEW</b><span id="previewStatus">'+(live?'CONNECTING':'NO SIGNAL')+'</span></div>'+(live?'':noSig('No signal','Waiting for a source'))+'<video class="frame" id="previewVideo" playsinline muted autoplay></video><div class="overlay-note" id="previewNote">'+(live?'Incoming live signal':'Select a Local Studio source below for Preview')+'</div></div>'+
@@ -863,12 +865,13 @@ button{cursor:pointer}
     const tvBtn=document.getElementById('tvPushBtn');
     if(tvBtn)tvBtn.onclick=async()=>{
       const on=!s.on_tv;
-      if(!on&&live&&!confirm('Take this broadcast off FBI TV? The channel goes back to its schedule.'))return;
+      if(on&&!live){notify('Go live first, then push to FBI TV');return}
+      if(!on&&!confirm('Take this broadcast off FBI TV? The channel goes back to its schedule. Your watch page stays live.'))return;
       tvBtn.disabled=true;
       try{
         await api('/api/live/streams/'+encodeURIComponent(s.id)+'/tv',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on})});
         streams.forEach(x=>{if(x.id===s.id)x.on_tv=on;else if(on)x.on_tv=false;});
-        notify(on?(live?'Going to FBI TV — viewers see it within a few seconds':'Armed — goes to FBI TV when you go live'):'Taken off FBI TV');
+        notify(on?'Going to FBI TV — viewers see it within a few seconds':'Taken off FBI TV');
         renderedStudioSignature='';renderStudio();
       }catch(e){tvBtn.disabled=false;notify(e.message||'Could not change FBI TV')}
     };

@@ -3476,9 +3476,11 @@ app.post("/api/live/streams/:id/tv",admin,async(req,res)=>{
     if(on&&row.viewer_token===await tvChannelToken())return res.status(400).json({error:"This is the FBI TV channel itself — it is already on TV when it goes live."});
     if(on&&!row.enabled)return res.status(400).json({error:"Enable this stream before pushing it to FBI TV."});
     if(on){
+      // Manual only: you push a broadcast that is already live, never one in advance.
       const cur=await refreshStreamStatus(row);
+      if(cur.status!=="live")return res.status(400).json({error:"Go live first, then push to FBI TV."});
       await pool.query("UPDATE streams SET on_tv=false,on_tv_session=NULL WHERE on_tv=true AND id<>$1",[row.id]);
-      await pool.query("UPDATE streams SET on_tv=true,on_tv_session=$2 WHERE id=$1",[row.id,cur.status==="live"?(cur.session_id||null):null]);
+      await pool.query("UPDATE streams SET on_tv=true,on_tv_session=$2 WHERE id=$1",[row.id,cur.session_id||null]);
     }else{
       await pool.query("UPDATE streams SET on_tv=false,on_tv_session=NULL WHERE id=$1",[row.id]);
     }
