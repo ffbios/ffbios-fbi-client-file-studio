@@ -163,6 +163,12 @@ button{cursor:pointer}
 .smallbtn{border:1px solid var(--line2);background:var(--panel2);color:#e1e4ea;border-radius:10px;padding:9px 14px;font-size:12px;font-weight:800;letter-spacing:.05em;transition:.15s}
 .smallbtn:hover{background:#1b1f27;border-color:#3a4150}
 .smallbtn.primary{background:linear-gradient(180deg,#f1da7e,#d8b744);color:#17150a;border-color:#d8b744}
+.chip.tv{color:#ff6b6b;border-color:rgba(255,90,90,.4);background:rgba(255,90,90,.08)}
+.tv-push{width:100%;border:1px solid var(--line2);background:var(--panel2);color:#e8ebf1;border-radius:10px;padding:12px 10px;font-size:12px;font-weight:800;letter-spacing:.06em;transition:.15s;cursor:pointer}
+.tv-push:hover{border-color:#3a4150;background:#1b1f27}
+.tv-push.on{background:linear-gradient(180deg,#e5484d,#b8262b);border-color:#e5484d;color:#fff}
+.tv-push:disabled{opacity:.55;cursor:default}
+.tv-note{margin:8px 0 0;font-size:11.5px;line-height:1.45;color:var(--muted,#9aa1ad)}
 .footer{margin-top:14px;color:var(--dim);font-size:12px;text-align:center}
 
 /* ---------- sign-in: program monitor on standby ---------- */
@@ -540,8 +546,15 @@ button{cursor:pointer}
     if(!s){FBIMeters.stop();studio.innerHTML=placeholder('Select a live channel','Choose a channel from the left to open the control room.');return}
     const live=s.status==='live'&&!!s.viewer_url;
     const rec=!!s.record_enabled,viewers=Number(s.current_viewers||0);
+    const onTv=!!s.on_tv,isTv=!!s.is_tv_channel;
+    const tvNote=isTv?'This is the FBI TV channel. Whatever you stream here is already on TV.'
+      :onTv?(live?'This broadcast is on FBI TV now. Viewers at live.fbigh.com/tv are watching it.':'Armed: this broadcast will go on FBI TV as soon as you go live.')
+      :'Send this broadcast to the FBI TV channel as well as its own watch page. The schedule resumes when you stop.';
+    const tvPanel='<div class="panel"><div class="ph">FBI TV channel</div><div class="pb">'+
+      (isTv?'':'<button class="tv-push'+(onTv?' on':'')+'" id="tvPushBtn">'+(onTv?(live?'● ON FBI TV — TAKE OFF':'ARMED FOR FBI TV — CANCEL'):'PUSH TO FBI TV')+'</button>')+
+      '<p class="tv-note">'+tvNote+'</p></div></div>';
     studio.innerHTML=
-      '<div class="statusbar"><div class="chips"><span class="chip'+(live?' live':'')+'">'+(live?'LIVE':'OFFLINE')+'</span><span class="chip quiet">'+esc(s.name)+'</span><span class="chip gold">'+(rec?'AUTO-RECORD ON':'AUTO-RECORD OFF')+'</span></div>'+
+      '<div class="statusbar"><div class="chips"><span class="chip'+(live?' live':'')+'">'+(live?'LIVE':'OFFLINE')+'</span><span class="chip quiet">'+esc(s.name)+'</span><span class="chip gold">'+(rec?'AUTO-RECORD ON':'AUTO-RECORD OFF')+'</span>'+(onTv&&!isTv?'<span class="chip tv">'+(live?'ON FBI TV':'FBI TV ARMED')+'</span>':'')+'</div>'+
       '<div class="chips"><span class="control" id="duration">'+(live?'ON AIR':'OFFLINE')+'</span><span class="chip quiet"><span class="viewers"><b id="viewerTop">'+viewers+'</b> viewers</span></span></div></div>'+
       '<div class="work"><div class="primary-area">'+
         '<div class="views">'+
@@ -552,6 +565,7 @@ button{cursor:pointer}
         '<section class="mixer-card"><div class="card-head"><h3>Audio mixer<span class="unit">dBFS &middot; peak</span></h3><span class="pill" id="meterState" data-code="idle">Meters idle</span></div><div class="mixer">'+stripScale()+stripV('pvL','PREVIEW L','Feed')+stripV('pvR','PREVIEW R','Feed')+stripV('pgL','PROGRAM L','On air')+stripV('pgR','PROGRAM R','On air')+stripV('master','MASTER','Peak','master')+'</div></section>'+
       '</div>'+
       '<aside class="rack"><div class="panel"><div class="ph">Operator controls</div><div class="pb grid2"><button class="rack-btn primary" id="watchBtn">WATCH</button><button class="rack-btn" id="fullBtn">FULL</button><button class="rack-btn" id="copyBtn">COPY</button><button class="rack-btn" id="muteBtn">UNMUTE</button></div></div>'+
+      tvPanel+
       '<div class="panel"><div class="ph">Channel status</div><div class="pb"><div class="rack-row"><span>Signal</span><b>'+(live?'ON AIR':'OFFLINE')+'</b></div><div class="rack-row"><span>Viewers</span><b id="viewerRack">'+viewers+'</b></div><div class="rack-row"><span>Auto-record</span><b>'+(rec?'ARMED':'OFF')+'</b></div><div class="rack-row"><span>Format</span><b>H.264 / AAC</b></div><div class="rack-row"><span>Delivery</span><b>HLS</b></div></div></div>'+
       '<div class="panel"><div class="ph">Audio levels</div><div class="pb">'+rowH('pgL','L')+rowH('pgR','R')+'<div class="rack-row"><span>Master peak</span><b data-read="master">'+NEG_INF+'</b></div></div></div></aside></div>'+
       '<div class="controls"><div class="control-group"><button class="smallbtn primary" id="openWatch">OPEN WATCH PAGE</button><button class="smallbtn" id="monitorBtn">ENABLE METERS</button></div><div class="control-group"><span class="chip">'+(live?'PROGRAM LIVE':'PROGRAM OFFLINE')+'</span></div></div>'+
@@ -846,6 +860,18 @@ button{cursor:pointer}
       v.muted=!v.muted;
       document.getElementById('muteBtn').textContent=v.muted?'UNMUTE':'MUTE';
     };
+    const tvBtn=document.getElementById('tvPushBtn');
+    if(tvBtn)tvBtn.onclick=async()=>{
+      const on=!s.on_tv;
+      if(!on&&live&&!confirm('Take this broadcast off FBI TV? The channel goes back to its schedule.'))return;
+      tvBtn.disabled=true;
+      try{
+        await api('/api/live/streams/'+encodeURIComponent(s.id)+'/tv',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on})});
+        streams.forEach(x=>{if(x.id===s.id)x.on_tv=on;else if(on)x.on_tv=false;});
+        notify(on?(live?'Going to FBI TV — viewers see it within a few seconds':'Armed — goes to FBI TV when you go live'):'Taken off FBI TV');
+        renderedStudioSignature='';renderStudio();
+      }catch(e){tvBtn.disabled=false;notify(e.message||'Could not change FBI TV')}
+    };
     const activate=()=>FBIMeters.resume().then(st=>{if(st==='running')notify('Audio meters active')});
     document.getElementById('monitorBtn').onclick=activate;
     const pill=document.getElementById('meterState');if(pill)pill.onclick=activate;
@@ -887,7 +913,7 @@ button{cursor:pointer}
       // Keep the currently playing HLS MediaSource alive during status polling.
       // Rebuilding the video DOM every 5 seconds was causing the picture to
       // flash briefly and then return to black.
-      const signature=s?[s.id,s.status,s.viewer_url||'',s.hls_url||''].join('|'):'none';
+      const signature=s?[s.id,s.status,s.viewer_url||'',s.hls_url||'',s.on_tv?1:0].join('|'):'none';
       if(signature!==renderedStudioSignature){
         renderedStudioSignature=signature;
         renderStudio();

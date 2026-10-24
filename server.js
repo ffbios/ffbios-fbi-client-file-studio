@@ -939,6 +939,11 @@ async function initDb(){
     -- the same session). Recordings and comments belong to a session.
     ALTER TABLE streams ADD COLUMN IF NOT EXISTS session_id uuid;
     ALTER TABLE streams ADD COLUMN IF NOT EXISTS session_started_at timestamptz;
+    -- "Push to FBI TV": while a stream with on_tv=true is live, the FBI TV
+    -- channel carries it instead of the playout schedule. on_tv_session ties the
+    -- switch to one broadcast, so a later broadcast doesn't take over the channel.
+    ALTER TABLE streams ADD COLUMN IF NOT EXISTS on_tv boolean NOT NULL DEFAULT false;
+    ALTER TABLE streams ADD COLUMN IF NOT EXISTS on_tv_session uuid;
     ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS session_id uuid;
     -- Fast-start replay + thumbnail post-processing.
     ALTER TABLE stream_recordings ADD COLUMN IF NOT EXISTS optimize_state text;
@@ -3440,6 +3445,7 @@ app.get("/api/streams",admin,async(req,res)=>{
 app.get("/api/live/streams",admin,async(req,res)=>{
   try{
     const rows=await streamRows();
+    const tvToken=await tvChannelToken().catch(()=>"");
     const rtmpHost=String(process.env.STREAM_RTMP_HOST||"");
     const rtmpPort=String(process.env.STREAM_RTMP_PORT||"");
     res.json({streams:rows.map(s=>({
@@ -3449,10 +3455,56 @@ app.get("/api/live/streams",admin,async(req,res)=>{
       rtmp_server:rtmpHost&&rtmpPort?"rtmp://"+rtmpHost+":"+rtmpPort+"/live":"",
       hls_url:streamHlsUrl(s),
       live_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/live/"+s.id,
-      viewer_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+s.viewer_token
+      viewer_url:(PUBLIC_BASE_URL||req.protocol+"://"+req.get("host"))+"/watch/"+s.viewer_token,
+      is_tv_channel:!!tvToken&&s.viewer_token===tvToken
     }))});
   }catch(e){console.error(e);res.status(500).json({error:"Could not load live streams"});}
 });
+
+// Push a studio broadcast to the FBI TV channel (or take it off). Only one
+// stream is on TV at a time. The playout picks the change up within seconds.
+async function tvChannelToken(){
+  const cfg=await getTvLineup(),ch=(cfg.channels||[])[0];
+  return ch&&ch.streamToken?String(ch.streamToken):"";
+}
+app.post("/api/live/streams/:id/tv",admin,async(req,res)=>{
+  try{
+    const on=Boolean(req.body&&req.body.on);
+    const q=await pool.query("SELECT * FROM streams WHERE id=$1",[req.params.id]);
+    if(!q.rowCount)return res.status(404).json({error:"Stream not found."});
+    const row=q.rows[0];
+    if(on&&row.viewer_token===await tvChannelToken())return res.status(400).json({error:"This is the FBI TV channel itself — it is already on TV when it goes live."});
+    if(on&&!row.enabled)return res.status(400).json({error:"Enable this stream before pushing it to FBI TV."});
+    if(on){
+      const cur=await refreshStreamStatus(row);
+      await pool.query("UPDATE streams SET on_tv=false,on_tv_session=NULL WHERE on_tv=true AND id<>$1",[row.id]);
+      await pool.query("UPDATE streams SET on_tv=true,on_tv_session=$2 WHERE id=$1",[row.id,cur.status==="live"?(cur.session_id||null):null]);
+    }else{
+      await pool.query("UPDATE streams SET on_tv=false,on_tv_session=NULL WHERE id=$1",[row.id]);
+    }
+    console.log("FBI TV: "+(row.title||row.name)+(on?" pushed to":" taken off")+" the channel");
+    res.json({ok:true,on_tv:on});
+  }catch(e){console.error(e);res.status(500).json({error:"Could not change FBI TV push"});}
+});
+
+// The studio broadcast the channel should carry right now, if any.
+async function tvRelayStream(channelRow){
+  const q=await pool.query("SELECT * FROM streams WHERE on_tv=true AND enabled=true AND id<>$1 ORDER BY updated_at DESC LIMIT 1",[channelRow.id]);
+  if(!q.rowCount)return null;
+  const row=await refreshStreamStatus(q.rows[0]);
+  if(row.status!=="live")return null;
+  const sess=row.session_id||null;
+  if(!row.on_tv_session&&sess){
+    // armed before it went live: tie the switch to this broadcast
+    await pool.query("UPDATE streams SET on_tv_session=$2 WHERE id=$1 AND on_tv_session IS NULL",[row.id,sess]);
+  }else if(row.on_tv_session&&sess&&String(row.on_tv_session)!==String(sess)){
+    // a new broadcast on the same stream: don't take over the channel again
+    await pool.query("UPDATE streams SET on_tv=false,on_tv_session=NULL WHERE id=$1",[row.id]);
+    console.log("FBI TV: "+(row.title||row.name)+" started a new broadcast — push to TV switched off");
+    return null;
+  }
+  return row;
+}
 
 app.post("/api/live/streams",admin,async(req,res)=>{
   try{
@@ -7068,6 +7120,17 @@ app.get("/api/internal/playout/plan",async(req,res)=>{
     const stream=await refreshStreamStatus(st.rows[0]);
     const base={streamKey:stream.stream_key,studioLive:stream.status==="live"};
     if(base.studioLive)return res.json({...base,item:null,reason:"studio live"});
+    const relay=await tvRelayStream(stream).catch(e=>{console.error("FBI TV relay check failed:",e.message||e);return null;});
+    if(relay){
+      const key=String(relay.stream_key||"");
+      return res.json({...base,item:{
+        id:"relay:"+relay.id+":"+(relay.on_tv_session||relay.session_id||""),
+        kind:"live",relay:true,
+        relayPath:(programRouteActive(relay.id)?"program/":"encoded/")+key,
+        title:relay.title||relay.name||"FBI Live",episode:null,offset:0,
+        endsAt:new Date(Date.now()+12*3600*1000).toISOString()
+      }});
+    }
     if(!s3Ready())return res.json({...base,item:null,reason:"storage not ready"});
     // Optional look-ahead (?at=ISO time, up to 2 minutes ahead) so the playout
     // can prepare the next item before the current one ends.

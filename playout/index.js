@@ -24,6 +24,11 @@
 //   gap or jump at the change and no drift over time.
 // - Each feeder marks its first packets as a discontinuity, so the publisher
 //   doesn't report the join between two feeders as corrupt.
+//
+// Live relay ("Push to FBI TV" in the studio): when the plan returns an item
+// with relay=true, the feeder reads that broadcast's live feed from the ingest
+// (relayPath, e.g. encoded/<key>) instead of a file, with the same encode and
+// logo, until the broadcast ends or is taken off TV; then the schedule resumes.
 
 const { spawn } = require("child_process");
 const http = require("http");
@@ -71,6 +76,7 @@ let lookaheadTimer = null, prerollTimer = null;
 let lastKickAt = 0, stopping = false, polling = false;
 let nextTs = 0;                         // output timestamps keep rising across items
 let lastDone = null;                    // {id, at} of the item that just finished
+let relayRetryAt = 0;                   // a relay that just failed is retried after this
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
@@ -89,6 +95,7 @@ async function api(p, body) {
 
 const downloads = new Map();            // key -> Promise<path|null>
 const audioKnown = new Map();           // key -> boolean
+const relayNoAudio = new Set();         // relay item ids whose feed has no audio
 
 function cacheKey(item) {
   let u = String(item.url || "");
@@ -175,6 +182,7 @@ function download(item) {
 // Where to read an item from: the local copy when there is one (waiting up to
 // `waitMs` for a download in progress), otherwise straight from storage.
 async function sourceFor(item, waitMs) {
+  if (item.relay) return RTMP + "/" + item.relayPath;
   if (!CACHE_ON) return item.url;
   const key = cacheKey(item);
   const have = cachedFile(key);
@@ -195,6 +203,10 @@ function probeAudio(src) {
   });
 }
 async function hasAudio(item, src) {
+  // Live feeds almost always carry audio. Probing one first would freeze the
+  // channel for another keyframe interval at the switch, so assume audio and
+  // fall back to silence if the feeder finds none (see onFeederClosed).
+  if (item.relay) return !relayNoAudio.has(item.id);
   const key = cacheKey(item);
   if (audioKnown.has(key)) return audioKnown.get(key);
   const a = await probeAudio(src);
@@ -266,8 +278,14 @@ function spawnFeeder(slot) {
   const args = ["-hide_banner", "-loglevel", "warning"];
   // Not cached yet and reading straight from storage: reconnect where the
   // transfer dropped instead of ending the programme early.
-  if (/^https?:\/\//i.test(src)) args.push("-reconnect", "1", "-reconnect_on_network_error", "1", "-reconnect_delay_max", "5");
-  args.push("-re", "-ss", String(item.offset || 0), "-i", src);
+  if (item.relay) {
+    // Live input already arrives in real time: no -re and no seeking. Give up
+    // if the feed stalls, so the schedule can take over again.
+    args.push("-rw_timeout", "10000000", "-i", src);
+  } else {
+    if (/^https?:\/\//i.test(src)) args.push("-reconnect", "1", "-reconnect_on_network_error", "1", "-reconnect_delay_max", "5");
+    args.push("-re", "-ss", String(item.offset || 0), "-i", src);
+  }
   if (!audio) args.push("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo");
   args.push("-t", secs.toFixed(3), "-map", "0:v:0", "-map", audio ? "0:a:0" : "1:a:0",
     "-vf", VIDEO_FILTER,
@@ -276,7 +294,8 @@ function spawnFeeder(slot) {
     "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
     "-output_ts_offset", tsStart.toFixed(3), "-mpegts_flags", "+initial_discontinuity", "-f", "mpegts", "pipe:1");
   const f = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
-  f.stderr.on("data", (d) => process.stdout.write("[feeder] " + d));
+  slot.err = "";
+  f.stderr.on("data", (d) => { process.stdout.write("[feeder] " + d); if (slot.err.length < 4000) slot.err += d; });
   slot.proc = f;
   slot.spawnedAt = Date.now();
   slot.held = [];
@@ -312,7 +331,7 @@ function goLive(slot) {
   slot.held = null;
   if (!ok) waitForDrain(slot); else slot.proc.stdout.resume();
   nextTs = slot.tsStart + slot.secs;
-  log("playing: " + slot.item.title + (slot.item.episode ? " ep " + slot.item.episode : "") + " from " + (slot.item.offset || 0) + "s for " + slot.secs.toFixed(1) + "s" + (slot.src === slot.item.url ? " (from storage)" : ""));
+  log("playing: " + slot.item.title + (slot.item.episode ? " ep " + slot.item.episode : "") + " from " + (slot.item.offset || 0) + "s for " + slot.secs.toFixed(1) + "s" + (slot.item.relay ? " (live from the studio)" : slot.src === slot.item.url ? " (from storage)" : ""));
   scheduleLookahead();
 }
 
@@ -321,6 +340,10 @@ function onFeederClosed(slot, code) {
   if (prepared === slot) { prepared = null; return; }       // a prepared item that was dropped
   if (feeder !== f) return;
   log("finished: " + slot.item.title + (code ? " (exit " + code + ")" : ""));
+  if (slot.item.relay) {
+    if (slot.audio && /matches no streams/.test(slot.err)) { relayNoAudio.add(slot.item.id); relayRetryAt = 0; }  // no audio: retry with silence
+    else relayRetryAt = Date.now() + 3000;   // live feed dropped: don't hammer it
+  }
   feeder = null; current = null;
   lastDone = { id: slot.item.id, at: Date.now() };
   clearTimeout(lookaheadTimer); lookaheadTimer = null;
@@ -353,6 +376,7 @@ async function prepareNext(endsAt) {
   const atMs = current.schedEnd + 100;
   const plan = await api("/api/internal/playout/plan?at=" + encodeURIComponent(new Date(atMs).toISOString()));
   if (!current || current.endsAt !== endsAt || !plan.item || plan.studioLive || plan.streamKey !== pubKey) return;
+  if (plan.item.relay) return;          // a live relay is switched to by tick() at once
   const item = plan.item;
   // play it from this item's scheduled end to its own, so the channel clock
   // stays in step with the schedule however long it runs
@@ -407,11 +431,13 @@ async function tick() {
       // the next item is prepared and about to follow on
     } else if (lastDone && lastDone.id === plan.item.id && remaining < 4000 && now - lastDone.at < 6000) {
       // this item just finished a moment ahead of the schedule — the next one is (or will be) on
+    } else if (plan.item.relay && now < relayRetryAt) {
+      // the live feed just dropped; give it a moment before reconnecting
     } else {
       await startNow(plan.item);
     }
     // keep the local cache warm for what's on air
-    if (CACHE_ON && !cachedFile(cacheKey(plan.item))) download(plan.item);
+    if (CACHE_ON && !plan.item.relay && !cachedFile(cacheKey(plan.item))) download(plan.item);
     await api("/api/internal/playout/heartbeat", { onAir: true, title: plan.item.title }).catch(() => {});
   } catch (e) {
     log("plan error: " + (e.message || e));
