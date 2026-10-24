@@ -142,7 +142,21 @@ function download(item) {
       const keep = new Set([current && current.src, prepared && prepared.src].filter(Boolean));
       if (!size || !makeRoom(size, keep)) { try { await r.body.cancel(); } catch {} log("cache: no room for " + item.title + " — streaming it from storage"); return null; }
       const t0 = Date.now();
-      await pipeline(Readable.fromWeb(r.body), fs.createWriteStream(part));
+      // Storage drops long transfers part-way, so resume with Range requests
+      // instead of starting over (or giving up and airing from storage).
+      let body = r.body, tries = 0;
+      for (;;) {
+        try {
+          await pipeline(Readable.fromWeb(body), fs.createWriteStream(part, { flags: tries ? "a" : "w" }));
+        } catch (e) { log("cache: transfer of " + item.title + " interrupted: " + (e.message || e)); }
+        const have = fs.statSync(part).size;
+        if (have >= size) break;
+        if (++tries > 20) throw new Error("gave up after " + tries + " resumes at " + have + "/" + size + " bytes");
+        await new Promise((res) => setTimeout(res, Math.min(10000, 1000 * tries)));
+        const rr = await fetch(item.url, { headers: { Range: "bytes=" + have + "-" }, signal: AbortSignal.timeout(30 * 60 * 1000) });
+        if (rr.status !== 206 || !rr.body) { try { rr.body && await rr.body.cancel(); } catch {} throw new Error("storage refused resume (HTTP " + rr.status + ")"); }
+        body = rr.body;
+      }
       fs.renameSync(part, dest);
       log("cache: stored " + item.title + " (" + (size / 1048576).toFixed(0) + " MB in " + ((Date.now() - t0) / 1000).toFixed(1) + "s)");
       return dest;
@@ -249,7 +263,11 @@ function waitForDrain(slot) {
 // slot becomes the on-air feeder (see goLive), so it can start early.
 function spawnFeeder(slot) {
   const { item, src, audio, secs, tsStart } = slot;
-  const args = ["-hide_banner", "-loglevel", "warning", "-re", "-ss", String(item.offset || 0), "-i", src];
+  const args = ["-hide_banner", "-loglevel", "warning"];
+  // Not cached yet and reading straight from storage: reconnect where the
+  // transfer dropped instead of ending the programme early.
+  if (/^https?:\/\//i.test(src)) args.push("-reconnect", "1", "-reconnect_on_network_error", "1", "-reconnect_delay_max", "5");
+  args.push("-re", "-ss", String(item.offset || 0), "-i", src);
   if (!audio) args.push("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo");
   args.push("-t", secs.toFixed(3), "-map", "0:v:0", "-map", audio ? "0:a:0" : "1:a:0",
     "-vf", VIDEO_FILTER,
