@@ -119,8 +119,9 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const FILLER = "Filler";
+  const HIGHLIGHTS = "Highlights";   // loops on live.fbigh.com/tv whenever nothing is live
   const PROMO = "Promo: ";           // promos for a show live under "Promo: <title>"
-  const isNoEp = (s) => s === FILLER || String(s).startsWith(PROMO);
+  const isNoEp = (s) => s === FILLER || s === HIGHLIGHTS || String(s).startsWith(PROMO);
   let media = [];
   let lineupTitles = [];
   let busy = 0;
@@ -158,6 +159,7 @@
   function renderSeries() {
     const sel = $("series"), cur = sel.value;
     sel.textContent = "";
+    const hl = document.createElement("option"); hl.value = HIGHLIGHTS; hl.textContent = "Highlights (loop on FBI TV when nothing is live)"; sel.appendChild(hl);
     lineupTitles.concat(FILLER).forEach((t) => {
       const o = document.createElement("option"); o.value = t; o.textContent = t === FILLER ? "Filler (promos & idents between shows)" : t; sel.appendChild(o);
     });
@@ -178,6 +180,7 @@
   function renderShows() {
     const box = $("shows"); box.textContent = "";
     const groups = new Map();
+    groups.set(HIGHLIGHTS, []);
     lineupTitles.concat(FILLER).forEach((t) => groups.set(t, []));
     groups.set(PROMO + "General", []);
     // Keep uploaded promo pools visible even when no matching show is scheduled.
@@ -192,7 +195,7 @@
       sp.textContent = ready.length + " ready · " + fmtDur(tot) + " total" + (list.length ? " · " + fmtSize(list.reduce((a, m) => a + m.size_bytes, 0)) : "");
       h.appendChild(sp); sec.appendChild(h);
       const promoOf = series.startsWith(PROMO) ? series.slice(PROMO.length) : null;
-      if (promoOf !== null ? (promoOf !== "General" && !lineupTitles.includes(promoOf)) : (!lineupTitles.includes(series) && series !== FILLER)) {
+      if (promoOf !== null ? (promoOf !== "General" && !lineupTitles.includes(promoOf)) : (!lineupTitles.includes(series) && series !== FILLER && series !== HIGHLIGHTS)) {
         const w = document.createElement("div"); w.className = "warn";
         w.textContent = promoOf !== null
           ? "This show isn't in the schedule (was it renamed?), so these promos won't play until a show with exactly this name is scheduled."
@@ -201,7 +204,9 @@
       }
       if (!list.length) {
         const e = document.createElement("div"); e.className = "sub";
-        e.textContent = series === FILLER
+        e.textContent = series === HIGHLIGHTS
+          ? "No highlights yet. Upload short project highlight videos (MP4) here; they loop on FBI TV whenever nothing is live."
+          : series === FILLER
           ? "No filler yet. Upload content here for gaps between scheduled shows."
           : series === PROMO + "General"
             ? "No station-wide promos uploaded yet. Add short promo clips here; they are the fallback when a show-specific promo is unavailable."

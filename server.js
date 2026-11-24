@@ -3508,6 +3508,37 @@ async function tvRelayStream(channelRow){
   return row;
 }
 
+// Without the 24/7 playout service, the TV page plays a pushed studio
+// broadcast directly: the channel's public status/HLS answer with the pushed
+// stream while the channel itself isn't live. Cached briefly because every
+// HLS segment request asks.
+const tvRelayCache={at:0,channelId:null,row:null};
+async function tvRelayFor(channelRow){
+  if(!channelRow||channelRow.status==="live")return null;
+  const tok=await tvChannelToken().catch(()=>"");
+  if(!tok||channelRow.viewer_token!==tok)return null;
+  if(tvRelayCache.channelId===channelRow.id&&Date.now()-tvRelayCache.at<5000)return tvRelayCache.row;
+  const row=await tvRelayStream(channelRow).catch(e=>{console.error("FBI TV relay check failed:",e.message||e);return null;});
+  Object.assign(tvRelayCache,{at:Date.now(),channelId:channelRow.id,row});
+  return row;
+}
+
+// Off air, the TV page loops these clips from storage (bucket downloads cost
+// nothing on Railway). Upload them in the Episode library as "Highlights";
+// the Filler clips are used if there are no highlights yet.
+const TV_HIGHLIGHTS="Highlights";
+app.get("/api/public/tv/highlights",async(req,res)=>{
+  try{
+    res.set("Cache-Control","no-store");
+    if(!s3Ready())return res.json({items:[]});
+    let rows=(await pool.query("SELECT * FROM tv_media WHERE series=$1 AND status='ready' ORDER BY episode NULLS LAST,created_at",[TV_HIGHLIGHTS])).rows;
+    if(!rows.length)rows=(await pool.query("SELECT * FROM tv_media WHERE series=$1 AND status='ready' ORDER BY episode NULLS LAST,created_at",[PLAYOUT_FILLER])).rows;
+    const items=[];
+    for(const m of rows.slice(0,100))items.push({id:m.id,title:m.title||"FBI highlights",duration:Number(m.duration_seconds||0),url:await mediaUrl(m)});
+    res.json({items});
+  }catch(e){console.error("TV highlights failed:",e);res.status(500).json({error:"Could not load highlights"});}
+});
+
 app.post("/api/live/streams",admin,async(req,res)=>{
   try{
     const name=String(req.body.name||"").trim();
@@ -4030,7 +4061,8 @@ async function proxyPublicHlsStream(req,res){
     const token=String(req.params.token||"");
     const lookup=await publicStreamByToken(token);
     if(!lookup.rowCount)return res.status(404).end();
-    const row=lookup.rows[0];
+    // FBI TV channel off air with a broadcast pushed to it: serve that broadcast.
+    const row=(isPlayoutOnAir(lookup.rows[0].id)?null:await tvRelayFor(lookup.rows[0]))||lookup.rows[0];
     const internalBase=(process.env.STREAM_HLS_INTERNAL||"http://fbi-live-ingest:8888").replace(/\/+$/,"");
     let sub=String(req.path||"/").replace(/^\/+/, "");
     if(/^index\.m3u8\/index\.m3u8$/i.test(sub))sub="index.m3u8";
@@ -4536,7 +4568,10 @@ app.get("/api/public/stream/:token/status",async(req,res)=>{
     const s=await refreshStreamStatus(r.rows[0]);
     const v=await pool.query("SELECT count(*)::int AS current FROM stream_viewers WHERE stream_id=$1 AND last_seen>=now()-interval '45 seconds'",[s.id]);
     const auto=s.status!=="live"&&isPlayoutOnAir(s.id);
-    res.json({live:s.status==="live"||auto,playout:auto,title:s.title,name:s.name,current_viewers:v.rows[0].current});
+    const relay=(!auto&&await tvRelayFor(s))||null;
+    res.json({live:s.status==="live"||auto||!!relay,playout:auto,relay:!!relay,
+      relay_title:relay?(relay.title||relay.name||"FBI Live"):null,
+      title:s.title,name:s.name,current_viewers:v.rows[0].current});
   }catch(e){res.status(500).json({error:"Could not load stream status"});}
 });
 

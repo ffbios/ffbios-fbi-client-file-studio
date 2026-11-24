@@ -1046,9 +1046,81 @@ const CONFIG = {
     renderSchedule();
   }
 
-  // Off air: play the most recent saved broadcast instead of a blank screen.
-  let replayLoading = false;
+  // Off air: loop the project highlights (uploaded in the Episode library as
+  // "Highlights"). They play straight from storage, so no playout server runs.
+  // With no highlights uploaded, the last saved broadcast plays instead.
+  let highlightsList = [], highlightsIdx = 0;
+  async function fetchHighlights() {
+    try {
+      const r = await fetch(FBIGH + "/api/public/tv/highlights", { cache: "no-store" });
+      const d = await r.json();
+      return (r.ok && Array.isArray(d.items)) ? d.items.filter((i) => i && i.url) : [];
+    } catch (e) { return []; }
+  }
   async function startReplay() {
+    if (replayLoading || mode === "replay") return;
+    replayLoading = true;
+    const gen = liveGen;
+    let items = [];
+    try { items = await fetchHighlights(); } finally { replayLoading = false; }
+    if (gen !== liveGen || mode === "replay") return;   // live came back meanwhile
+    if (!items.length) return startLastBroadcast();
+    highlightsList = items;
+    highlightsIdx = 0;
+    mode = "replay";
+    if (chatRecordingId) { chatRecordingId = null; loadComments(true); }
+    playHighlight(0);
+  }
+  function playHighlight(failures) {
+    if (mode !== "replay" || !highlightsList.length) return;
+    const item = highlightsList[highlightsIdx % highlightsList.length];
+    teardownVideo();
+    video = document.createElement("video");
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.preload = "auto";
+    video.controls = true;
+    video.src = item.url;
+    player.insertBefore(video, player.querySelector(".badges"));
+    $("offline").hidden = true;
+    $("offBadge").hidden = true;
+    $("liveBadge").hidden = true;
+    $("replayBadge").textContent = "HIGHLIGHTS";
+    $("replayBadge").hidden = false;
+    $("controls").hidden = true;
+    $("nowKicker").textContent = "Highlights";
+    $("nowTitle").textContent = item.title || "FBI highlights";
+    $("nowMeta").textContent = "Projects by FBI · We'll switch to live when we're back on air";
+    const next = async () => {
+      if (mode !== "replay") return;
+      highlightsIdx++;
+      if (highlightsIdx >= highlightsList.length) {
+        // End of the reel: fetch fresh links (they expire) and start over.
+        const fresh = await fetchHighlights();
+        if (mode !== "replay") return;
+        if (fresh.length) highlightsList = fresh;
+        highlightsIdx = 0;
+      }
+      playHighlight(0);
+    };
+    video.addEventListener("ended", next);
+    video.addEventListener("error", () => {
+      if (mode !== "replay") return;
+      // Skip a broken clip; if every clip fails, show the off-air card.
+      if (failures + 1 >= highlightsList.length) { goOffline(); return; }
+      highlightsIdx++;
+      playHighlight(failures + 1);
+    });
+    video.addEventListener("volumechange", syncIcons);
+    video.addEventListener("pause", syncIcons);
+    video.addEventListener("playing", syncIcons);
+    video.muted = true;
+    video.play().catch(() => {});
+  }
+
+  // Fallback when no highlights exist: the most recent saved broadcast.
+  let replayLoading = false;
+  async function startLastBroadcast() {
     const tok = fbighToken();
     if (!tok || replayLoading || mode === "replay") return;
     replayLoading = true;
@@ -1073,6 +1145,7 @@ const CONFIG = {
       $("offline").hidden = true;
       $("offBadge").hidden = true;
       $("liveBadge").hidden = true;
+      $("replayBadge").textContent = "REPLAY";
       $("replayBadge").hidden = false;
       $("controls").hidden = true;
       $("nowKicker").textContent = "Replay";
@@ -1334,7 +1407,12 @@ const CONFIG = {
       }
       if (tok && r.ok && mode !== "sports") {
         if (d.live && mode !== "live") startLive();           // back on air
-        else if (!d.live && mode !== "replay") startReplay(); // off air: show last broadcast
+        else if (!d.live && mode !== "replay") startReplay(); // off air: loop highlights
+        // A studio broadcast pushed to FBI TV: show its name, not the schedule's.
+        if (d.live && d.relay && d.relay_title) {
+          $("nowKicker").textContent = "Live now";
+          $("nowTitle").textContent = d.relay_title;
+        }
       }
     } catch (e) { /* keep quiet */ }
     // Count this viewer in the studio's "watching now" number
