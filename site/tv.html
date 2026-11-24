@@ -1050,6 +1050,8 @@ const CONFIG = {
   // "Highlights"). They play straight from storage, so no playout server runs.
   // With no highlights uploaded, the last saved broadcast plays instead.
   let highlightsList = [], highlightsIdx = 0;
+  // The FBI TV highlights reel lives on Cloudflare R2 (free to watch), not on Railway.
+  const HIGHLIGHTS_REEL = { id: "reel", title: "FBI TV highlights", url: "https://media.fbigh.com/fbi-tv-highlights.mp4" };
   async function fetchHighlights() {
     try {
       const r = await fetch(FBIGH + "/api/public/tv/highlights", { cache: "no-store" });
@@ -1061,8 +1063,8 @@ const CONFIG = {
     if (replayLoading || mode === "replay") return;
     replayLoading = true;
     const gen = liveGen;
-    let items = [];
-    try { items = await fetchHighlights(); } finally { replayLoading = false; }
+    let items = [HIGHLIGHTS_REEL];
+    replayLoading = false;
     if (gen !== liveGen || mode === "replay") return;   // live came back meanwhile
     if (!items.length) return startLastBroadcast();
     highlightsList = items;
@@ -1079,7 +1081,7 @@ const CONFIG = {
     video.playsInline = true;
     video.setAttribute("playsinline", "");
     video.preload = "auto";
-    video.controls = true;
+    video.controls = item.id !== "reel";
     video.src = item.url;
     player.insertBefore(video, player.querySelector(".badges"));
     $("offline").hidden = true;
@@ -1093,6 +1095,7 @@ const CONFIG = {
     $("nowMeta").textContent = "Projects by FBI · We'll switch to live when we're back on air";
     const next = async () => {
       if (mode !== "replay") return;
+      if (highlightsList.length === 1 && highlightsList[0].id === "reel") { playHighlight(0); return; }
       highlightsIdx++;
       if (highlightsIdx >= highlightsList.length) {
         // End of the reel: fetch fresh links (they expire) and start over.
@@ -1106,6 +1109,14 @@ const CONFIG = {
     video.addEventListener("ended", next);
     video.addEventListener("error", () => {
       if (mode !== "replay") return;
+      if (item.id === "reel") {
+        fetchHighlights().then((list) => {
+          if (mode !== "replay") return;
+          if (!list.length) { mode = "off"; startLastBroadcast(); return; }
+          highlightsList = list; highlightsIdx = 0; playHighlight(0);
+        });
+        return;
+      }
       // Skip a broken clip; if every clip fails, show the off-air card.
       if (failures + 1 >= highlightsList.length) { goOffline(); return; }
       highlightsIdx++;
