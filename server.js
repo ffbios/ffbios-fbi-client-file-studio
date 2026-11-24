@@ -3922,7 +3922,7 @@ function isViewerPlayback(req,dests){
 // The first live playlist hands the player a viewer ticket ("vt") that every
 // later playlist and segment URL must carry, so a copied segment or variant
 // URL stops working after a few hours.
-const VIEWER_TICKET_MS=6*3600*1000;
+const VIEWER_TICKET_MS=24*3600*1000;   // long enough for an all-day broadcast
 function viewerTicketSig(token,exp){return crypto.createHmac("sha256",SESSION_SECRET).update("vt|"+token+"|"+exp).digest("base64url").slice(0,22)}
 function viewerTicket(token){const exp=(Date.now()+VIEWER_TICKET_MS).toString(36);return exp+"."+viewerTicketSig(token,exp)}
 function viewerTicketOk(token,vt){
@@ -4571,6 +4571,9 @@ app.get("/api/public/stream/:token/status",async(req,res)=>{
     const relay=(!auto&&await tvRelayFor(s))||null;
     res.json({live:s.status==="live"||auto||!!relay,playout:auto,relay:!!relay,
       relay_title:relay?(relay.title||relay.name||"FBI Live"):null,
+      // Big events: viewers watch the YouTube copy (free, no viewer limit) inside the TV page.
+      // Set TV_YOUTUBE_CHANNEL_ID on this service to turn it on; remove it to go back to our own player.
+      youtube:(process.env.TV_YOUTUBE_CHANNEL_ID&&s.viewer_token===await tvChannelToken().catch(()=>""))?String(process.env.TV_YOUTUBE_CHANNEL_ID):null,
       title:s.title,name:s.name,current_viewers:v.rows[0].current});
   }catch(e){res.status(500).json({error:"Could not load stream status"});}
 });

@@ -1241,6 +1241,28 @@ const CONFIG = {
     $("liveBadge").hidden = true; // YouTube confirms live status inside its own player.
     $("viewers").hidden = true;
   }
+  // Live via YouTube: the broadcast is forwarded to the FBI YouTube channel and
+  // played here, so a big audience costs nothing in bandwidth.
+  let youtubeChannel = "";
+  function startYouTube(channelId) {
+    clearTimeout(liveRetryTimer);
+    liveGen++;
+    liveRetries = 0;
+    teardownVideo();
+    mode = "youtube";
+    youtubeChannel = channelId;
+    if (chatRecordingId) { chatRecordingId = null; loadComments(true); }
+    $("offline").hidden = true;
+    $("offBadge").hidden = true;
+    $("replayBadge").hidden = true;
+    $("unmute").hidden = true;
+    $("controls").hidden = true;
+    renderSchedule();
+    addIframe(
+      "https://www.youtube.com/embed/live_stream?channel=" + encodeURIComponent(channelId) + "&autoplay=1&mute=1&rel=0&modestbranding=1",
+      "FBI TV live stream"
+    );
+  }
   function returnToFbiTv() {
     if (mode !== "sports") return;
     $("btnReturnLive").hidden = true;
@@ -1417,7 +1439,8 @@ const CONFIG = {
         $("viewers").hidden = !(tok && d.live && mode !== "sports");
       }
       if (tok && r.ok && mode !== "sports") {
-        if (d.live && mode !== "live") startLive();           // back on air
+        if (d.live && d.youtube) { if (mode !== "youtube" || youtubeChannel !== d.youtube) startYouTube(d.youtube); }
+        else if (d.live && mode !== "live") startLive();     // back on air (our own player)
         else if (!d.live && mode !== "replay") startReplay(); // off air: loop highlights
         // A studio broadcast pushed to FBI TV: show its name, not the schedule's.
         if (d.live && d.relay && d.relay_title) {
@@ -1427,7 +1450,7 @@ const CONFIG = {
       }
     } catch (e) { /* keep quiet */ }
     // Count this viewer in the studio's "watching now" number
-    if (tok && mode === "live" && video && !video.paused) {
+    if (tok && ((mode === "live" && video && !video.paused) || mode === "youtube")) {
       try {
         await fetch(FBIGH + "/api/public/stream/" + encodeURIComponent(tok) + "/heartbeat", {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionKey })
