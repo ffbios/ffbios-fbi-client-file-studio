@@ -3489,6 +3489,11 @@ app.post("/api/live/streams/:id/tv",admin,async(req,res)=>{
   }catch(e){console.error(e);res.status(500).json({error:"Could not change FBI TV push"});}
 });
 
+// A pushed broadcast stays on FBI TV if OBS reconnects within this many
+// minutes of dropping (default 60). Set TV_PUSH_RECONNECT_MINUTES=0 to switch
+// the push off on every new session, as before.
+const TV_PUSH_RECONNECT_MS=Math.max(0,Number(process.env.TV_PUSH_RECONNECT_MINUTES??60)||0)*60000;
+
 // The studio broadcast the channel should carry right now, if any.
 async function tvRelayStream(channelRow){
   const q=await pool.query("SELECT * FROM streams WHERE on_tv=true AND enabled=true AND id<>$1 ORDER BY updated_at DESC LIMIT 1",[channelRow.id]);
@@ -3500,6 +3505,18 @@ async function tvRelayStream(channelRow){
     // armed before it went live: tie the switch to this broadcast
     await pool.query("UPDATE streams SET on_tv_session=$2 WHERE id=$1 AND on_tv_session IS NULL",[row.id,sess]);
   }else if(row.on_tv_session&&sess&&String(row.on_tv_session)!==String(sess)){
+    // OBS dropped and came back after the 10-minute session window (a weak
+    // line can take that long). If it is back within TV_PUSH_RECONNECT_MINUTES
+    // of going off air, it is still the same event: keep it on the channel and
+    // tie the push to the new session. ended_at still holds the time the
+    // previous broadcast went off air; session_started_at is the new start.
+    const gap=await pool.query("SELECT EXTRACT(EPOCH FROM (session_started_at-ended_at))*1000 AS ms FROM streams WHERE id=$1 AND session_id=$2 AND ended_at IS NOT NULL AND session_started_at>=ended_at",[row.id,sess]).catch(()=>({rows:[]}));
+    const gapMs=gap.rows[0]?Number(gap.rows[0].ms):NaN;
+    if(Number.isFinite(gapMs)&&gapMs<=TV_PUSH_RECONNECT_MS){
+      await pool.query("UPDATE streams SET on_tv_session=$2 WHERE id=$1 AND on_tv=true",[row.id,sess]);
+      console.log("FBI TV: "+(row.title||row.name)+" reconnected after "+Math.round(gapMs/60000)+" min - still on the channel");
+      return row;
+    }
     // a new broadcast on the same stream: don't take over the channel again
     await pool.query("UPDATE streams SET on_tv=false,on_tv_session=NULL WHERE id=$1",[row.id]);
     console.log("FBI TV: "+(row.title||row.name)+" started a new broadcast — push to TV switched off");
