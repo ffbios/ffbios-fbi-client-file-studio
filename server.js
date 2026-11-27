@@ -3508,8 +3508,11 @@ async function youtubeLiveCheck(channelId){
   // watch link, so the video id is taken from the player data when it is missing.
   const vid=(html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([A-Za-z0-9_-]{11})"/)||[])[1]
     ||(html.match(/"videoDetails":\{"videoId":"([A-Za-z0-9_-]{11})"/)||[])[1]||null;
+  // A scheduled broadcast that hasn't started is also marked "isLive":true, together
+  // with "isUpcoming":true; that is a countdown page, not a live stream.
+  const upcoming=/"isUpcoming":true/.test(html);
   // Live with no id: the TV page uses the channel live player instead of the exact video.
-  return {live:r.ok&&/"isLive":true/.test(html),videoId:vid};
+  return {live:r.ok&&/"isLive":true/.test(html)&&!upcoming,videoId:upcoming?null:vid};
 }
 async function youtubeLiveNow(channelId){
   if(!channelId)return null;
