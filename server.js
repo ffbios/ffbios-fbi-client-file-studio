@@ -3504,8 +3504,12 @@ async function youtubeLiveCheck(channelId){
   const r=await fetch("https://www.youtube.com/channel/"+encodeURIComponent(channelId)+"/live",
     {headers:{"user-agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36","accept-language":"en"},signal:AbortSignal.timeout(8000)});
   const html=await r.text();
-  const vid=(html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([A-Za-z0-9_-]{11})"/)||[])[1]||null;
-  return {live:r.ok&&/"isLive":true/.test(html)&&!!vid,videoId:vid};
+  // YouTube sends servers a "bot check" version of the page without the canonical
+  // watch link, so the video id is taken from the player data when it is missing.
+  const vid=(html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([A-Za-z0-9_-]{11})"/)||[])[1]
+    ||(html.match(/"videoDetails":\{"videoId":"([A-Za-z0-9_-]{11})"/)||[])[1]||null;
+  // Live with no id: the TV page uses the channel live player instead of the exact video.
+  return {live:r.ok&&/"isLive":true/.test(html),videoId:vid};
 }
 async function youtubeLiveNow(channelId){
   if(!channelId)return null;
