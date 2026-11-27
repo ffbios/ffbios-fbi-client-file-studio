@@ -3494,6 +3494,35 @@ app.post("/api/live/streams/:id/tv",admin,async(req,res)=>{
 // the push off on every new session, as before.
 const TV_PUSH_RECONNECT_MS=Math.max(0,Number(process.env.TV_PUSH_RECONNECT_MINUTES??60)||0)*60000;
 
+// Is the FBI YouTube channel actually live? The TV page only switches viewers to
+// YouTube while it is; otherwise they stay on our own player (automatic fallback).
+// Checked at most every 20 s, one request at a time, shared by all viewers. Two
+// failed checks in a row are needed to call it off air, so one slow answer from
+// YouTube doesn't bounce viewers between players.
+const ytLive={channel:"",live:false,videoId:null,checkedAt:0,misses:0,pending:null};
+async function youtubeLiveCheck(channelId){
+  const r=await fetch("https://www.youtube.com/channel/"+encodeURIComponent(channelId)+"/live",
+    {headers:{"user-agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36","accept-language":"en"},signal:AbortSignal.timeout(8000)});
+  const html=await r.text();
+  const vid=(html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([A-Za-z0-9_-]{11})"/)||[])[1]||null;
+  return {live:r.ok&&/"isLive":true/.test(html)&&!!vid,videoId:vid};
+}
+async function youtubeLiveNow(channelId){
+  if(!channelId)return null;
+  if(ytLive.channel!==channelId)Object.assign(ytLive,{channel:channelId,live:false,videoId:null,checkedAt:0,misses:0});
+  if(Date.now()-ytLive.checkedAt>20000&&!ytLive.pending){
+    ytLive.pending=youtubeLiveCheck(channelId).then(c=>{
+      const was=ytLive.live;
+      if(c.live){ytLive.live=true;ytLive.videoId=c.videoId;ytLive.misses=0;}
+      else if(++ytLive.misses>=2||!was){ytLive.live=false;ytLive.videoId=null;}
+      if(was!==ytLive.live)console.log("FBI TV: YouTube is "+(ytLive.live?"live ("+ytLive.videoId+"), viewers watch through YouTube":"not live, viewers use our own player"));
+    }).catch(()=>{if(++ytLive.misses>=2){ytLive.live=false;ytLive.videoId=null;}}).finally(()=>{ytLive.checkedAt=Date.now();ytLive.pending=null;});
+  }
+  // The very first time, wait for the answer so the page doesn't start on the wrong player.
+  if(!ytLive.checkedAt&&ytLive.pending)await ytLive.pending.catch(()=>{});
+  return ytLive.live?{channel:channelId,videoId:ytLive.videoId}:null;
+}
+
 // The studio broadcast the channel should carry right now, if any.
 async function tvRelayStream(channelRow){
   const q=await pool.query("SELECT * FROM streams WHERE on_tv=true AND enabled=true AND id<>$1 ORDER BY updated_at DESC LIMIT 1",[channelRow.id]);
@@ -4586,11 +4615,14 @@ app.get("/api/public/stream/:token/status",async(req,res)=>{
     const v=await pool.query("SELECT count(*)::int AS current FROM stream_viewers WHERE stream_id=$1 AND last_seen>=now()-interval '45 seconds'",[s.id]);
     const auto=s.status!=="live"&&isPlayoutOnAir(s.id);
     const relay=(!auto&&await tvRelayFor(s))||null;
+    const ytOn=(s.status==="live"||auto||!!relay)&&!!process.env.TV_YOUTUBE_CHANNEL_ID&&s.viewer_token===await tvChannelToken().catch(()=>"");
+    const yt=ytOn?await youtubeLiveNow(String(process.env.TV_YOUTUBE_CHANNEL_ID)):null;
     res.json({live:s.status==="live"||auto||!!relay,playout:auto,relay:!!relay,
       relay_title:relay?(relay.title||relay.name||"FBI Live"):null,
-      // Big events: viewers watch the YouTube copy (free, no viewer limit) inside the TV page.
-      // Set TV_YOUTUBE_CHANNEL_ID on this service to turn it on; remove it to go back to our own player.
-      youtube:(process.env.TV_YOUTUBE_CHANNEL_ID&&s.viewer_token===await tvChannelToken().catch(()=>""))?String(process.env.TV_YOUTUBE_CHANNEL_ID):null,
+      // Big events: viewers watch the YouTube copy (free, no viewer limit) inside the TV page,
+      // but only while YouTube is really live; otherwise our own player (automatic fallback).
+      // Set TV_YOUTUBE_CHANNEL_ID on this service to turn it on; empty it to always use our own player.
+      youtube:yt?yt.channel:null,youtube_video:yt?yt.videoId:null,
       title:s.title,name:s.name,current_viewers:v.rows[0].current});
   }catch(e){res.status(500).json({error:"Could not load stream status"});}
 });

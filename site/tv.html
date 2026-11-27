@@ -1243,14 +1243,15 @@ const CONFIG = {
   }
   // Live via YouTube: the broadcast is forwarded to the FBI YouTube channel and
   // played here, so a big audience costs nothing in bandwidth.
-  let youtubeChannel = "";
-  function startYouTube(channelId) {
+  let youtubeChannel = "", youtubeVideo = "";
+  function startYouTube(channelId, videoId) {
     clearTimeout(liveRetryTimer);
     liveGen++;
     liveRetries = 0;
     teardownVideo();
     mode = "youtube";
     youtubeChannel = channelId;
+    youtubeVideo = videoId || "";
     if (chatRecordingId) { chatRecordingId = null; loadComments(true); }
     $("offline").hidden = true;
     $("offBadge").hidden = true;
@@ -1259,7 +1260,9 @@ const CONFIG = {
     $("controls").hidden = true;
     renderSchedule();
     addIframe(
-      "https://www.youtube.com/embed/live_stream?channel=" + encodeURIComponent(channelId) + "&autoplay=1&mute=1&rel=0&modestbranding=1",
+      (videoId
+        ? "https://www.youtube.com/embed/" + encodeURIComponent(videoId) + "?autoplay=1&mute=1&rel=0&modestbranding=1"
+        : "https://www.youtube.com/embed/live_stream?channel=" + encodeURIComponent(channelId) + "&autoplay=1&mute=1&rel=0&modestbranding=1"),
       "FBI TV live stream"
     );
   }
@@ -1439,7 +1442,7 @@ const CONFIG = {
         $("viewers").hidden = !(tok && d.live && mode !== "sports");
       }
       if (tok && r.ok && mode !== "sports") {
-        if (d.live && d.youtube) { if (mode !== "youtube" || youtubeChannel !== d.youtube) startYouTube(d.youtube); }
+        if (d.live && d.youtube) { if (mode !== "youtube" || youtubeChannel !== d.youtube || youtubeVideo !== (d.youtube_video || "")) startYouTube(d.youtube, d.youtube_video); }
         else if (d.live && mode !== "live") startLive();     // back on air (our own player)
         else if (!d.live && mode !== "replay") startReplay(); // off air: loop highlights
         // A studio broadcast pushed to FBI TV: show its name, not the schedule's.
