@@ -3963,7 +3963,12 @@ function isApplePlayer(req){
   if(/AppleCoreMedia/i.test(ua))return true;
   return /\b(iPhone|iPad|iPod|Macintosh)\b/.test(ua)&&/AppleWebKit/.test(ua)&&!/Chrome\/|Firefox\/|Edg\//.test(ua);
 }
+// Chromecast / Google TV / TVs with Chromecast built in: when a viewer casts
+// from live.fbigh.com/tv, the TV fetches the stream itself (its user agent
+// carries "CrKey"), from Google's receiver page rather than an FBI page.
+function isCastReceiver(req){return /\bCrKey\//.test(String(req.headers["user-agent"]||""))}
 function isViewerPlayback(req,dests){
+  if(isCastReceiver(req))return true;
   const site=String(req.headers["sec-fetch-site"]||"").toLowerCase();
   const dest=String(req.headers["sec-fetch-dest"]||"").toLowerCase();
   if(!site&&!dest)return isApplePlayer(req);
@@ -3993,7 +3998,7 @@ function setPublicHlsCors(req,res){
   // read it; other websites get no CORS header and their players fail.
   const origin=String(req.headers.origin||"");
   res.vary("Origin");
-  if(VIEWER_SITE_RE.test(origin))res.set("Access-Control-Allow-Origin",origin);
+  if(VIEWER_SITE_RE.test(origin)||(origin&&isCastReceiver(req)))res.set("Access-Control-Allow-Origin",origin);
   res.set("Access-Control-Allow-Methods","GET,HEAD,OPTIONS");
   res.set("Access-Control-Allow-Headers","Range,Origin,Accept,Content-Type");
   res.set("Access-Control-Expose-Headers","Content-Length,Content-Range");

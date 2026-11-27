@@ -859,7 +859,8 @@ body.cinema-mode .stage-layout, body.tvmode .stage-layout, html.embed-mode .stag
 
 /* things that cluttered the picture */
 .player .reactions, .stage-station, .player .wave, .player .fake-timeline, .player .timeline-label { display: none !important; }
-.player-top-right { display: none; }
+.player-top-right { display: flex; pointer-events: auto; }
+.player-top-right .player-chip { display: none; }
 
 /* soft gradient only where controls sit */
 .player-shade { background: linear-gradient(180deg, rgba(0,0,0,.45) 0, transparent 16%, transparent 62%, rgba(0,0,0,.82) 100%); transition: opacity .3s ease; }
@@ -994,6 +995,45 @@ body.tvmode .live-label { padding: 8px 14px; font-size: 18px; }
 body.tvmode .player .unmute { top: 4vh; right: 3.5vw; min-height: 58px; padding: 0 28px 0 58px; background-size: 26px; background-position: 20px 50%; font-size: 22px; }
 body.tvmode .tvov:not(.off) ~ .fbi-handle { opacity: 0; transition: opacity .3s ease; }
 
+/* ---------- cast to TV ---------- */
+.cast-help { width: 290px; padding: 8px 6px 6px; }
+.cast-tip { padding: 8px 10px; border-radius: 8px; color: #fff; font-size: 13px; line-height: 1.4; }
+.cast-tip + .cast-tip { border-top: 1px solid rgba(255,255,255,.07); }
+.cast-tip b { color: var(--gold); font-weight: 600; }
+.cast-tip span { display: block; color: var(--muted); font-size: 12px; }
+.cast-btn.has-targets { color: var(--gold) !important; }
+.cast-overlay { position: absolute; z-index: 7; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #fff; background: radial-gradient(ellipse at 50% 45%, rgba(233,185,57,.12), transparent 60%), #0b0b0c; text-align: center; }
+.cast-overlay[hidden] { display: none; }
+.cast-overlay svg { width: 54px; height: 54px; fill: none; stroke: var(--gold); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.cast-overlay span { font-size: 18px; }
+.cast-overlay b { color: var(--gold); }
+.cast-overlay button { min-height: 40px; padding: 0 18px; border: 1px solid rgba(255,255,255,.25); border-radius: 999px; color: #fff; background: transparent; font-size: 14px; font-weight: 500; cursor: pointer; }
+.cast-overlay button:hover { border-color: var(--gold); color: var(--gold); }
+.player-shell.is-casting .player-controls { z-index: 8; }
+@media (max-width: 640px) {
+  .cast-help { width: min(270px, calc(100vw - 40px)); right: -90px; }
+  .cast-overlay span { font-size: 15px; }
+}
+
+/* cast button lives in the top-right corner so it works on air and off air */
+.player-top { pointer-events: none; }
+.player-top .cast-wrap { pointer-events: auto; }
+.cast-wrap .cast-btn { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 999px; color: #fff; background: rgba(0,0,0,.5); backdrop-filter: blur(6px); cursor: pointer; }
+.cast-wrap .cast-btn:hover { color: var(--gold); background: rgba(0,0,0,.7); }
+.cast-wrap .cast-btn .icon { width: 22px; height: 22px; }
+.cast-wrap .cast-help { top: 52px; bottom: auto; right: 0; }
+.player .unmute { right: 70px !important; }
+.player-shell.idle .player-top .cast-wrap { opacity: 0; pointer-events: none; }
+body.tvmode .player-top .cast-wrap { display: none; }
+body.tvmode .player .unmute { right: 3.5vw !important; }
+@media (max-width: 640px) {
+  .cast-wrap .cast-btn { width: 38px; height: 38px; }
+  .cast-help.sheet { position: fixed; z-index: 1000; background: #161618; top: auto; right: 12px; bottom: 12px; left: 12px; width: auto; max-height: 70vh !important; overflow-y: auto; padding: 12px 8px 10px; border-radius: 16px; box-shadow: 0 -8px 40px rgba(0,0,0,.6); }
+  .cast-tip { font-size: 15px; }
+  .cast-tip span { font-size: 13px; }
+  .player .unmute { right: 56px !important; }
+}
+
 </style>
 </head>
 <body>
@@ -1087,7 +1127,22 @@ body.tvmode .tvov:not(.off) ~ .fbi-handle { opacity: 0; transition: opacity .3s 
                 </div>
                 <div class="player-top-right">
                   <span class="player-chip" id="signalState" hidden>FBI TV LIVE</span>
+                    <div class="pop-wrap cast-wrap">
+                      <button class="control-btn cast-btn" id="btnCast" type="button" aria-label="Cast to TV"><svg class="icon" viewBox="0 0 24 24"><path d="M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><path d="M2 12a8 8 0 0 1 8 8m-8-4a4 4 0 0 1 4 4"/><path class="icon-fill" d="M2 20h.01"/></svg></button>
+                      <div class="pop-menu cast-help" id="castHelp" role="dialog" aria-label="Watch on your TV">
+                        <div class="menu-title">Watch on your TV</div>
+                        <div class="cast-tip"><b>Android or Chrome</b> → tap Cast <span>(TV with Chromecast or Google TV, on the same Wi-Fi)</span></div>
+                        <div class="cast-tip"><b>iPhone or iPad</b> → tap Cast, choose AirPlay <span>(Apple TV or AirPlay TV, same Wi-Fi)</span></div>
+                        <div class="cast-tip"><b>Any phone</b> → Screen mirroring / Smart View <span>from your phone's quick settings</span></div>
+                        <div class="cast-tip"><b>TV not smart?</b> → plug in a Chromecast, Fire TV or Google TV stick, or a phone-to-HDMI adapter</div>
+                      </div>
+                    </div>
                 </div>
+              </div>
+              <div class="cast-overlay" id="castOverlay" hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><path d="M2 12a8 8 0 0 1 8 8m-8-4a4 4 0 0 1 4 4"/></svg>
+                <span>Playing on <b>your TV</b></span>
+                <button type="button" id="castStop">Stop casting</button>
               </div>
               <button class="stage-play" id="stagePlay" type="button" aria-label="Play live stream"><svg class="icon"><use href="#i-play"/></svg></button>
               <div class="fbi-handle" aria-label="Follow @FilmbyFBI on social media">
@@ -1768,7 +1823,8 @@ const CONFIG = {
     // hls.js first, the browser's own HLS player only where hls.js can't run
     // (iPhone). Newer Chrome reports native HLS support too, but its player
     // fails on this stream, which dropped every Chrome viewer into the replay.
-    if (window.Hls && Hls.isSupported()) {
+    const appleNative = (/iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)) && video.canPlayType("application/vnd.apple.mpegurl");
+    if (window.Hls && Hls.isSupported() && !appleNative) {
       // Smart TVs and big screens start at 720p and climb to 1080p; phones
       // start low so the picture appears quickly on mobile data.
       const bigScreen = document.body.classList.contains("tvmode") || new URLSearchParams(location.search).get("tv") === "1" ||
@@ -1776,6 +1832,7 @@ const CONFIG = {
         Math.max(screen.width, screen.height) * (window.devicePixelRatio || 1) >= 1600 && !/Mobi|Android(?!.*TV)/i.test(navigator.userAgent);
       const hls = new Hls({ lowLatencyMode: true, liveSyncDurationCount: 3,
         abrEwmaDefaultEstimate: bigScreen ? 5000000 : 500000 });
+      window.__fbiStreamUrl = url;
       hls.loadSource(url);
       hls.attachMedia(video);
       hls.on(Hls.Events.ERROR, (e, d) => {
@@ -1791,6 +1848,7 @@ const CONFIG = {
       });
       window.__hls = hls;
     } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      window.__fbiStreamUrl = url;
       video.src = url;                                    // Safari / iPhone
       video.addEventListener("error", onFatal);
     } else {
@@ -2866,6 +2924,150 @@ const CONFIG = {
       setTimeout(() => { cur.classList.remove("out"); icons[idx].classList.add("on"); }, 220);
     }, 1800);
   }
+})();
+
+</script>
+<script>
+/* FBI TV — cast to a TV from a phone or computer.
+   Chrome (Android, Windows, Mac) → Chromecast, Google TV, Android TV, TVs with Chromecast built in.
+   iPhone / iPad (any browser) and Safari → Apple TV and AirPlay TVs.
+   Anything else → short help on screen mirroring / HDMI. */
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const player = $("player"), btn = $("btnCast"), help = $("castHelp"), overlay = $("castOverlay");
+  if (!player || !btn) return;
+  const ua = navigator.userAgent;
+  const isIOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const isChrome = /Chrome\//.test(ua) && !/Edg\/|OPR\//.test(ua) && !isIOS;
+  const isLive = () => { const b = $("liveBadge"); return !!b && !b.hidden; };
+  const video = () => player.querySelector("video");
+  const toast = (m) => { const t = $("toast"); if (!t) return; t.textContent = m; t.classList.add("show"); clearTimeout(window.__fbiToastTimer); window.__fbiToastTimer = setTimeout(() => t.classList.remove("show"), 3200); };
+
+  let castReady = false, castDevices = false, airplayAvailable = false;
+
+  function streamUrl() {
+    const u = window.__fbiStreamUrl;
+    return u ? new URL(u, location.href).href : "";
+  }
+  function showOverlay(name) {
+    overlay.querySelector("b").textContent = name || "your TV";
+    overlay.hidden = false;
+    player.classList.add("is-casting");
+  }
+  function hideOverlay() { overlay.hidden = true; player.classList.remove("is-casting"); }
+
+  // ---------- Google Cast ----------
+  // What the TV should play: the live stream, or (off air) the highlights reel on repeat.
+  function castSource() {
+    if (isLive() && streamUrl()) return { url: streamUrl(), type: "application/x-mpegurl", live: true };
+    const v = video(), src = v && v.currentSrc;
+    if (src && /^https?:/i.test(src)) return { url: src, type: "video/mp4", live: false };
+    return null;
+  }
+  const canCast = () => !!castSource();
+  function castLoad(session) {
+    const srcInfo = castSource();
+    if (!srcInfo) { toast("Nothing to cast yet. Try again in a moment."); return; }
+    const media = chrome.cast.media;
+    const info = new media.MediaInfo(srcInfo.url, srcInfo.type);
+    info.streamType = srcInfo.live ? media.StreamType.LIVE : media.StreamType.BUFFERED;
+    if (srcInfo.live && media.HlsSegmentFormat) info.hlsSegmentFormat = media.HlsSegmentFormat.TS;
+    if (srcInfo.live && media.HlsVideoSegmentFormat) info.hlsVideoSegmentFormat = media.HlsVideoSegmentFormat.MPEG2_TS;
+    const meta = new media.GenericMediaMetadata();
+    meta.title = srcInfo.live ? (($("nowTitle") && $("nowTitle").textContent) || "FBI TV Live") : "FBI TV highlights";
+    meta.subtitle = "FBI TV · @FilmbyFBI";
+    meta.images = [new chrome.cast.Image(location.origin + "/tv-icon-512.png")];
+    info.metadata = meta;
+    const done = () => { const v = video(); if (v) v.pause(); showOverlay(session.getCastDevice().friendlyName); };
+    const fail = () => toast("That TV couldn't play the stream. Try again, or use screen mirroring.");
+    if (srcInfo.live) {
+      const req = new media.LoadRequest(info);
+      req.autoplay = true;
+      session.loadMedia(req).then(done, fail);
+    } else {
+      const q = new media.QueueLoadRequest([new media.QueueItem(info)]);
+      q.repeatMode = media.RepeatMode.ALL;
+      session.getSessionObj().queueLoad(q, done, fail);
+    }
+  }
+  window.__onGCastApiAvailable = function (ok) {
+    if (!ok || !window.cast || !cast.framework) return;
+    const ctx = cast.framework.CastContext.getInstance();
+    ctx.setOptions({ receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID, autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED });
+    castReady = true;
+    const syncState = () => { castDevices = ctx.getCastState() !== cast.framework.CastState.NO_DEVICES_AVAILABLE; paint(); };
+    ctx.addEventListener(cast.framework.CastContextEventType.CAST_STATE_CHANGED, syncState);
+    ctx.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, (e) => {
+      const S = cast.framework.SessionState;
+      if (e.sessionState === S.SESSION_STARTED || e.sessionState === S.SESSION_RESUMED) castLoad(ctx.getCurrentSession());
+      if (e.sessionState === S.SESSION_ENDED) {
+        hideOverlay();
+        const v = video(); if (v) { v.play().catch(() => {}); }
+        $("btnLive") && $("btnLive").click();
+      }
+    });
+    syncState();
+  };
+  if (isChrome) {
+    const s = document.createElement("script");
+    s.src = "https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1";
+    s.async = true;
+    document.head.appendChild(s);
+  }
+
+  // ---------- AirPlay ----------
+  function watchAirPlay(v) {
+    if (!v || v.__fbiAirplay || !window.WebKitPlaybackTargetAvailabilityEvent) return;
+    v.__fbiAirplay = true;
+    v.setAttribute("x-webkit-airplay", "allow");
+    v.addEventListener("webkitplaybacktargetavailabilitychanged", (e) => { airplayAvailable = e.availability === "available"; paint(); });
+    v.addEventListener("webkitcurrentplaybacktargetiswirelesschanged", () => {
+      if (v.webkitCurrentPlaybackTargetIsWireless) showOverlay("AirPlay"); else hideOverlay();
+    });
+  }
+  new MutationObserver(() => watchAirPlay(video())).observe(player, { childList: true });
+  watchAirPlay(video());
+
+  // ---------- button ----------
+  function paint() {
+    btn.classList.toggle("has-targets", castDevices || airplayAvailable);
+    btn.setAttribute("aria-label", castDevices || airplayAvailable ? "Cast to TV" : "How to watch on your TV");
+  }
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const v = video();
+    if (v && v.webkitShowPlaybackTargetPicker && (airplayAvailable || isIOS)) {
+      if (!canCast()) { toast("Nothing to cast yet. Try again in a moment."); return; }
+      try { v.webkitShowPlaybackTargetPicker(); return; } catch (err) {}
+    }
+    if (castReady) {
+      if (!canCast()) { toast("Nothing to cast yet. Try again in a moment."); return; }
+      cast.framework.CastContext.getInstance().requestSession().catch((err) => {
+        if (err === "cancel" || err === chrome.cast.ErrorCode.CANCEL) return;
+        openHelp();
+      });
+      return;
+    }
+    openHelp();
+  });
+  function openHelp() {
+    const open = !help.classList.contains("open");
+    document.querySelectorAll(".pop-menu.open").forEach((m) => m.classList.remove("open"));
+    const sheet = innerWidth <= 640;
+    // On phones show it as a panel at the bottom of the screen, above everything else.
+    if (sheet && help.parentNode !== document.body) document.body.appendChild(help);
+    if (!sheet && help.parentNode === document.body) btn.parentNode.appendChild(help);
+    help.classList.toggle("sheet", sheet);
+    help.style.maxHeight = sheet ? "" : Math.max(140, player.clientHeight - 70) + "px";
+    help.classList.toggle("open", open);
+  }
+  document.addEventListener("click", (e) => { if (!e.target.closest("#castHelp, #btnCast")) help.classList.remove("open"); });
+  $("castStop").addEventListener("click", () => {
+    if (castReady && cast.framework.CastContext.getInstance().getCurrentSession()) cast.framework.CastContext.getInstance().endCurrentSession(true);
+    hideOverlay();
+  });
+  paint();
 })();
 
 </script>
