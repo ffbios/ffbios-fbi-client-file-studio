@@ -633,6 +633,355 @@ html.embed-mode .player-shell{width:100%;height:100vh;height:100dvh;min-height:0
     .chat-placeholder[hidden]{display:none!important}
   .social-link{width:36px;height:36px;display:grid;place-items:center}
   .social-link .icon{width:16px;height:16px}
+
+/* ==========================================================================
+   FBI TV — 2026 redesign layer
+   Sits on top of the original styles: same classes and IDs, new visual system.
+   ========================================================================== */
+:root {
+  --bg: #0a0a0b;
+  --surface: #131315;
+  --surface-2: #1a1a1d;
+  --surface-3: #222226;
+  --line: rgba(255,255,255,.08);
+  --line-strong: rgba(255,255,255,.14);
+  --text: #f5f3ef;
+  --muted: #a3a09b;
+  --soft: #6f6c68;
+  --gold: #e9b939;
+  --gold-soft: rgba(233,185,57,.12);
+  --red: #e50914;
+  --red-live: #ef2b33;
+  --radius: 14px;
+  --radius-sm: 9px;
+  --page-max: 1360px;
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+body { font-size: 15px; line-height: 1.5; background: var(--bg); }
+.shell { background: var(--bg); }
+.wrap { width: min(var(--page-max), calc(100% - 48px)); }
+
+/* ---------- header ---------- */
+.site-header { background: rgba(10,10,11,.88); border-bottom: 1px solid var(--line); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+.header-inner { height: 68px; gap: 28px; }
+.brand-image { width: 150px; }
+.main-nav { gap: 2px; margin-right: auto; }
+.nav-link { position: relative; padding: 9px 14px; border-radius: 8px; color: var(--muted); font-size: 14px; font-weight: 500; letter-spacing: 0; transition: color .15s ease, background .15s ease; }
+.nav-link:hover { color: var(--text); background: rgba(255,255,255,.05); }
+.nav-link.active { color: var(--text); background: transparent; }
+.nav-link.active::after { display: block !important; content: ""; position: absolute; left: 14px; right: 14px; bottom: -15px; height: 2px; border-radius: 2px; background: var(--gold); }
+.header-status { gap: 10px; }
+.viewer-pill { padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--text); background: var(--surface); font-size: 13px; font-weight: 500; }
+.viewer-pill b { font-variant-numeric: tabular-nums; }
+.viewer-pill .icon { color: var(--red-live); }
+.install { padding: 8px 14px; border: 0; border-radius: 999px; color: #111; background: var(--gold); font-size: 13px; font-weight: 600; cursor: pointer; }
+
+/* ---------- hero ---------- */
+.hero { padding-top: 28px; }
+.hero-top { align-items: flex-end; margin-bottom: 16px; }
+.eyebrow { gap: 8px; color: var(--red-live); font-size: 12px; font-weight: 600; letter-spacing: .08em; }
+.eyebrow .tiny-live { width: 7px; height: 7px; background: var(--red-live); box-shadow: 0 0 0 4px rgba(239,43,51,.18); animation: pulse 1.6s infinite; }
+.hero-top h1 { margin-top: 6px; font-size: clamp(26px, 2.6vw, 34px); font-weight: 700; letter-spacing: -.025em; line-height: 1.1; }
+.hero-top h1 span { color: var(--gold); font-weight: 700; }
+.cinema-toggle { gap: 8px; padding: 9px 14px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text); background: var(--surface); font-size: 13px; font-weight: 500; }
+.cinema-toggle .icon { width: 16px; height: 16px; color: var(--gold); }
+
+/* ---------- stage: player + chat ---------- */
+.stage-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start; }
+.player-shell { border: 1px solid var(--line); border-radius: var(--radius); background: #000; box-shadow: 0 24px 60px rgba(0,0,0,.5); min-height: 0; }
+.player-shell::before { display: none; }
+.player-shell.has-stream .stage-station { display: none; }
+.player-shade { background: linear-gradient(180deg, rgba(0,0,0,.5), transparent 20%, transparent 70%, rgba(0,0,0,.75)); }
+.player-top { inset: 14px 14px auto; }
+.live-label, .player-chip { padding: 5px 9px; border-radius: 6px; font-size: 11px; font-weight: 600; letter-spacing: .04em; }
+.live-label { border: 0; background: var(--red-live); box-shadow: none; }
+.player-chip { border: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(8px); }
+.player-chip.gold { color: var(--gold); }
+.player-controls { inset: auto 14px 12px; gap: 10px; }
+.control-btn { width: 36px; height: 36px; }
+.control-btn .icon { width: 19px; height: 19px; }
+.timeline-label { font-size: 11px; font-weight: 600; color: #fff; background: none; border: 0; cursor: pointer; }
+.q-label { font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+.quality-option { font-size: 13px; }
+.quality-option small { font-size: 11px; }
+.reactions { right: 14px; gap: 8px; }
+.reaction-btn { width: 38px; height: 38px; border-radius: 999px; border-color: rgba(255,255,255,.1); background: rgba(0,0,0,.45); font-size: 17px; }
+.unmute { font-size: 14px !important; font-weight: 600 !important; }
+.slate-kicker { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; }
+.stage-slate p { font-size: 14px; }
+
+/* now playing / up next bar */
+.now-bar { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); margin-top: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.now-bar .player-caption { padding: 16px 18px; border-right: 1px solid var(--line); }
+.now-title { gap: 14px; }
+.now-mark { width: 42px; height: 42px; border: 0; border-radius: 10px; color: var(--gold); background: var(--gold-soft); }
+.now-mark .icon { width: 20px; height: 20px; }
+.now-title .now-kicker { margin: 0 0 3px; color: var(--red-live); font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.now-title strong { max-width: none; font-size: 18px; font-weight: 650; letter-spacing: -.01em; }
+.now-title small { margin-top: 3px; font-size: 13px; color: var(--muted); }
+.now-bar .up-next { margin: 0; padding: 16px 18px; gap: 14px; }
+.up-next-kicker { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.up-next h2 { margin: 3px 0 3px; font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+.up-next p { font-size: 13px; color: var(--muted); }
+.share-next { gap: 7px; padding: 9px 14px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text); background: transparent; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.share-next:hover { border-color: var(--gold); color: var(--gold); }
+
+/* side panel (chat / sports) */
+.side-panel { height: 100%; min-height: 0; max-height: none; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); backdrop-filter: none; }
+.stage-layout > .side-panel { align-self: stretch; }
+.side-tabs { padding: 0 6px; }
+.side-tab { min-height: 50px; font-size: 14px; font-weight: 600; color: var(--muted); }
+.side-tab[aria-selected="true"]::after { left: 12px; right: 12px; background: var(--gold); }
+.tab-live { width: 7px; height: 7px; margin-right: 7px; background: var(--red-live); box-shadow: none; }
+.chat-placeholder { margin: 0; padding: 22px 18px; color: var(--muted); font-size: 14px; }
+.chat-card { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.chat-card[hidden] { display: none; }
+.chat-topline { padding: 14px 16px 10px; }
+.chat-topline strong { font-size: 14px; font-weight: 600; }
+.online-count { font-size: 12px; }
+.chat-list { gap: 14px; padding: 4px 16px 14px; max-height: 470px; }
+.avatar { width: 30px; height: 30px; border: 0; border-radius: 999px; color: #111; background: var(--gold); font-size: 12px; font-weight: 700; }
+.chat-name { color: var(--text); font-size: 13px; font-weight: 600; }
+.chat-time { color: var(--soft); font-size: 11px; }
+.chat-text { margin-top: 2px; color: #d6d3ce; font-size: 14px; line-height: 1.45; }
+.chat-input-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 12px; background: transparent; }
+.chat-name-input { grid-column: 1 / -1; }
+.chat-input { height: 40px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); font-size: 14px; }
+.chat-input:focus { border-color: var(--gold); outline: none; }
+.send-btn { width: 40px; height: 40px; border-radius: var(--radius-sm); color: #111; background: var(--gold); box-shadow: none; }
+.chat-status { padding: 0 14px 10px; color: var(--muted); font-size: 12px; }
+.sports-panel { padding: 18px; }
+.sports-head strong { font-size: 15px; }
+.sports-head small { font-size: 12px; }
+.zone-tag, .match-meta { font-size: 11px; }
+.match-card { padding: 14px; border-radius: 12px; background: var(--surface-2); }
+.sports-description { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.match-watch { padding: 11px; border: 0; border-radius: var(--radius-sm); color: #111; background: var(--gold); font-size: 14px; font-weight: 600; }
+.match-watch:hover { background: #f3c84e; }
+.sports-official { display: inline-block; margin-top: 12px; color: var(--muted); font-size: 13px; }
+.sports-official:hover { color: var(--gold); }
+
+/* ---------- schedule as a TV guide ---------- */
+.content-section { padding-top: 56px; }
+.section-head { align-items: flex-end; margin-bottom: 18px; }
+.section-kicker { color: var(--gold); font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
+h2.section-title, .about-card h2 { margin: 6px 0 0; font-size: clamp(22px, 2.2vw, 28px); font-weight: 700; letter-spacing: -.02em; }
+.schedule-now { color: var(--muted); font-size: 13px; font-weight: 500; }
+.schedule-now b { color: var(--text); font-size: 15px; font-weight: 600; }
+.filter-row { gap: 8px; margin-bottom: 14px; }
+.filter-chip { padding: 8px 14px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--muted); background: transparent; font-size: 13px; font-weight: 500; }
+.filter-chip:hover { color: var(--text); border-color: rgba(255,255,255,.3); }
+.filter-chip[aria-pressed="true"] { color: #111; border-color: var(--gold); background: var(--gold); }
+
+#schedList.schedule-track { display: flex; flex-direction: column; gap: 0; overflow: visible; padding: 0; margin: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); scroll-snap-type: none; }
+#schedList > li { display: grid; grid-template-columns: 92px 148px minmax(0, 1fr); align-items: center; gap: 18px; min-width: 0; max-width: none; min-height: 0; flex: none; padding: 14px 18px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; transform: none !important; box-shadow: none; }
+#schedList > li:first-child { border-top: 0; }
+#schedList > li:hover { background: rgba(255,255,255,.025); }
+#schedList > li.is-now { background: linear-gradient(90deg, rgba(239,43,51,.09), transparent 60%); box-shadow: inset 3px 0 0 var(--red-live); }
+#schedList > li.empty { display: block; padding: 28px 18px; color: var(--muted); font-size: 14px; }
+#schedList .t { order: 0; color: var(--text); font-size: 15px; font-weight: 600; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+#schedList > li.is-now .t { display: inline-flex; align-items: center; gap: 6px; color: var(--red-live); font-size: 12px; font-weight: 700; letter-spacing: .1em; }
+#schedList > li.is-now .t::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--red-live); animation: pulse 1.6s infinite; }
+#schedList .thumb, #schedList .epg-poster { order: 0; width: 148px; height: 83px; border-radius: 8px; object-fit: cover; }
+#schedList .epg-poster { display: grid; place-items: center; padding: 8px; color: var(--soft); background: var(--surface-3); font-size: 11px; font-weight: 600; letter-spacing: .08em; }
+#schedList .schedule-info { order: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; align-items: center; }
+#schedList > li .p { grid-column: 1; font-size: 16px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#schedList > li .h { grid-column: 1; margin-top: 2px; color: var(--muted); font-size: 13px; }
+#schedList .relay-note { grid-column: 1; margin-top: 6px; color: var(--gold); font-size: 12px; font-weight: 500; }
+#schedList .epg-progress { grid-column: 1; height: 3px; margin-top: 10px; max-width: 420px; background: rgba(255,255,255,.1); }
+#schedList .epg-progress span { background: var(--red-live); }
+#schedList .reminder-btn { grid-column: 2; grid-row: 1 / span 4; width: auto; margin: 0; padding: 8px 14px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text); background: transparent; font-size: 13px; font-weight: 500; white-space: nowrap; }
+#schedList .reminder-btn:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
+#schedList .reminder-btn[aria-pressed="true"] { color: #111; border-color: var(--gold); background: var(--gold); }
+#schedList .reminder-btn:disabled { opacity: 1; color: var(--soft); border-color: transparent; cursor: default; }
+#schedList > li.is-now .reminder-btn:disabled { color: var(--red-live); }
+#schedList .reminder-btn .icon { width: 14px; height: 14px; }
+
+/* ---------- about ---------- */
+.about-card { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: center; gap: 32px; margin: 56px 0 0; padding: 32px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.about-card p { margin: 10px 0 0; max-width: 520px; color: var(--muted); font-size: 15px; line-height: 1.6; }
+.about-tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.about-tags span { padding: 7px 13px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text); background: transparent; font-size: 13px; font-weight: 500; }
+
+/* ---------- footer ---------- */
+.footer { margin-top: 64px; background: transparent; border-top: 1px solid var(--line); }
+.footer-main { padding: 28px 0; }
+.footer-brand .brand-image { width: 130px; }
+.footer-copy { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+.footer-right .footer-copy { margin: 0; }
+.social-link { width: 36px; height: 36px; border-radius: 999px; }
+.social-link .icon { width: 16px; height: 16px; }
+.footer-meta { padding: 16px 0 24px; color: var(--soft); font-size: 12px; letter-spacing: 0; }
+.toast { font-size: 14px; }
+
+/* ---------- immersive modes: hide the chat column too ---------- */
+body.cinema-mode .side-panel, body.cinema-mode .now-bar,
+body.tvmode .side-panel, body.tvmode .now-bar,
+html.embed-mode .side-panel, html.embed-mode .now-bar { display: none !important; }
+body.cinema-mode .stage-layout, body.tvmode .stage-layout, html.embed-mode .stage-layout { grid-template-columns: minmax(0, 1fr); }
+
+/* ---------- responsive ---------- */
+@media (max-width: 1100px) {
+  .stage-layout { grid-template-columns: minmax(0, 1fr); }
+  .side-panel { height: auto; }
+  .chat-list { max-height: 360px; }
+}
+@media (max-width: 860px) {
+  .nav-link.active::after { display: none !important; }
+  .now-bar { grid-template-columns: minmax(0, 1fr); }
+  .now-bar .player-caption { border-right: 0; border-bottom: 1px solid var(--line); }
+  .about-card { grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 24px; }
+}
+@media (max-width: 640px) {
+  .wrap { width: calc(100% - 28px); }
+  .hero { padding-top: 18px; }
+  .hero-top h1 { font-size: 24px; }
+  .cinema-toggle span { display: none; }
+  .player-shell { border-radius: 10px; }
+  .reactions { display: none; }
+  #schedList > li { grid-template-columns: 64px minmax(0, 1fr); gap: 12px; padding: 14px; }
+  #schedList .thumb, #schedList .epg-poster { display: none; }
+  #schedList .schedule-info { grid-template-columns: minmax(0, 1fr); }
+  #schedList .reminder-btn { grid-column: 1; grid-row: auto; justify-self: start; margin-top: 10px; }
+  .footer-main { flex-direction: column; align-items: flex-start; }
+  .section-head { flex-direction: column; align-items: flex-start; text-align: left; gap: 8px; }
+  .section-head > div { width: 100%; }
+}
+
+/* screen-reader-only labels */
+.sr { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ==========================================================================
+   FBI TV player — clean controls
+   ========================================================================== */
+.player-shell { --ctrl-h: 92px; cursor: default; }
+.player-shell.idle { cursor: none; }
+
+/* things that cluttered the picture */
+.player .reactions, .stage-station, .player .wave, .player .fake-timeline, .player .timeline-label { display: none !important; }
+.player-top-right { display: none; }
+
+/* soft gradient only where controls sit */
+.player-shade { background: linear-gradient(180deg, rgba(0,0,0,.45) 0, transparent 16%, transparent 62%, rgba(0,0,0,.82) 100%); transition: opacity .3s ease; }
+.player-shell.idle .player-shade { opacity: 0; }
+
+/* top-left badge */
+.player-top { inset: 14px 16px auto; transition: opacity .3s ease; }
+.live-label { padding: 5px 10px 5px 9px; border-radius: 6px; font-size: 12px; font-weight: 700; letter-spacing: .06em; }
+
+/* "Tap for sound": one clear pill, top-right */
+.player .unmute { top: 14px; right: 16px; min-height: 40px; padding: 0 16px 0 40px; border: 0; border-radius: 999px; color: #111; background: var(--gold) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23111' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11 5 6 9H3v6h3l5 4V5Zm5 4 5 6m0-6-5 6'/%3E%3C/svg%3E") no-repeat 14px 50% / 18px; font-size: 14px; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+.player .unmute:hover { background-color: #f3c84e; color: #111; }
+
+/* centre play button (only when paused / before start) */
+.stage-play { width: 72px; height: 72px; border: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(6px); }
+.stage-play:hover { background: var(--red-live); }
+.stage-play .icon { width: 28px; height: 28px; }
+
+/* ---------- control bar ---------- */
+.player-controls { left: 0 !important; right: 0 !important; bottom: 0 !important; min-height: 0 !important; padding: 0 14px 10px !important; display: flex; flex-direction: column; align-items: stretch; gap: 2px !important; background: none; border: 0; border-radius: 0; box-shadow: none; transition: opacity .3s ease, transform .3s ease; }
+.player-shell.idle .player-controls, .player-shell.idle .player-top { opacity: 0; pointer-events: none; }
+.player-shell.idle .player-controls { transform: translateY(8px); }
+.ctrl-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ctrl-left, .ctrl-right { display: flex; align-items: center; gap: 4px; }
+.player-controls .control-btn { position: relative; width: 44px; height: 44px; flex: 0 0 44px; border-radius: 10px; color: #fff; background: transparent; }
+.player-controls .control-btn:hover { color: var(--gold); background: rgba(255,255,255,.08); }
+.player-controls .control-btn .icon { width: 22px; height: 22px; }
+.player-controls .control-btn[aria-expanded="true"] { color: var(--gold); background: rgba(255,255,255,.1); }
+
+/* seek / progress bar — big touch area, thin line */
+.seek { position: relative; height: 22px; margin: 0 4px; cursor: pointer; touch-action: none; outline: none; }
+.seek-rail { position: absolute; left: 0; right: 0; top: 50%; height: 4px; transform: translateY(-50%); overflow: hidden; border-radius: 4px; background: rgba(255,255,255,.22); transition: height .15s ease; }
+.seek:hover .seek-rail, .seek.dragging .seek-rail, .seek:focus-visible .seek-rail { height: 6px; }
+.seek-buf { position: absolute; inset: 0 auto 0 0; width: 0; background: rgba(255,255,255,.3); }
+.seek-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--red-live); }
+.seek-thumb { position: absolute; top: 50%; left: 0; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--red-live); box-shadow: 0 0 0 3px rgba(239,43,51,.25); transform: translateY(-50%) scale(0); transition: transform .15s ease; }
+.seek:hover .seek-thumb, .seek.dragging .seek-thumb, .seek:focus-visible .seek-thumb { transform: translateY(-50%) scale(1); }
+.seek-tip { position: absolute; bottom: 24px; left: 0; padding: 4px 8px; border-radius: 6px; color: #fff; background: rgba(0,0,0,.8); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; transform: translateX(-50%); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.seek:hover .seek-tip, .seek.dragging .seek-tip { opacity: 1; }
+.seek.no-seek { cursor: default; }
+.seek.no-seek .seek-thumb, .seek.no-seek .seek-tip { display: none; }
+
+/* volume: icon + slider that shows its level */
+.player-controls .volume-wrap { display: flex; align-items: center; gap: 2px; }
+.player-controls .volume-range { display: block !important; -webkit-appearance: none; appearance: none; width: 84px; height: 24px; margin: 0 6px 0 0; background: transparent; cursor: pointer; --v: 100%; }
+.volume-range::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(90deg, #fff var(--v), rgba(255,255,255,.25) var(--v)); }
+.volume-range::-moz-range-track { height: 4px; border-radius: 4px; background: linear-gradient(90deg, #fff var(--v), rgba(255,255,255,.25) var(--v)); }
+.volume-range::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border: 0; border-radius: 50%; background: #fff; }
+.volume-range::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: #fff; }
+.volume-range:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* live indicator / jump-to-live */
+.live-pill { display: inline-flex; align-items: center; gap: 7px; height: 32px; margin-left: 6px; padding: 0 12px; border: 0; border-radius: 999px; color: #fff; background: rgba(255,255,255,.12); font-size: 12px; font-weight: 700; letter-spacing: .06em; font-variant-numeric: tabular-nums; cursor: pointer; }
+.live-pill i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,.55); }
+.live-pill.at-live { cursor: default; background: transparent; }
+.live-pill.at-live i { background: var(--red-live); box-shadow: 0 0 0 3px rgba(239,43,51,.25); }
+.live-pill:not(.at-live):hover { background: var(--red-live); }
+
+/* popover menus (reactions, quality) */
+.pop-wrap { position: relative; }
+.pop-menu { overflow-y: auto; overscroll-behavior: contain; position: absolute; right: 0; bottom: 52px; z-index: 12; display: none; padding: 6px; border: 1px solid rgba(255,255,255,.12); border-radius: 12px; background: rgba(20,20,22,.96); box-shadow: 0 16px 40px rgba(0,0,0,.5); backdrop-filter: blur(12px); }
+.pop-menu.open { display: block; animation: fade-in .15s ease both; }
+.react-menu.open { display: flex; gap: 4px; }
+.react-menu .reaction-btn { width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; font-size: 22px; cursor: pointer; transition: transform .12s ease, background .12s ease; }
+.react-menu .reaction-btn:hover { background: rgba(255,255,255,.08); transform: scale(1.15); }
+.react-ico { font-size: 19px; line-height: 1; filter: grayscale(.15); }
+.settings-menu { min-width: 200px; }
+.menu-title { padding: 8px 12px 6px; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.q-opt { width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border: 0; border-radius: 8px; color: #fff; background: transparent; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; }
+.q-opt:hover { background: rgba(255,255,255,.08); }
+.q-opt small { color: var(--muted); font-size: 12px; font-weight: 500; }
+.q-opt[aria-checked="true"] { color: var(--gold); }
+.q-opt[aria-checked="true"]::after { content: "✓"; font-weight: 700; }
+.q-opt[aria-checked="true"] small { display: none; }
+.q-badge { position: absolute; top: 6px; right: 3px; padding: 1px 3px; border-radius: 3px; color: #111; background: var(--gold); font-size: 8px; font-weight: 800; line-height: 1.2; letter-spacing: .02em; }
+.q-badge:empty { display: none; }
+
+/* ---------- @FilmbyFBI animated handle ---------- */
+.fbi-handle { position: absolute; z-index: 6; left: 16px; bottom: calc(var(--ctrl-h) + 4px); display: inline-flex; align-items: center; gap: 9px; height: 38px; padding: 0 16px 0 5px; border: 1.5px solid rgba(233,185,57,.85); border-radius: 999px; color: #fff; background: rgba(8,8,8,.62); backdrop-filter: blur(6px); pointer-events: none; box-shadow: 0 6px 18px rgba(0,0,0,.35); transition: bottom .35s ease; }
+.player-shell.idle .fbi-handle, .player-shell:not(.has-stream) .fbi-handle { bottom: 16px; }
+.player-shell.no-ctrls .fbi-handle { bottom: 16px; }
+.fbi-handle-icon { position: relative; width: 28px; height: 28px; flex: 0 0 28px; border-radius: 50%; background: var(--gold); perspective: 200px; }
+.fbi-handle-icon .si { position: absolute; inset: 5px; width: 18px; height: 18px; fill: none; stroke: #111; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; opacity: 0; transform: rotateY(90deg); backface-visibility: hidden; transition: transform .45s cubic-bezier(.3,.7,.3,1), opacity .2s ease; }
+.fbi-handle-icon .si .fill, .fbi-handle-icon .si .dot { fill: #111; stroke: none; }
+.fbi-handle-icon .si.on { opacity: 1; transform: rotateY(0); }
+.fbi-handle-icon .si.out { opacity: 0; transform: rotateY(-90deg); }
+.fbi-handle-text { color: #fff; font-size: 15px; font-weight: 700; letter-spacing: .01em; text-shadow: 0 1px 2px rgba(0,0,0,.4); }
+@media (prefers-reduced-motion: reduce) { .fbi-handle-icon .si { transition: opacity .2s ease; transform: none !important; } }
+
+/* reactions floating up from the control bar */
+.reaction-particle { z-index: 9; }
+
+/* ---------- phones / touch ---------- */
+@media (max-width: 640px) {
+  .player-shell { --ctrl-h: 84px; }
+  .player-controls { padding: 0 6px 4px !important; }
+  .player-controls .control-btn { width: 40px; height: 40px; flex-basis: 40px; }
+  .player-controls .volume-range { width: 56px; }
+  .cinema-inline { display: none !important; }
+  .live-pill { height: 28px; padding: 0 9px; margin-left: 2px; font-size: 11px; }
+  .fbi-handle { left: 10px; height: 30px; gap: 7px; padding: 0 11px 0 3px; }
+  .fbi-handle-icon { width: 23px; height: 23px; flex-basis: 23px; }
+  .fbi-handle-icon .si { inset: 4px; width: 15px; height: 15px; }
+  .fbi-handle-text { font-size: 12px; }
+  .settings-menu { min-width: 0; width: 220px; }
+  .settings-menu #qualityList { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
+  .q-opt { min-height: 36px; padding: 0 10px; font-size: 13px; }
+  .q-opt small { display: none; }
+  .menu-title { padding: 4px 10px 4px; font-size: 11px; }
+  .pop-menu { bottom: 46px; }
+  .player .unmute { top: 10px; right: 10px; min-height: 36px; font-size: 13px; }
+  .player-top { inset: 10px 10px auto; }
+}
+@media (pointer: coarse) {
+  .seek-thumb { transform: translateY(-50%) scale(1); width: 16px; height: 16px; margin-left: -8px; }
+  .seek { height: 28px; }
+}
+/* full screen: a little more room */
+.player-shell:fullscreen { --ctrl-h: 100px; }
+.player-shell:fullscreen .player-controls { padding: 0 28px 18px !important; }
+.player-shell:fullscreen .fbi-handle { left: 30px; }
+
 </style>
 </head>
 <body>
@@ -672,12 +1021,11 @@ html.embed-mode .player-shell{width:100%;height:100vh;height:100dvh;min-height:0
         </a>
         <nav class="main-nav" id="mainNav" aria-label="Main navigation">
           <a class="nav-link active" href="#watch">Watch Live</a>
-          <a class="nav-link" href="#schedule">Interactive Schedule</a>
+          <a class="nav-link" href="#schedule">Schedule</a>
           <a class="nav-link" href="#watch" id="btnSports">CAF Sports</a>
           <a class="nav-link" href="#about">About</a>
         </nav>
         <div class="header-status">
-          <span class="signal-pill"><svg class="icon"><use href="#i-signal"/></svg>1080p&nbsp; 60fps</span>
           <span class="viewer-pill" id="viewers" hidden><svg class="icon"><use href="#i-users"/></svg><b id="viewerCount">1</b><span>watching</span></span>
           <button class="install" id="btnInstall" type="button" hidden>Get the app</button>
           <button class="menu-toggle" id="menuToggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="mainNav"><svg class="icon"><use href="#i-menu"/></svg></button>
@@ -689,11 +1037,10 @@ html.embed-mode .player-shell{width:100%;height:100vh;height:100dvh;min-height:0
       <section class="hero wrap" id="watch" aria-labelledby="pageTitle">
         <div class="hero-top">
           <div>
-            <div class="eyebrow"><i class="tiny-live"></i> Watch live</div>
+            <div class="eyebrow"><i class="tiny-live"></i> On air · Ghana</div>
             <h1 id="pageTitle">FBI TV <span>Live</span></h1>
-            <p class="hero-copy">Cinema, culture and the moments that bring us together — broadcasting now.</p>
           </div>
-          <button class="cinema-toggle" id="cinemaToggle" type="button" aria-pressed="false"><svg class="icon"><use href="#i-cinema"/></svg><span>True Cinema Mode</span></button>
+          <button class="cinema-toggle" id="cinemaToggle" type="button" aria-pressed="false"><svg class="icon"><use href="#i-cinema"/></svg><span>Cinema mode</span></button>
         </div>
 
         <div class="stage-layout">
@@ -702,7 +1049,7 @@ html.embed-mode .player-shell{width:100%;height:100vh;height:100dvh;min-height:0
               <div class="stage-art" aria-hidden="true"><div class="stage-sun"></div><div class="stage-orbit"></div><div class="stage-ridge"></div><div class="stage-bars"></div></div>
               <div class="stage-slate" id="stageSlate">
                 <span class="stage-logo" role="img" aria-label="FBI TV official logo"></span>
-                <div class="slate-kicker">LIVE TELEVISION · FILM · SPORT · CULTURE</div>
+                <div class="slate-kicker">Live television · Film · Sport · Culture</div>
                 <h2>FBI TV Live</h2>
                 <p>Your World. Your Stories. Your Screen.</p>
               </div>
@@ -719,7 +1066,6 @@ html.embed-mode .player-shell{width:100%;height:100vh;height:100dvh;min-height:0
                 <div class="r"><div class="clock" id="tvClock"></div><div class="next" id="tvNext"></div><div class="hint" id="tvHint">Press OK for sound</div></div>
               </div>
               <div class="stage-station"><span>●&nbsp; Watch live: live.fbigh.com/tv</span><strong>@filmbyfbi</strong></div>
-              
               <div class="player-shade" aria-hidden="true"></div>
               <div class="player-top badges">
                 <div class="player-top-left">
@@ -728,105 +1074,121 @@ html.embed-mode .player-shell{width:100%;height:100vh;height:100dvh;min-height:0
                   <span class="player-chip badge replay" id="replayBadge" hidden>REPLAY</span>
                 </div>
                 <div class="player-top-right">
-                  <span class="player-chip gold">1080p · 60fps</span>
-                  <span class="player-chip" id="signalState">FBI TV LIVE</span>
+                  <span class="player-chip" id="signalState" hidden>FBI TV LIVE</span>
                 </div>
               </div>
               <button class="stage-play" id="stagePlay" type="button" aria-label="Play live stream"><svg class="icon"><use href="#i-play"/></svg></button>
-              <div class="reactions" aria-label="Send a reaction">
-                <button class="reaction-btn" type="button" data-reaction="🔥" aria-label="Send fire reaction">🔥</button>
-                <button class="reaction-btn" type="button" data-reaction="🎬" aria-label="Send movie reaction">🎬</button>
-                <button class="reaction-btn" type="button" data-reaction="❤️" aria-label="Send heart reaction">❤️</button>
-                <button class="reaction-btn" type="button" data-reaction="🏆" aria-label="Send trophy reaction">🏆</button>
-                <button class="reaction-btn" type="button" data-reaction="👏" aria-label="Send applause reaction">👏</button>
+              <div class="fbi-handle" aria-label="Follow @FilmbyFBI on social media">
+                <span class="fbi-handle-icon" aria-hidden="true">
+                  <svg class="si si-instagram" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4.2"/><circle class="dot" cx="17.4" cy="6.6" r="1.1"/></svg>
+                  <svg class="si si-facebook" viewBox="0 0 24 24"><path class="fill" d="M13.6 21v-7.6h2.6l.4-3h-3V8.5c0-.9.3-1.5 1.5-1.5h1.6V4.3c-.3 0-1.2-.1-2.3-.1-2.3 0-3.9 1.4-3.9 4v2.2H7.9v3h2.6V21h3.1Z"/></svg>
+                  <svg class="si si-tiktok" viewBox="0 0 24 24"><path class="fill" d="M16.6 3c.3 2.3 1.6 3.8 3.9 4v3a7.3 7.3 0 0 1-3.8-1.2v6.3a5.9 5.9 0 1 1-5.9-5.9h.6v3.1a2.8 2.8 0 1 0 2.2 2.8V3h3Z"/></svg>
+                  <svg class="si si-x" viewBox="0 0 24 24"><path class="fill" d="M17.8 3h3.1l-6.8 7.8L22 21h-6.2l-4.9-6.4L5.3 21H2.2l7.3-8.3L2 3h6.4l4.4 5.8L17.8 3Zm-1.1 16.2h1.7L7.4 4.7H5.5l11.2 14.5Z"/></svg>
+                  <svg class="si si-threads" viewBox="0 0 24 24"><path d="M16.9 11.2c-.3-2.6-2-3.9-4.6-3.9-1.8 0-3.2.8-3.9 2.1m8.5 1.8c1.6.8 2.7 2.1 2.9 3.8.5 3.3-2.7 6-7.3 6-4.9 0-8-3.4-8-9s3.1-9 8-9c3.9 0 6.6 2 7.6 5.4M16.9 11.2c-1-.5-2.3-.7-3.7-.6-2.7.2-4.3 1.6-4.1 3.4.2 1.6 1.8 2.5 3.7 2.4 2.6-.1 4-1.9 4.1-5.2Z"/></svg>
+                  <svg class="si si-youtube" viewBox="0 0 24 24"><path class="fill" d="M21.6 7.2a2.8 2.8 0 0 0-2-2C17.9 4.7 12 4.7 12 4.7s-5.9 0-7.6.5a2.8 2.8 0 0 0-2 2A29 29 0 0 0 2 12a29 29 0 0 0 .4 4.8 2.8 2.8 0 0 0 2 2c1.7.5 7.6.5 7.6.5s5.9 0 7.6-.5a2.8 2.8 0 0 0 2-2A29 29 0 0 0 22 12a29 29 0 0 0-.4-4.8ZM10 15V9l5.2 3L10 15Z"/></svg>
+                </span>
+                <span class="fbi-handle-text">@FilmbyFBI</span>
               </div>
               <div class="player-controls" id="controls" hidden>
-                <button class="control-btn" id="btnPlay" type="button" aria-label="Play"><svg class="icon" id="icoPlay"><use href="#i-play"/></svg><svg class="icon" id="icoPause" hidden><use href="#i-pause"/></svg></button>
-                <div class="volume-wrap" id="volumeWrap">
-                  <button class="control-btn" id="btnMute" type="button" aria-label="Unmute"><svg class="icon" id="icoVol"><use href="#i-volume"/></svg><svg class="icon" id="icoMuted" hidden><use href="#i-mute"/></svg></button>
-                  <span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
-                  <label class="sr" for="vol">Volume</label><input class="volume-range" type="range" id="vol" min="0" max="1" step="0.05" value="1">
+                <div class="seek" id="seek" role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+                  <div class="seek-rail"><div class="seek-buf" id="seekBuf"></div><div class="seek-fill" id="seekFill"></div></div>
+                  <div class="seek-thumb" id="seekThumb"></div>
+                  <div class="seek-tip" id="seekTip"></div>
                 </div>
-                <button class="timeline-label" id="btnLive" type="button" aria-label="Jump to live">LIVE</button><div class="fake-timeline" aria-hidden="true"><span></span></div>
-                <div class="quality-wrap">
-                  <button class="control-btn" id="qualityToggle" type="button" aria-label="Choose video quality" aria-expanded="false"><span style="font-size:9px;font-weight:800">AUTO</span></button>
-                  <div class="quality-menu" id="qualityMenu" role="listbox" aria-label="Stream quality">
-                    <button class="quality-option" type="button" role="option" aria-selected="true" data-quality="Auto">Auto <small>Adaptive</small></button>
-                    <button class="quality-option" type="button" role="option" aria-selected="false" data-quality="1080p">1080p <small>HD</small></button>
-                    <button class="quality-option" type="button" role="option" aria-selected="false" data-quality="720p">720p <small>HD</small></button>
-                    <button class="quality-option" type="button" role="option" aria-selected="false" data-quality="480p">480p <small>SD</small></button>
+                <div class="ctrl-row">
+                  <div class="ctrl-left">
+                    <button class="control-btn" id="btnPlay" type="button" aria-label="Play"><svg class="icon" id="icoPlay"><use href="#i-play"/></svg><svg class="icon" id="icoPause" hidden><use href="#i-pause"/></svg></button>
+                    <div class="volume-wrap" id="volumeWrap">
+                      <button class="control-btn" id="btnMute" type="button" aria-label="Unmute"><svg class="icon" id="icoVol"><use href="#i-volume"/></svg><svg class="icon" id="icoMuted" hidden><use href="#i-mute"/></svg></button>
+                      <label class="sr" for="vol">Volume</label><input class="volume-range" type="range" id="vol" min="0" max="1" step="0.05" value="1">
+                    </div>
+                    <button class="live-pill" id="btnLive" type="button" aria-label="Jump to live"><i></i><span id="liveText">LIVE</span></button>
+                  </div>
+                  <div class="ctrl-right">
+                    <div class="pop-wrap">
+                      <button class="control-btn" id="btnReact" type="button" aria-label="Send a reaction" aria-expanded="false"><span class="react-ico">🔥</span></button>
+                      <div class="pop-menu react-menu" id="reactMenu" aria-label="Send a reaction">
+                        <button class="reaction-btn" type="button" data-reaction="🔥" aria-label="Fire">🔥</button>
+                        <button class="reaction-btn" type="button" data-reaction="🎬" aria-label="Movie">🎬</button>
+                        <button class="reaction-btn" type="button" data-reaction="❤️" aria-label="Heart">❤️</button>
+                        <button class="reaction-btn" type="button" data-reaction="🏆" aria-label="Trophy">🏆</button>
+                        <button class="reaction-btn" type="button" data-reaction="👏" aria-label="Applause">👏</button>
+                      </div>
+                    </div>
+                    <div class="pop-wrap">
+                      <button class="control-btn" id="btnSettings" type="button" aria-label="Video quality" aria-expanded="false"><svg class="icon" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg><b class="q-badge" id="qBadge"></b></button>
+                      <div class="pop-menu settings-menu" id="settingsMenu" role="menu" aria-label="Video quality">
+                        <div class="menu-title">Quality</div>
+                        <div id="qualityList"></div>
+                      </div>
+                    </div>
+                    <button class="control-btn cinema-inline" id="btnCinemaInline" type="button" aria-label="Toggle cinema mode"><svg class="icon"><use href="#i-cinema"/></svg></button>
+                    <button class="control-btn" id="btnFull" type="button" aria-label="Enter fullscreen"><svg class="icon"><use href="#i-expand"/></svg></button>
                   </div>
                 </div>
-                <button class="control-btn cinema-inline" id="btnCinemaInline" type="button" aria-label="Toggle True Cinema Mode"><svg class="icon"><use href="#i-cinema"/></svg></button>
-                <button class="control-btn" id="btnFull" type="button" aria-label="Enter fullscreen"><svg class="icon"><use href="#i-expand"/></svg></button>
               </div>
+            </div>
+
+            <div class="now-bar">
               <div class="player-caption">
-              <div class="now-title"><span class="now-mark"><svg class="icon"><use href="#i-play-circle"/></svg></span><span><small class="now-kicker" id="nowKicker">Now playing</small><strong id="nowTitle">FBI TV Live</strong><small id="nowMeta"></small></span></div>
-              <span class="caption-tag">FBI TV · LIVE</span>
+                <div class="now-title"><span class="now-mark"><svg class="icon"><use href="#i-play-circle"/></svg></span><span><small class="now-kicker" id="nowKicker">Now playing</small><strong id="nowTitle">FBI TV Live</strong><small id="nowMeta"></small></span></div>
+              </div>
+              <div class="up-next" id="upNextCard">
+                <div><div class="up-next-kicker">Up next</div><h2 id="upNextTitle">Next programme</h2><p id="upNextTime">Schedule updates as the lineup loads.</p></div>
+                <button class="share-next" id="btnShare" type="button"><svg class="icon"><use href="#i-link"/></svg><span>Share</span></button>
+              </div>
             </div>
           </div>
 
-        </div>
-        <div class="up-next" id="upNextCard">
-          <div><div class="up-next-kicker">Coming up</div><h2 id="upNextTitle">Next programme</h2><p id="upNextTime">Schedule updates as the lineup loads.</p></div>
-          <button class="share-next" id="btnShare" type="button"><svg class="icon"><use href="#i-link"/></svg>Share</button>
+          <aside class="side-panel" id="sports" aria-label="Live chat and CAF sports">
+            <div class="side-tabs" role="tablist" aria-label="Community tabs">
+              <button class="side-tab" id="chatTab" type="button" role="tab" aria-selected="true" aria-controls="chatPanel"><i class="tab-live"></i>Live chat</button>
+              <button class="side-tab" id="sportsTab" type="button" role="tab" aria-selected="false" aria-controls="sportsPanel">CAF Sports</button>
+            </div>
+            <div class="chat-panel" id="chatPanel" role="tabpanel" aria-labelledby="chatTab">
+              <p class="chat-placeholder">Join the conversation while FBI TV is on air.</p>
+              <section class="chat-card" id="chatCard" hidden>
+                <div class="chat-topline"><strong id="chatTitle">Live chat</strong><span class="online-count" id="chatCount"></span></div>
+                <div class="chat-list" id="chatList" aria-live="polite" aria-label="Live chat messages"></div>
+                <form class="chat-input-row" id="chatForm" autocomplete="off">
+                  <label class="sr" for="chatName">Your name</label><input class="chat-input chat-name-input" id="chatName" maxlength="60" placeholder="Your name">
+                  <label class="sr" for="chatText">Message</label><input class="chat-input" id="chatText" maxlength="500" placeholder="Say something…" required>
+                  <button class="send-btn" type="submit" id="chatSend" aria-label="Send message"><svg class="icon"><use href="#i-send"/></svg></button>
+                </form>
+                <div class="chat-status" id="chatStatus" role="status"></div>
+              </section>
+            </div>
+            <div class="sports-panel" id="sportsPanel" role="tabpanel" aria-labelledby="sportsTab">
+              <div class="sports-head"><span><strong>CAF Zone West B</strong><small>WAFU B · Official match coverage</small></span><span class="zone-tag">Event-based</span></div>
+              <article class="match-card">
+                <div class="match-meta"><span class="match-live">Official YouTube</span><span>CAF WAFU B</span></div>
+                <p class="sports-description">Watch CAF Zone West B football coverage inside the FBI TV player when an official broadcast is live.</p>
+                <button class="match-watch" id="btnSportsFeed" type="button"><svg class="icon"><use href="#i-youtube"/></svg>Watch WAFU B live</button>
+              </article>
+              <a class="sports-official" href="https://www.youtube.com/@cafzoneouestb/streams" target="_blank" rel="noopener noreferrer">Official CAF Zone West B streams ↗</a>
+            </div>
+          </aside>
         </div>
       </section>
 
-        
-
       <div class="wrap after-stage">
-        <div class="community-layout">
-        <section class="about-card" id="about" aria-labelledby="aboutTitle">
-          <h2 id="aboutTitle">About us</h2>
-          <div class="about-tags"><span>Entertainment</span><span>Live TV</span><span>Talk Shows</span><span>Movies</span><span>Events</span><span>Original Productions</span></div>
-          <p>FBI TV | Film Beyond Imagination</p><strong>Your World. Your Stories. Your Screen.<br>Not Just Film. Imagination.</strong>
-        </section>
-        <aside class="side-panel" id="sports" aria-label="Live chat and CAF sports">
-          <div class="side-tabs" role="tablist" aria-label="Community tabs">
-            <button class="side-tab" id="chatTab" type="button" role="tab" aria-selected="true" aria-controls="chatPanel"><i class="tab-live"></i>Live Chat</button>
-            <button class="side-tab" id="sportsTab" type="button" role="tab" aria-selected="false" aria-controls="sportsPanel">CAF Sports</button>
-          </div>
-          <div class="chat-panel" id="chatPanel" role="tabpanel" aria-labelledby="chatTab">
-            <p class="chat-placeholder">Join the conversation while FBI TV is on air.</p>
-            <section class="chat-card" id="chatCard" hidden>
-              <div class="chat-topline"><strong id="chatTitle">Live chat</strong><span class="online-count" id="chatCount"></span></div>
-              <div class="chat-list" id="chatList" aria-live="polite" aria-label="Live chat messages"></div>
-              <form class="chat-input-row" id="chatForm" autocomplete="off">
-                <label class="sr" for="chatName">Your name</label><input class="chat-input chat-name-input" id="chatName" maxlength="60" placeholder="Your name">
-                <label class="sr" for="chatText">Message</label><input class="chat-input" id="chatText" maxlength="500" placeholder="Write a message…" required>
-                <button class="send-btn" type="submit" id="chatSend" aria-label="Send message"><svg class="icon"><use href="#i-send"/></svg></button>
-              </form>
-              <div class="chat-status" id="chatStatus" role="status"></div>
-            </section>
-          </div>
-          <div class="sports-panel" id="sportsPanel" role="tabpanel" aria-labelledby="sportsTab">
-            <div class="sports-head"><span><strong>CAF Zone West B</strong><small>WAFU B · Official match coverage</small></span><span class="zone-tag">EVENT-BASED</span></div>
-            <article class="match-card">
-              <div class="match-meta"><span class="match-live">OFFICIAL YOUTUBE</span><span>CAF WAFU B</span></div>
-              <p class="sports-description">Watch CAF Zone West B football coverage inside the FBI TV player when an official broadcast is live.</p>
-              <button class="match-watch" id="btnSportsFeed" type="button"><svg class="icon"><use href="#i-youtube"/></svg>Watch WAFU B Live in FBI TV</button>
-            </article>
-            <a class="sports-official" href="https://www.youtube.com/@cafzoneouestb/streams" target="_blank" rel="noopener noreferrer">Official CAF Zone West B live streams ↗</a>
-          </div>
-        
-        </div>
         <section class="content-section" id="schedule" aria-labelledby="scheduleTitle">
           <div class="section-head">
-            <div><div class="section-kicker">On today</div><h2 class="section-title" id="scheduleTitle">Schedule</h2><p class="section-sub">Live lineup, current progress and upcoming programmes.</p></div>
-            <div class="schedule-tools"><span class="schedule-now">GHANA TIME <b id="localClock">--:--</b></span><span class="caption-tag">ON AIR NOW</span></div>
+            <div><div class="section-kicker">TV guide</div><h2 class="section-title" id="scheduleTitle">Today on FBI TV</h2></div>
+            <div class="schedule-tools"><span class="schedule-now">Ghana time <b id="localClock">--:--</b></span></div>
           </div>
           <div class="filter-row" id="filterRow" role="group" aria-label="Filter schedule">
             <button class="filter-chip" type="button" data-filter="All" aria-pressed="true">All</button>
-            <button class="filter-chip" type="button" data-filter="Movies" aria-pressed="false">Movies</button>
+            <button class="filter-chip" type="button" data-filter="Movies" aria-pressed="false">Movies &amp; Series</button>
             <button class="filter-chip" type="button" data-filter="Sports" aria-pressed="false">Sports</button>
-            <button class="filter-chip" type="button" data-filter="Talk Shows" aria-pressed="false">Talk Shows</button>
+            <button class="filter-chip" type="button" data-filter="Talk Shows" aria-pressed="false">Music &amp; Talk</button>
             <button class="filter-chip" type="button" data-filter="Originals" aria-pressed="false">Originals</button>
           </div>
           <ul class="schedule-track" id="schedList" aria-label="TV schedule"></ul>
         </section>
 
         <section class="hub-section" id="iptv" aria-labelledby="hubTitle" hidden>
+
           <div class="section-head">
             <div><div class="section-kicker">IPTV · M3U · EPG</div><h2 class="section-title" id="hubTitle">Watch on your TV</h2><p class="section-sub">Add FBI TV to any IPTV app (TiviMate, IPTV Smarters, VLC, Kodi) with these links.</p></div>
             <button class="qr-open" type="button" data-open-qr="playlist"><svg class="icon"><use href="#i-grid"/></svg>Set up a device</button>
@@ -850,6 +1212,15 @@ html.embed-mode .player-shell{width:100%;height:100vh;height:100dvh;min-height:0
             </article>
           </div>
         </section>
+
+        <section class="about-card" id="about" aria-labelledby="aboutTitle">
+          <div class="about-copy">
+            <div class="section-kicker">About FBI TV</div>
+            <h2 id="aboutTitle">Film Beyond Imagination</h2>
+            <p>Entertainment, live TV, talk shows, movies, events and original productions from Ghana — streaming free, around the clock.</p>
+          </div>
+          <div class="about-tags"><span>Entertainment</span><span>Live TV</span><span>Talk Shows</span><span>Movies</span><span>Events</span><span>Original Productions</span></div>
+        </section>
       </div>
     </main>
 
@@ -857,10 +1228,10 @@ html.embed-mode .player-shell{width:100%;height:100vh;height:100dvh;min-height:0
       <div class="wrap">
         <div class="footer-main">
           <div><div class="footer-brand"><span class="brand-image" role="img" aria-label="FBI TV official logo"></span>
-          <i class="live-pulse" aria-hidden="true"></i></div><p class="footer-copy" style="margin-top:9px">Film Beyond Imagination.</p></div>
+          <i class="live-pulse" aria-hidden="true"></i></div><p class="footer-copy">Your World. Your Stories. Your Screen.</p></div>
           <div class="footer-right" id="socialCard"><p class="footer-copy">Follow FBI TV</p><div class="socials" id="socialLinks" aria-label="Social channels"></div></div>
         </div>
-        <div class="footer-meta">© <span id="year">2026</span> FBI TV · Film Beyond Imagination · <a href="/tv">live.fbigh.com/tv</a> · Made for the moments we share</div>
+        <div class="footer-meta">© <span id="year">2026</span> FBI TV · Film Beyond Imagination · <a href="/tv">live.fbigh.com/tv</a></div>
       </div>
     </footer>
   </div>
@@ -956,6 +1327,7 @@ const CONFIG = {
       return b > a ? mins >= a && mins < b : mins >= a || mins < b; // handles shows past midnight
     });
   }
+  let relayTitle = "";
   function renderSchedule() {
     if (mode === "sports") return;
     const list = todaysShows();
@@ -984,6 +1356,13 @@ const CONFIG = {
       const sub = [s.host, fmt(s.start) + " – " + fmt(s.end)].filter(Boolean).join(" · ");
       const h = document.createElement("div"); h.className = "h"; h.textContent = sub;
       info.appendChild(h);
+      if (s === now && relayTitle) {
+        p.textContent = relayTitle;
+        const note = document.createElement("div");
+        note.className = "relay-note";
+        note.textContent = "Live broadcast · in place of " + s.title;
+        info.appendChild(note);
+      }
       if (s.poster && /^[0-9a-f-]{36}\.jpg$/.test(s.poster)) {
         const im = document.createElement("img");
         im.src = "/tv-poster/" + s.poster; im.alt = ""; im.loading = "lazy"; im.className = "thumb";
@@ -993,7 +1372,11 @@ const CONFIG = {
     });
     // Now playing block (left alone while a replay is showing)
     if (mode === "replay") return;
-    if (now) {
+    if (relayTitle) {
+      $("nowKicker").textContent = "Live now";
+      $("nowTitle").textContent = relayTitle;
+      $("nowMeta").textContent = now ? "Live broadcast · in place of " + now.title : "Live broadcast";
+    } else if (now) {
       $("nowKicker").textContent = "Now playing";
       $("nowTitle").textContent = now.title;
       $("nowMeta").textContent = [now.host, fmt(now.start) + " – " + fmt(now.end)].filter(Boolean).join(" · ");
@@ -1446,10 +1829,8 @@ const CONFIG = {
         else if (d.live && mode !== "live") startLive();     // back on air (our own player)
         else if (!d.live && mode !== "replay") startReplay(); // off air: loop highlights
         // A studio broadcast pushed to FBI TV: show its name, not the schedule's.
-        if (d.live && d.relay && d.relay_title) {
-          $("nowKicker").textContent = "Live now";
-          $("nowTitle").textContent = d.relay_title;
-        }
+        const liveRelay = d.live && d.relay && d.relay_title ? String(d.relay_title) : "";
+        if (liveRelay !== relayTitle) { relayTitle = liveRelay; renderSchedule(); }
       }
     } catch (e) { /* keep quiet */ }
     // Count this viewer in the studio's "watching now" number
@@ -1862,10 +2243,24 @@ const CONFIG = {
   function updateNext() {
     if (!schedule) return;
     const rows = [...schedule.querySelectorAll("li:not(.empty)")];
-    const currentIndex = rows.findIndex((row) => row.classList.contains("is-now"));
-    const next = currentIndex >= 0 ? rows[currentIndex + 1] : rows.find((row) => toMinutes(row.dataset.start) > stationParts().mins);
-    if ($("upNextTitle")) $("upNextTitle").textContent = next?.dataset.title ? "Up next: " + next.dataset.title : "FBI TV Live";
-    if ($("upNextTime")) $("upNextTime").textContent = next ? (next.querySelector(".h")?.textContent || "Coming up") : "See the full lineup in the schedule.";
+    const nowMins = stationParts().mins;
+    const next = rows.find((row) => !row.classList.contains("is-now") && toMinutes(row.dataset.start) > nowMins);
+    let title = next?.dataset.title || "", when = next ? (next.querySelector(".h")?.textContent || "") : "";
+    if (!next && typeof CONFIG !== "undefined" && Array.isArray(CONFIG.schedule)) {
+      const days = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+      const wd = new Intl.DateTimeFormat("en-GB", { timeZone: stationZone(), weekday: "short" }).format(new Date());
+      const tomorrow = ((days[wd] ?? 0) + 1) % 7;
+      const first = CONFIG.schedule
+        .filter((s) => !s.days || s.days.includes(tomorrow))
+        .sort((a, b) => toMinutes(a.start) - toMinutes(b.start))[0];
+      if (first) {
+        const f = (t) => { const [h, m] = String(t).split(":").map(Number); return (((h + 11) % 12) + 1) + (m ? ":" + String(m).padStart(2, "0") : "") + (h >= 12 && h < 24 ? " PM" : " AM"); };
+        title = first.title;
+        when = "Tomorrow · " + f(first.start) + " – " + f(first.end);
+      }
+    }
+    if ($("upNextTitle")) $("upNextTitle").textContent = title || "FBI TV Live";
+    if ($("upNextTime")) $("upNextTime").textContent = when || "See the full lineup in the schedule.";
   }
   function enhanceSchedule() {
     if (!schedule) return;
@@ -1891,7 +2286,7 @@ const CONFIG = {
         button.setAttribute("aria-pressed", String(reminders.has(id)));
         button.innerHTML = '<svg class="icon"><use href="#i-bell"/></svg><span></span>';
         button.lastElementChild.textContent = reminders.has(id) ? "Reminder set" : "Set reminder";
-        const alreadyStarted = toMinutes(item.dataset.start) <= stationParts().mins;
+        const alreadyStarted = item.classList.contains("is-now") || toMinutes(item.dataset.start) <= stationParts().mins;
         button.lastElementChild.textContent = reminders.has(id) ? "Reminder set" : alreadyStarted ? (item.classList.contains("is-now") ? "Now airing" : "Already started") : "Set reminder";
         button.disabled = alreadyStarted && !reminders.has(id);
         button.title = alreadyStarted ? "This scheduled start time has passed." : "Get a push notification 10 minutes before this show starts.";
@@ -1920,7 +2315,7 @@ const CONFIG = {
     schedule?.querySelectorAll(".reminder-btn").forEach((button) => {
       const item = button.closest("li");
       const active = reminders.has(button.dataset.reminder);
-      const alreadyStarted = item && toMinutes(item.dataset.start) <= stationParts().mins;
+      const alreadyStarted = item && (item.classList.contains("is-now") || toMinutes(item.dataset.start) <= stationParts().mins);
       button.setAttribute("aria-pressed", String(active));
       button.lastElementChild.textContent = active ? "Reminder set" : alreadyStarted ? (item.classList.contains("is-now") ? "Now airing" : "Already started") : "Set reminder";
       button.disabled = Boolean(alreadyStarted && !active);
@@ -2173,5 +2568,211 @@ const CONFIG = {
 })();
 </script>
 
+<script>
+/* FBI TV player — working progress bar, volume level, quality menu,
+   reactions popover, tap-friendly auto-hide and the animated @FilmbyFBI handle. */
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const player = $("player"), controls = $("controls");
+  if (!player || !controls) return;
+  const seek = $("seek"), fill = $("seekFill"), buf = $("seekBuf"), thumb = $("seekThumb"), tip = $("seekTip");
+  const livePill = $("btnLive"), liveText = $("liveText"), vol = $("vol");
+  const getVideo = () => player.querySelector("video");
+  const isLive = () => { const b = $("liveBadge"); return !!b && !b.hidden; };
+  const fmt = (s) => {
+    s = Math.max(0, Math.round(s));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = String(s % 60).padStart(2, "0");
+    return h ? h + ":" + String(m).padStart(2, "0") + ":" + x : m + ":" + x;
+  };
+
+  // ---------- progress / seek bar ----------
+  function range(v) {
+    if (!v) return null;
+    if (isLive() || !isFinite(v.duration)) {
+      if (!v.seekable.length) return null;
+      return { start: v.seekable.start(0), end: v.seekable.end(v.seekable.length - 1), live: true };
+    }
+    return v.duration > 0 ? { start: 0, end: v.duration, live: false } : null;
+  }
+  let dragging = false;
+  function paint() {
+    if (!controls.hidden && controls.offsetHeight) player.style.setProperty("--ctrl-h", controls.offsetHeight + "px");
+    const v = getVideo(), r = range(v);
+    if (!v || !r || r.end <= r.start) { fill.style.width = "100%"; thumb.style.left = "100%"; seek.classList.add("no-seek"); return; }
+    const span = r.end - r.start;
+    seek.classList.toggle("no-seek", r.live && span < 20);
+    if (!dragging) {
+      const atEdge = r.live && r.end - v.currentTime < 12;
+      const pct = atEdge ? 100 : Math.min(1, Math.max(0, (v.currentTime - r.start) / span)) * 100;
+      fill.style.width = pct + "%"; thumb.style.left = pct + "%";
+      seek.setAttribute("aria-valuenow", Math.round(pct));
+    }
+    let bEnd = 0;
+    for (let i = 0; i < v.buffered.length; i++) if (v.buffered.start(i) <= v.currentTime + 1) bEnd = Math.max(bEnd, v.buffered.end(i));
+    buf.style.width = Math.min(100, Math.max(0, (bEnd - r.start) / span * 100)) + "%";
+    if (r.live) {
+      const behind = r.end - v.currentTime;
+      const atLive = behind < 12;
+      livePill.classList.toggle("at-live", atLive);
+      livePill.disabled = false;
+      liveText.textContent = atLive ? "LIVE" : "−" + fmt(behind);
+      livePill.setAttribute("aria-label", atLive ? "You are watching live" : "Jump to live");
+      seek.setAttribute("aria-valuetext", atLive ? "Live" : fmt(behind) + " behind live");
+    } else {
+      livePill.classList.remove("at-live");
+      livePill.disabled = true;
+      liveText.textContent = fmt(v.currentTime) + " / " + fmt(r.end);
+      seek.setAttribute("aria-valuetext", fmt(v.currentTime) + " of " + fmt(r.end));
+    }
+  }
+  setInterval(paint, 250);
+
+  function pctAt(clientX) {
+    const b = seek.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (clientX - b.left) / b.width));
+  }
+  function seekTo(p) {
+    const v = getVideo(), r = range(v);
+    if (!v || !r || seek.classList.contains("no-seek")) return;
+    if (r.live && p > .985) { livePill.click(); return; }
+    v.currentTime = r.start + p * (r.end - r.start);
+    if (v.paused) v.play().catch(() => {});
+  }
+  function showTip(p) {
+    const v = getVideo(), r = range(v);
+    if (!r) return;
+    tip.style.left = (p * 100) + "%";
+    tip.textContent = r.live ? (p > .985 ? "Live" : "−" + fmt((1 - p) * (r.end - r.start))) : fmt(p * r.end);
+  }
+  seek.addEventListener("pointermove", (e) => {
+    const p = pctAt(e.clientX); showTip(p);
+    if (dragging) { fill.style.width = thumb.style.left = p * 100 + "%"; }
+  });
+  seek.addEventListener("pointerdown", (e) => {
+    if (seek.classList.contains("no-seek")) return;
+    dragging = true; seek.classList.add("dragging"); seek.setPointerCapture(e.pointerId);
+    const p = pctAt(e.clientX); fill.style.width = thumb.style.left = p * 100 + "%"; showTip(p);
+  });
+  const endDrag = (e) => {
+    if (!dragging) return;
+    dragging = false; seek.classList.remove("dragging");
+    seekTo(pctAt(e.clientX));
+  };
+  seek.addEventListener("pointerup", endDrag);
+  seek.addEventListener("pointercancel", () => { dragging = false; seek.classList.remove("dragging"); });
+  seek.addEventListener("keydown", (e) => {
+    const v = getVideo(); if (!v) return;
+    if (e.key === "ArrowLeft") { v.currentTime -= 10; e.preventDefault(); }
+    if (e.key === "ArrowRight") { v.currentTime += 10; e.preventDefault(); }
+  });
+
+  // ---------- volume level ----------
+  function paintVol() { vol.style.setProperty("--v", (Number(vol.value) * 100) + "%"); }
+  vol.addEventListener("input", paintVol);
+  setInterval(paintVol, 500);
+  paintVol();
+
+  // ---------- popovers ----------
+  const menus = [["btnReact", "reactMenu"], ["btnSettings", "settingsMenu"]].map(([b, m]) => [$(b), $(m)]);
+  function closeMenus(except) {
+    menus.forEach(([b, m]) => { if (m !== except) { m.classList.remove("open"); b.setAttribute("aria-expanded", "false"); } });
+  }
+  menus.forEach(([b, m]) => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = !m.classList.contains("open");
+    closeMenus(m);
+    m.style.maxHeight = Math.max(120, player.clientHeight - (controls.offsetHeight || 60) + 4) + "px";
+    m.classList.toggle("open", open); b.setAttribute("aria-expanded", String(open));
+    if (open && m.id === "settingsMenu") buildQuality();
+  }));
+  document.addEventListener("click", (e) => { if (!e.target.closest(".pop-wrap")) closeMenus(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenus(); });
+  $("reactMenu").addEventListener("click", (e) => { if (e.target.closest("[data-reaction]")) setTimeout(() => closeMenus(), 350); });
+
+  // ---------- quality ----------
+  const qList = $("qualityList"), qBadge = $("qBadge");
+  function buildQuality() {
+    const hls = window.__hls;
+    qList.innerHTML = "";
+    const add = (label, sub, checked, onPick) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "q-opt"; b.setAttribute("role", "menuitemradio");
+      b.setAttribute("aria-checked", String(checked));
+      b.innerHTML = "<span></span><small></small>";
+      b.firstChild.textContent = label; b.lastChild.textContent = sub || "";
+      b.addEventListener("click", () => { onPick(); closeMenus(); paintBadge(); });
+      qList.appendChild(b);
+    };
+    if (!hls || !hls.levels || !hls.levels.length) {
+      add("Auto", "Adjusts to your connection", true, () => {});
+      return;
+    }
+    const cur = hls.levels[hls.currentLevel] || hls.levels[hls.loadLevel];
+    add("Auto", cur ? cur.height + "p" : "", hls.autoLevelEnabled, () => { hls.currentLevel = -1; });
+    const seen = new Set();
+    hls.levels.map((l, i) => ({ h: l.height, i })).sort((a, b) => b.h - a.h).forEach(({ h, i }) => {
+      if (!h || seen.has(h)) return; seen.add(h);
+      add(h + "p", h >= 1080 ? "Full HD" : h >= 720 ? "HD" : "", !hls.autoLevelEnabled && hls.currentLevel === i, () => { hls.currentLevel = i; });
+    });
+  }
+  function paintBadge() {
+    const hls = window.__hls;
+    const l = hls && hls.levels && (hls.levels[hls.currentLevel] || hls.levels[hls.loadLevel]);
+    qBadge.textContent = l && l.height >= 720 ? "HD" : "";
+  }
+  setInterval(paintBadge, 2000);
+
+  // ---------- auto-hide controls, touch friendly ----------
+  let idleTimer, lastPointer = "mouse", wasIdle = false;
+  const anyOpen = () => menus.some(([, m]) => m.classList.contains("open"));
+  function wake() {
+    player.classList.remove("idle");
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      const v = getVideo();
+      if (v && !v.paused && !dragging && !anyOpen()) player.classList.add("idle");
+    }, lastPointer === "touch" ? 3500 : 2600);
+  }
+  player.addEventListener("pointermove", (e) => { if (e.pointerType === "mouse") { lastPointer = "mouse"; wake(); } });
+  player.addEventListener("pointerdown", (e) => {
+    lastPointer = e.pointerType === "touch" || e.pointerType === "pen" ? "touch" : "mouse";
+    wasIdle = player.classList.contains("idle");
+    wake();
+  }, true);
+  player.addEventListener("mouseleave", () => { const v = getVideo(); if (v && !v.paused && !anyOpen()) player.classList.add("idle"); });
+  // On phones a tap on the picture shows/hides the controls instead of pausing.
+  player.addEventListener("click", (e) => {
+    if (lastPointer !== "touch" || e.target.tagName !== "VIDEO") return;
+    e.stopPropagation();
+    if (!wasIdle) { clearTimeout(idleTimer); const v = getVideo(); if (v && !v.paused) player.classList.add("idle"); }
+  }, true);
+  new MutationObserver(() => player.classList.toggle("no-ctrls", controls.hidden)).observe(controls, { attributes: true, attributeFilter: ["hidden"] });
+  player.classList.toggle("no-ctrls", controls.hidden);
+
+  // ---------- keyboard: space/k play, m mute, f full screen, ←/→ 10s ----------
+  document.addEventListener("keydown", (e) => {
+    if (document.body.classList.contains("tvmode") || e.target.closest("input, textarea, select, [contenteditable]") || e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === " " || k === "k") { if (e.target.closest("button")) return; $("btnPlay").click(); e.preventDefault(); wake(); }
+    else if (k === "m") { $("btnMute").click(); wake(); }
+    else if (k === "f") { $("btnFull").click(); }
+  });
+
+  // ---------- @FilmbyFBI: icons flip Instagram → Facebook → TikTok → X → Threads → YouTube ----------
+  const icons = [...document.querySelectorAll(".fbi-handle-icon .si")];
+  let idx = 0;
+  if (icons.length) {
+    icons[0].classList.add("on");
+    setInterval(() => {
+      const cur = icons[idx];
+      idx = (idx + 1) % icons.length;
+      cur.classList.remove("on"); cur.classList.add("out");
+      setTimeout(() => { cur.classList.remove("out"); icons[idx].classList.add("on"); }, 220);
+    }, 1800);
+  }
+})();
+
+</script>
 </body>
 </html>
