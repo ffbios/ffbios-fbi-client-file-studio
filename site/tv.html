@@ -982,6 +982,18 @@ body.cinema-mode .stage-layout, body.tvmode .stage-layout, html.embed-mode .stag
 .player-shell:fullscreen .player-controls { padding: 0 28px 18px !important; }
 .player-shell:fullscreen .fbi-handle { left: 30px; }
 
+/* ---------- smart TV mode: picture only, big readable labels ---------- */
+body.tvmode .player-controls, body.tvmode .player-shade, body.tvmode .stage-play { display: none !important; }
+body.tvmode .player-shell { cursor: none; }
+body.tvmode .fbi-handle { left: 3.5vw; bottom: 4.5vh !important; height: 56px; gap: 14px; padding: 0 26px 0 8px; }
+body.tvmode .fbi-handle-icon { width: 42px; height: 42px; flex-basis: 42px; }
+body.tvmode .fbi-handle-icon .si { inset: 8px; width: 26px; height: 26px; }
+body.tvmode .fbi-handle-text { font-size: 24px; }
+body.tvmode .player-top { inset: 4vh 3.5vw auto; }
+body.tvmode .live-label { padding: 8px 14px; font-size: 18px; }
+body.tvmode .player .unmute { top: 4vh; right: 3.5vw; min-height: 58px; padding: 0 28px 0 58px; background-size: 26px; background-position: 20px 50%; font-size: 22px; }
+body.tvmode .tvov:not(.off) ~ .fbi-handle { opacity: 0; transition: opacity .3s ease; }
+
 </style>
 </head>
 <body>
@@ -1247,6 +1259,92 @@ body.cinema-mode .stage-layout, body.tvmode .stage-layout, html.embed-mode .stag
 
   
 
+  <script>
+/* FBI TV sound: start with sound whenever the browser allows it.
+   If it refuses (most phones and some browsers until the viewer interacts),
+   play muted and switch the sound on at the very first key press, remote
+   button, click or tap anywhere on the page. */
+(function () {
+  "use strict";
+  const S = window.FBISound = { ok: null, armed: false };
+
+  // Ask the browser once, with a silent clip, whether sound may autoplay here.
+  S.probe = (function () {
+    try {
+      const a = new Audio("data:audio/wav;base64,UklGRmQGAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YUAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+      a.volume = 0.01;
+      const p = a.play();
+      if (!p || !p.then) { S.ok = true; return Promise.resolve(true); }
+      return p.then(() => { a.pause(); S.ok = true; return true; },
+                    (e) => { S.ok = e && e.name === "NotAllowedError" ? false : null; return S.ok; });
+    } catch (e) { S.ok = null; return Promise.resolve(null); }
+  })();
+
+  const playerVideo = () => document.querySelector("#player video");
+  const playerFrame = () => document.querySelector("#player iframe");
+  function ytCommand(frame, func) {
+    try { frame.contentWindow.postMessage(JSON.stringify({ event: "command", func: func, args: [] }), "*"); } catch (e) {}
+  }
+
+  // Start a <video> with sound if allowed; otherwise muted + wait for the first interaction.
+  S.start = function (video) {
+    if (!video) return Promise.resolve(false);
+    video.muted = false;
+    if (video.volume === 0) video.volume = 1;
+    let p;
+    try { p = video.play(); } catch (e) { p = Promise.reject(e); }
+    return Promise.resolve(p).then(() => { S.ok = true; return true; }, (e) => {
+      if (e && e.name !== "NotAllowedError") return false; // not a sound problem (e.g. stream not ready)
+      video.muted = true;
+      S.arm();
+      return Promise.resolve(video.play()).then(() => false, () => false);
+    });
+  };
+
+  // YouTube embeds: ask for sound when allowed, otherwise unmute on first interaction.
+  S.ytMute = function () { return S.ok === true ? "0" : "1"; };
+  S.watchFrame = function () { if (S.ok !== true) S.arm(); };
+
+  function unmuteNow() {
+    const v = playerVideo();
+    if (v) {
+      v.muted = false;
+      if (v.volume === 0) v.volume = 1;
+      if (v.paused) v.play().catch(() => {});
+    }
+    const f = playerFrame();
+    if (f && /youtube\.com/.test(f.src)) { ytCommand(f, "unMute"); ytCommand(f, "playVideo"); }
+    const hint = document.getElementById("tvHint");
+    if (hint) hint.textContent = "Press OK to mute";
+  }
+  const EVENTS = ["keydown", "pointerdown", "touchend", "click"];
+  function onFirst(e) {
+    // Let the mute button and the "Tap for sound" button do their own job.
+    if (e.target && e.target.closest && e.target.closest("#btnMute, #unmute, #vol")) { disarm(); return; }
+    if (e.type === "keydown" && /^(Shift|Control|Alt|Meta|Tab)$/.test(e.key)) return;
+    unmuteNow();
+    disarm();
+    // On TV remotes the first OK press only turns the sound on (don't let it toggle back off).
+    if (e.type === "keydown" && document.body.classList.contains("tvmode")) { e.stopImmediatePropagation(); e.preventDefault(); }
+  }
+  function disarm() { S.armed = false; EVENTS.forEach((t) => window.removeEventListener(t, onFirst, true)); }
+  // A YouTube player added without sound: unmute it on the first interaction.
+  document.addEventListener("DOMContentLoaded", () => {
+    const player = document.getElementById("player");
+    if (!player) return;
+    new MutationObserver(() => {
+      const f = playerFrame();
+      if (f && /youtube\.com/.test(f.src) && /mute=1/.test(f.src)) S.arm();
+    }).observe(player, { childList: true, subtree: true });
+  });
+  S.arm = function () {
+    if (S.armed) return;
+    S.armed = true;
+    EVENTS.forEach((t) => window.addEventListener(t, onFirst, true));
+  };
+})();
+
+</script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
 <script>
 /* ==========================================================================
@@ -1508,8 +1606,7 @@ const CONFIG = {
     video.addEventListener("volumechange", syncIcons);
     video.addEventListener("pause", syncIcons);
     video.addEventListener("playing", syncIcons);
-    video.muted = true;
-    video.play().catch(() => {});
+    FBISound.start(video);
   }
 
   // Fallback when no highlights exist: the most recent saved broadcast.
@@ -1552,8 +1649,7 @@ const CONFIG = {
       video.addEventListener("pause", syncIcons);
       video.addEventListener("playing", syncIcons);
       video.addEventListener("error", () => { if (mode === "replay") goOffline(); });
-      video.muted = true;
-      video.play().catch(() => {});
+      FBISound.start(video);
     } catch (e) {
       if (mode !== "off") goOffline(); else showOffline();
     } finally {
@@ -1618,7 +1714,7 @@ const CONFIG = {
     $("controls").hidden = true;
     addIframe(
       "https://www.youtube.com/embed/live_stream?channel=" +
-        encodeURIComponent(WAFU_B_YOUTUBE_CHANNEL_ID) + "&autoplay=1&mute=1",
+        encodeURIComponent(WAFU_B_YOUTUBE_CHANNEL_ID) + "&autoplay=1&mute=" + FBISound.ytMute() + "&enablejsapi=1",
       "Official CAF Zone West B live match stream"
     );
     $("liveBadge").hidden = true; // YouTube confirms live status inside its own player.
@@ -1644,8 +1740,8 @@ const CONFIG = {
     renderSchedule();
     addIframe(
       (videoId
-        ? "https://www.youtube.com/embed/" + encodeURIComponent(videoId) + "?autoplay=1&mute=1&rel=0&modestbranding=1"
-        : "https://www.youtube.com/embed/live_stream?channel=" + encodeURIComponent(channelId) + "&autoplay=1&mute=1&rel=0&modestbranding=1"),
+        ? "https://www.youtube.com/embed/" + encodeURIComponent(videoId) + "?autoplay=1&mute=" + FBISound.ytMute() + "&enablejsapi=1&rel=0&modestbranding=1"
+        : "https://www.youtube.com/embed/live_stream?channel=" + encodeURIComponent(channelId) + "&autoplay=1&mute=" + FBISound.ytMute() + "&enablejsapi=1&rel=0&modestbranding=1"),
       "FBI TV live stream"
     );
   }
@@ -1708,8 +1804,7 @@ const CONFIG = {
     video.addEventListener("click", togglePlay);
 
     // Try to autoplay muted; viewers can unmute
-    video.muted = true;
-    video.play().catch(() => { $("controls").hidden = false; syncIcons(); });
+    FBISound.start(video).then(() => { $("controls").hidden = false; syncIcons(); });
   }
   function togglePlay() {
     if (!video) return;
@@ -1804,9 +1899,9 @@ const CONFIG = {
     if (tok) return; // FBI Live channel: the first status check picks live or replay
     if (s.type === "hls" && s.url) return setupHls(s.url);
     if (s.type === "youtube" && s.channelId)
-      return addIframe("https://www.youtube.com/embed/live_stream?channel=" + encodeURIComponent(s.channelId) + "&autoplay=1&mute=1");
+      return addIframe("https://www.youtube.com/embed/live_stream?channel=" + encodeURIComponent(s.channelId) + "&autoplay=1&mute=" + FBISound.ytMute() + "&enablejsapi=1");
     if (s.type === "youtube" && s.videoId)
-      return addIframe("https://www.youtube.com/embed/" + encodeURIComponent(s.videoId) + "?autoplay=1&mute=1");
+      return addIframe("https://www.youtube.com/embed/" + encodeURIComponent(s.videoId) + "?autoplay=1&mute=" + FBISound.ytMute() + "&enablejsapi=1");
     if (s.type === "iframe" && s.url) return addIframe(s.url);
     showOffline();
   }
@@ -1997,7 +2092,7 @@ const CONFIG = {
   // ---------- TV mode (remote control) ----------
   // Turns on for TV browsers / TV apps, or with ?tv=1. Full-screen picture,
   // an info banner that appears on any button press, OK = sound on/off.
-  const TV_UA = /\b(Android TV|GoogleTV|AFT[A-Z0-9]*|BRAVIA|SMART-TV|SmartTV|Tizen|Web0S|webOS|NetCast|HbbTV|CrKey|Roku|Viera|AQUOSBrowser)\b/i;
+  const TV_UA = /\b(Android TV|GoogleTV|AFT[A-Z0-9]*|BRAVIA|SMART-TV|SmartTV|Tizen|Web0S|webOS|NetCast|HbbTV|CrKey|Roku|Viera|AQUOSBrowser|VIDAA|NETTV|PhilipsTV|MiTV|MIBOX|Mi Box|Chromecast|SmartHub|Vizio|Opera TV|OPR\/.+TV|TV Safari|Large Screen|Freebox)\b/i;
   const qs = new URLSearchParams(location.search);
   const tvMode = qs.get("tv") === "1" || (qs.get("tv") !== "0" && TV_UA.test(navigator.userAgent));
   if (tvMode) {
